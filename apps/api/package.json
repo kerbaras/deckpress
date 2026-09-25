@@ -1,0 +1,20 @@
+{
+  "name": "@deckpress/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --conditions=@deckpress/source --env-file-if-exists=.env --watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node --env-file-if-exists=.env --enable-source-maps dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@deckpress/core": "workspace:*",
+    "@hono/node-server": "2.1.1",
+    "hono": "4.13.8",
+    "pdf-lib": "1.17.1",
+    "sharp": "0.35.4",
+    "zod": "4.6.5"
+  }
+}

@@ -1,0 +1,12 @@
+packages:
+  - apps/*
+  - packages/*
+
+minimumReleaseAge: 10080
+strictDepBuilds: true
+strictPeerDependencies: true
+saveExact: true
+
+allowBuilds:
+  '@tailwindcss/oxide': true
+  esbuild: true
