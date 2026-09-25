@@ -13,13 +13,13 @@ export default defineConfig({
   resolve: {
     conditions: ["@deckpress/source", ...defaultClientConditions],
   },
+  // Tauri's dev window loads this server; production bundles `dist` into the app.
+  clearScreen: false,
   server: {
     port: 5173,
     strictPort: true,
-    proxy: {
-      "/api": "http://127.0.0.1:3001",
-    },
   },
+  envPrefix: ["VITE_", "TAURI_ENV_"],
   test: {
     name: "web",
     environment: "jsdom",

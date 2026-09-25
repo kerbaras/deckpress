@@ -9,21 +9,19 @@
     "pnpm": "12.4.2"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter './apps/*' dev",
+    "dev": "pnpm --filter @deckpress/desktop dev",
     "build": "pnpm -r build",
-    "start": "pnpm --filter @deckpress/api start",
+    "build:desktop": "pnpm --filter @deckpress/desktop build:desktop",
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit && pnpm -r typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "setup:upscaler": "pnpm --filter @deckpress/api exec node scripts/setup-upscaler.ts",
+    "test:rust": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
-    "@playwright/test": "1.63.0",
     "@types/node": "24.13.5",
     "jsdom": "30.0.1",
     "typescript": "7.0.2",

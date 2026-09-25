@@ -195,7 +195,7 @@ function DeckWorkspace({
           Print setup
         </button>
         <div className="spacer" />
-        <button type="button" onClick={() => downloadJson(deck)}>
+        <button type="button" onClick={() => void downloadJson(deck)}>
           <Download size={15} />
           Back up deck
         </button>

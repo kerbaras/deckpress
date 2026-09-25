@@ -7,5 +7,5 @@
     "types": ["node"],
     "lib": ["ES2024", "DOM", "DOM.Iterable"]
   },
-  "include": ["vitest.config.ts", "playwright.config.ts", "tests/**/*.ts"]
+  "include": ["vitest.config.ts"]
 }

@@ -4,7 +4,8 @@ export const APP_NAME = "Deckpress";
 
 export const healthResponseSchema = z.object({
   status: z.literal("ok"),
-  service: z.literal("@deckpress/api"),
+  service: z.literal("@deckpress/desktop"),
+  version: z.string().optional(),
 });
 
 export type HealthResponse = z.infer<typeof healthResponseSchema>;

@@ -16,13 +16,6 @@ export default defineConfig({
           include: ["packages/core/src/**/*.test.ts"],
         },
       },
-      {
-        test: {
-          name: "api",
-          environment: "node",
-          include: ["apps/api/src/**/*.test.ts"],
-        },
-      },
       "apps/web/vite.config.ts",
     ],
   },

@@ -1,13 +1,14 @@
 # Deckpress
 
-- Use the pinned pnpm version and Node 24 LTS. Run `pnpm check` from the root for lint, typechecks, tests, and production builds. Focus tests with `pnpm test --project web`, `api`, or `core`.
-- Keep `@deckpress/core` browser-safe. Both apps consume it through `workspace:*`, not relative imports across packages.
-- Development and tests resolve core source through the `@deckpress/source` export condition. Production Node builds resolve `dist`; `pnpm build` builds core before the apps. Preserve both paths when changing package exports.
-- The API uses Node's native TypeScript support in development. Use erasable syntax and explicit `.ts` extensions for relative imports; TypeScript rewrites those extensions when building.
-- Keep the Hono app separate from its server entry point so tests can call `app.request` without opening sockets.
-- Assume development servers are already running. Start or restart them only when asked.
-- The web client calls same-origin `/api` paths. Vite proxies these to the API in development. Production hosting must serve `apps/web/dist`, fall back to `index.html` for SPA routes, and route `/api` to the API. `pnpm start` starts only the built API.
-- This PoC is single-user and local-only. Keep the API on loopback. SQLite, image caches, uploads, and PDF jobs live under `apps/api/data` unless `DECKPRESS_DATA_DIR` overrides it. Deck JSON backups reference uploads rather than embedding them.
-- `pnpm test:e2e` uses installed Google Chrome and already-running servers at `http://localhost:5173` (override with `DECKPRESS_TEST_URL`). It exercises live Scryfall/MPC calls and saves PDF/screenshot attachments under `test-results`.
-- Print preview and export share core geometry and the API rasterizer. Preview uses 150 DPI without AI; final export applies the requested DPI and optional local upscaling. Keep physical card dimensions independent of raster resolution.
+- Use the pinned pnpm version and Node 24 LTS. Run `pnpm check` from the root for lint, typechecks, tests, and the web production build. Focus tests with `pnpm test --project web` or `core`. Rust lives in `apps/desktop/src-tauri`; run `pnpm test:rust`, `cargo fmt --all -- --check`, and `cargo clippy --all-targets -- -D warnings` from that directory after changing it.
+- Deckpress is a Tauri 2 desktop app. The React UI in `apps/web` calls Rust commands over IPC (`invoke` in `apps/web/src/api.ts`). There is no HTTP server and no Node runtime at run time. Do not add one.
+- Keep `@deckpress/core` browser-safe. `apps/web` consumes it through `workspace:*`, not relative imports across packages. Deck parsing (Moxfield, Archidekt, MTGO, CSV) and print geometry stay in TypeScript; Scryfall/MPC lookups, image caching, upscaling, rasterizing, and PDF output live in Rust. `apps/desktop/src-tauri/src/layout.rs` mirrors `packages/core/src/layout.ts`; change both together.
+- Development and tests resolve core source through the `@deckpress/source` export condition. `pnpm build` builds core before the web bundle. Preserve both paths when changing package exports.
+- Use erasable TypeScript syntax and explicit `.ts` extensions for relative imports.
+- `pnpm dev` runs `tauri dev`, which starts Vite on port 5173 and opens the desktop window. `pnpm build:desktop` produces installers; it is not part of `pnpm check` because it needs the platform toolchain. Assume development servers are already running. Start or restart them only when asked.
+- Images and previews load through the custom `dpimg://` URI scheme handled in `protocol.rs`. Command payloads use camelCase on both sides (`serde(rename_all = "camelCase")`).
+- The ONNX Runtime binary comes from `ort`'s downloaded prebuilt by default. On glibc older than 2.38 (Ubuntu 22.04) set `ORT_LIB_LOCATION` to an unpacked official onnxruntime release and `ORT_PREFER_DYNAMIC_LINK=1` before building or testing.
+- Single-user, local-only. SQLite, image caches, uploads, models, and PDF jobs live in the Tauri app data directory unless `DECKPRESS_DATA_DIR` overrides it. Deck JSON backups reference uploads rather than embedding them.
+- The compact Real-ESRGAN model ships as a bundled resource; the quality model downloads on first use and its SHA-256 is verified before loading. `apps/desktop/src-tauri/resources/models/models.json` is the manifest. `apps/desktop/scripts/export-onnx.py` regenerates the fixed-shape 256x256 FP16 ONNX exports.
+- Print preview and export share core geometry and the Rust rasterizer. Preview uses 150 DPI without AI; final export upscales 4x, downsamples to the requested DPI (default 800, 1200 available), then adds corners and bleed. Keep physical card dimensions independent of raster resolution.
 - Art ratings, favorites, labels, and popularity are local user data. Only Scryfall has verified official provenance; MPC creator names identify source drives, not necessarily artists.

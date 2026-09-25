@@ -6,6 +6,7 @@ import {
   printSettingsSchema,
 } from "@deckpress/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { mockIPC } from "@tauri-apps/api/mocks";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
@@ -45,6 +46,24 @@ const community = artSchema.parse({
   artist: "Uncredited",
   dpi: 1200,
 });
+const compactModel = {
+  id: "realesr-general-x4v3",
+  name: "Real-ESRGAN general x4v3 (compact)",
+  tier: "default" as const,
+  file: "realesr-general-x4v3-dn50-256.fp16.onnx",
+  scale: 4,
+  tile: 256,
+  bytes: 2444090,
+  sha256: "ce83",
+  bundled: true,
+  url: null,
+  license: "BSD-3-Clause",
+  licenseUrl: "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+  source: "https://github.com/xinntao/Real-ESRGAN",
+  description: "Compact SRVGG network.",
+  installed: true,
+  downloading: false,
+};
 const entry: DeckEntry = {
   id,
   card: {
@@ -99,46 +118,41 @@ beforeEach(() => {
     this.removeAttribute("open");
   });
   vi.spyOn(api, "settings").mockResolvedValue({
+    models: [compactModel],
+    defaultModel: compactModel.id,
+    loaded: null,
     storage: "Local SQLite",
     localOnly: true,
-    upscaler: {
-      available: true,
-      model: "4x_NMKD-Siax_200k",
-      scale: 4,
-      reason: "Configured",
-    },
+    dataDir: "/tmp/deckpress",
   });
 });
 
 it("creates a deck, imports resolved cards, and reopens the saved project", async () => {
   const user = userEvent.setup();
   let stored: Deck | null = null;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>().mockImplementation(async (input, init) => {
-      const path = String(input);
-      if (path === "/api/health")
-        return Response.json({ status: "ok", service: "@deckpress/api" });
-      if (path === "/api/decks" && init?.method === "POST") {
+  const lines: unknown[] = [];
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "create_deck":
         stored = { ...deck, entries: [] };
-        return Response.json(stored);
-      }
-      if (path === "/api/decks") return Response.json(stored ? [stored] : []);
-      if (path === `/api/decks/${id}` && init?.method === "PUT") {
-        stored = deckSchema.parse(JSON.parse(String(init.body)));
+        return stored;
+      case "list_decks":
+        return stored ? [stored] : [];
+      case "save_deck": {
+        stored = deckSchema.parse((args as { deck: unknown }).deck);
         stored.revision++;
-        return Response.json(stored);
+        return stored;
       }
-      if (path === `/api/decks/${id}`) return Response.json(stored);
-      if (path === "/api/import")
-        return Response.json({
-          entries: [entry],
-          issues: [],
-          format: "Text / Arena",
-        });
-      throw new Error(`Unexpected request: ${path}`);
-    }),
-  );
+      case "get_deck":
+        return stored;
+      case "resolve_cards":
+        lines.push(...(args as { lines: unknown[] }).lines);
+        return { entries: [entry], issues: [] };
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
   renderWithClient(<App />);
   await user.click(
     await screen.findByRole("button", { name: "Create your first deck" }),
@@ -164,6 +178,14 @@ it("creates a deck, imports resolved cards, and reopens the saved project", asyn
     }),
   ).toBeVisible();
   expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  expect(lines).toEqual([
+    expect.objectContaining({
+      name: "Lightning Bolt",
+      quantity: 4,
+      set: "m10",
+      collectorNumber: "146",
+    }),
+  ]);
 });
 
 it("keeps the original scan while selecting art for one copy and saving a personal rating", async () => {
@@ -333,14 +355,7 @@ it("keeps a failed library request visible and lets the user retry", async () =>
   vi.spyOn(api, "decks")
     .mockRejectedValueOnce(new Error("Local storage unavailable"))
     .mockResolvedValue([]);
-  vi.stubGlobal(
-    "fetch",
-    vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        Response.json({ status: "ok", service: "@deckpress/api" }),
-      ),
-  );
+  mockIPC(() => ({ status: "ok", service: "@deckpress/desktop" }));
   renderWithClient(<App />);
   const error = await screen.findByRole("alert");
   expect(error).toHaveTextContent("Local storage unavailable");

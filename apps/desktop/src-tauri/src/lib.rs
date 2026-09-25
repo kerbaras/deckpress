@@ -66,6 +66,7 @@ pub fn run() {
             commands::open_pdf,
             commands::reveal_pdf,
             commands::save_pdf,
+            commands::save_text,
             commands::open_data_dir,
         ])
         .run(tauri::generate_context!())

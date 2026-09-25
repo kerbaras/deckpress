@@ -95,9 +95,12 @@ export const printSettingsSchema = z.object({
     .string()
     .regex(/^#[\da-fA-F]{6}$/)
     .default("#222222"),
-  dpi: z.number().int().min(150).max(1200).default(600),
+  dpi: z.number().int().min(150).max(1200).default(800),
   quality: z.number().int().min(60).max(100).default(92),
   upscale: z.boolean().default(false),
+  /** Model id from the desktop manifest; empty selects the bundled default. */
+  upscaleModel: z.string().max(100).default(""),
+  calibrationPage: z.boolean().default(true),
   backs: z
     .enum(["none", "long-edge", "short-edge", "separate"])
     .default("none"),

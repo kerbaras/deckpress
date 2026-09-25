@@ -20,7 +20,7 @@ import {
   Save,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api } from "./api.ts";
+import { api, previewSrc } from "./api.ts";
 import { ErrorNotice, useTask } from "./ui.tsx";
 
 const paperNames = {
@@ -82,10 +82,13 @@ export function PrintSetup({
     ? Math.min(settings.pageTo, totalSheets)
     : totalSheets;
   const selectedSheets = Math.max(0, last - first);
+  const models = system.data?.models ?? [];
+  const selectedModel =
+    models.find((model) => model.id === settings.upscaleModel) ??
+    models.find((model) => model.id === system.data?.defaultModel);
+  const upscalerReady = !!selectedModel?.installed;
   const valid =
-    !!layout &&
-    selectedSheets > 0 &&
-    (!settings.upscale || system.data?.upscaler.available);
+    !!layout && selectedSheets > 0 && (!settings.upscale || upscalerReady);
   const currentPage = Math.max(first, Math.min(first + page, last - 1));
   const pageCards = layout
     ? cards.slice(
@@ -183,8 +186,8 @@ export function PrintSetup({
                 }}
               >
                 <option value="">Custom settings</option>
-                <option value="home">Home inkjet · A4 / 600 DPI</option>
-                <option value="letter">Home inkjet · Letter / 600 DPI</option>
+                <option value="home">Home inkjet · A4 / 800 DPI</option>
+                <option value="letter">Home inkjet · Letter / 800 DPI</option>
                 <option value="proof">Quick proof · A4 / 300 DPI</option>
                 <option value="shop">Print shop · A3 / 1200 DPI</option>
                 <option value="saved">Your saved preset</option>
@@ -457,8 +460,9 @@ export function PrintSetup({
               >
                 <option value={300}>300 DPI · proof</option>
                 <option value={600}>600 DPI · home print</option>
-                <option value={1200}>1200 DPI · high resolution</option>
-                {![300, 600, 1200].includes(settings.dpi) && (
+                <option value={800}>800 DPI · recommended</option>
+                <option value={1200}>1200 DPI · print shop</option>
+                {![300, 600, 800, 1200].includes(settings.dpi) && (
                   <option value={settings.dpi}>{settings.dpi} DPI</option>
                 )}
               </select>
@@ -485,20 +489,53 @@ export function PrintSetup({
               <input
                 type="checkbox"
                 checked={settings.upscale}
-                disabled={!system.data?.upscaler.available}
+                disabled={!system.data}
                 onChange={(event) => change({ upscale: event.target.checked })}
               />
               Use local AI upscaling
             </label>
+            <label className="setting-row">
+              Model
+              <select
+                value={selectedModel?.id ?? ""}
+                disabled={!settings.upscale || models.length === 0}
+                onChange={(event) =>
+                  change({ upscaleModel: event.target.value })
+                }
+              >
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                    {model.installed ? "" : " · download required"}
+                  </option>
+                ))}
+              </select>
+            </label>
             <p className="hint">
-              {system.data?.upscaler.available
-                ? "NMKD Siax 4× · Upscayl engine. Runs locally, only when source resolution is below the target."
-                : (system.data?.upscaler.reason ?? "Checking local AI engine…")}
+              {system.data
+                ? upscalerReady
+                  ? `Real-ESRGAN 4× through ONNX Runtime${
+                      system.data.loaded
+                        ? ` on ${system.data.loaded.executionProvider}`
+                        : ""
+                    }. Runs on this machine, only when a scan is below the target resolution.`
+                  : "Download the selected model under Local AI in the top bar before exporting with upscaling."
+                : "Checking the local AI engine…"}
             </p>
             <p className="hint">
               AI can change fine text. Export one proof sheet before processing
               the full deck. Preview uses 150 DPI without AI.
             </p>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={settings.calibrationPage}
+                onChange={(event) =>
+                  change({ calibrationPage: event.target.checked })
+                }
+              />
+              Add a calibration page with a 100 mm ruler
+            </label>
             <ErrorNotice
               error={system.error}
               retry={() => void system.refetch()}
@@ -873,25 +910,15 @@ function PreviewImage({
   width: number;
   height: number;
 }) {
-  const key = new URLSearchParams({
-    art: JSON.stringify(art),
-    settings: JSON.stringify({
-      cardWidthMm: settings.cardWidthMm,
-      cardHeightMm: settings.cardHeightMm,
-      bleedMm: settings.bleedMm,
-      bleedMode: settings.bleedMode,
-      bleedColor: settings.bleedColor,
-    }),
+  const url = previewSrc(art, {
+    cardWidthMm: settings.cardWidthMm,
+    cardHeightMm: settings.cardHeightMm,
+    bleedMm: settings.bleedMm,
+    bleedMode: settings.bleedMode,
+    bleedColor: settings.bleedColor,
   });
   return (
-    <ProofImage
-      key={key.toString()}
-      url={`/api/preview?${key}`}
-      x={x}
-      y={y}
-      width={width}
-      height={height}
-    />
+    <ProofImage key={url} url={url} x={x} y={y} width={width} height={height} />
   );
 }
 

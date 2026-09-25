@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { save } from "@tauri-apps/plugin-dialog";
 import {
   ArrowRight,
   Check,
   Download,
+  FolderOpen,
   HardDrive,
   Images,
   Layers3,
@@ -13,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, fetchHealth } from "./api.ts";
+import { api, fetchHealth, type ModelStatus } from "./api.ts";
 import { Library } from "./library.tsx";
 import {
   ErrorNotice,
@@ -135,15 +137,15 @@ export function App() {
           <button
             type="button"
             className="connection"
-            title="Check API connection"
+            title="Check the local engine"
             onClick={() => void health.refetch()}
           >
             <span className={`status-dot ${health.isError ? "offline" : ""}`} />
             <span>
               {health.isPending
-                ? "Connecting…"
+                ? "Starting…"
                 : health.isError
-                  ? "API offline · retry"
+                  ? "Engine unavailable · retry"
                   : "Saved on this machine"}
             </span>
           </button>
@@ -249,13 +251,44 @@ function PrintJobs() {
                 </div>
                 <div className="job-actions">
                   {job.status === "completed" ? (
-                    <a
-                      className="button primary"
-                      href={`/api/jobs/${job.id}/download`}
-                    >
-                      <Download size={16} />
-                      Download PDF
-                    </a>
+                    <>
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={task.busy}
+                        onClick={() => void task.run(() => api.openPdf(job.id))}
+                      >
+                        <Printer size={16} />
+                        Open PDF
+                      </button>
+                      <button
+                        type="button"
+                        disabled={task.busy}
+                        onClick={() =>
+                          void task.run(async () => {
+                            const destination = await save({
+                              defaultPath: job.fileName,
+                              filters: [{ name: "PDF", extensions: ["pdf"] }],
+                            });
+                            if (destination)
+                              await api.savePdf(job.id, destination);
+                          })
+                        }
+                      >
+                        <Download size={16} />
+                        Save as…
+                      </button>
+                      <button
+                        type="button"
+                        disabled={task.busy}
+                        onClick={() =>
+                          void task.run(() => api.revealPdf(job.id))
+                        }
+                      >
+                        <FolderOpen size={16} />
+                        Show file
+                      </button>
+                    </>
                   ) : ["queued", "running"].includes(job.status) ? (
                     <button
                       type="button"
@@ -279,9 +312,9 @@ function PrintJobs() {
         <div className="notice print-job-note">
           <Printer size={19} />
           <span>
-            Use <strong>100% / actual size</strong> in your PDF viewer. Disable
-            “Fit to page”. For AI exports, inspect rules text and mana symbols
-            before printing.
+            Print at <strong>100% / actual size</strong>. Disable “Fit to page”
+            and check the calibration page’s 100 mm ruler before the full run.
+            For AI exports, inspect rules text and mana symbols.
           </span>
         </div>
       </div>
@@ -294,6 +327,8 @@ function LocalSettings() {
     queryKey: ["settings"],
     queryFn: ({ signal }) => api.settings(signal),
   });
+  const task = useTask();
+  const loaded = query.data?.loaded;
   return (
     <>
       <header className="page-header">
@@ -302,56 +337,62 @@ function LocalSettings() {
         <span className="muted">Your local print workshop</span>
       </header>
       <div className="page-content settings-page">
-        <ErrorNotice error={query.error} retry={() => void query.refetch()} />
+        <ErrorNotice
+          error={query.error ?? task.error}
+          retry={() => void query.refetch()}
+        />
         <section className="panel settings-card">
           <div className="section-heading">
             <h2>Local AI upscaling</h2>
-            <span
-              className={`badge ${query.data?.upscaler.available ? "official" : ""}`}
-            >
-              {query.data?.upscaler.available ? "Configured" : "Not configured"}
+            <span className={`badge ${loaded ? "official" : ""}`}>
+              {loaded
+                ? `Loaded · ${loaded.executionProvider}`
+                : "Loads on first export"}
             </span>
           </div>
           <p>
-            NMKD Siax 4× runs through the same NCNN / Vulkan engine used by
-            Upscayl. It is a good candidate for clean scans and lightly
-            compressed images. Fine lettering can change, so always check a
-            proof.
+            Real-ESRGAN models run through ONNX Runtime inside the app: Core ML
+            on macOS, DirectML on Windows, CUDA or CPU on Linux. Every model
+            upscales 4× in 256 px tiles with feathered seams, then the result is
+            resized to your target DPI. Fine lettering can change, so always
+            check a proof.
           </p>
-          <dl>
-            <div>
-              <dt>Model</dt>
-              <dd className="mono">
-                {query.data?.upscaler.model ?? "4x_NMKD-Siax_200k"}
-              </dd>
-            </div>
-            <div>
-              <dt>Scale</dt>
-              <dd>4× per axis, then resized to target DPI</dd>
-            </div>
-            <div>
-              <dt>Model license</dt>
-              <dd>WTFPL, per OpenModelDB</dd>
-            </div>
-            <div>
-              <dt>Execution</dt>
-              <dd>Your machine. No cloud GPU.</dd>
-            </div>
-          </dl>
-          <p className="hint">{query.data?.upscaler.reason}</p>
-          <pre>pnpm setup:upscaler</pre>
+          <div className="model-list">
+            {(query.data?.models ?? []).map((model) => (
+              <ModelRow
+                key={model.id}
+                model={model}
+                isDefault={model.id === query.data?.defaultModel}
+                loaded={loaded?.modelId === model.id}
+                busy={task.busy}
+                onDownload={() =>
+                  void task.run(async () => {
+                    await api.downloadModel(model.id);
+                    await query.refetch();
+                  })
+                }
+                onLoad={() =>
+                  void task.run(async () => {
+                    await api.loadModel(model.id);
+                    await query.refetch();
+                  })
+                }
+              />
+            ))}
+          </div>
           <p className="hint">
-            Automatic setup supports macOS and Linux. For an existing engine,
-            set UPSCALE_BIN, UPSCALE_MODELS, UPSCALE_MODEL and UPSCALE_ENGINE in
-            the API environment. CPU-only machines can be very slow.
+            The compact and fast models ship with the app. The quality model is
+            downloaded once on request and verified by SHA-256 before it is
+            loaded. Without a GPU the quality model is roughly ten times slower
+            than the compact one.
           </p>
           <div className="toolbar">
             <button type="button" onClick={() => void query.refetch()}>
               <Check size={15} />
-              Check engine
+              Refresh status
             </button>
-            <ExternalLink href="https://openmodeldb.info/models/4x-NMKD-Siax-CX">
-              Model & license
+            <ExternalLink href="https://github.com/xinntao/Real-ESRGAN">
+              Real-ESRGAN & license
               <LinkIcon size={13} />
             </ExternalLink>
           </div>
@@ -360,19 +401,29 @@ function LocalSettings() {
           <h2>Storage & portability</h2>
           <p>
             Decks, personal ratings and labels live in local SQLite. Images,
-            upscaled results and PDFs are cached on disk under the API data
+            upscaled results and PDFs are cached on disk in the application data
             directory.
           </p>
+          <p className="mono hint">{query.data?.dataDir}</p>
           <p>
             Use “Back up deck” to export a JSON project. It preserves
             quantities, art choices and print settings, but not image files.
-            Custom uploads remain on this machine; keep the API data directory
-            when moving your library.
+            Custom uploads remain on this machine; keep the data directory when
+            moving your library.
           </p>
+          <div className="toolbar">
+            <button
+              type="button"
+              onClick={() => void task.run(() => api.openDataDir())}
+            >
+              <FolderOpen size={15} />
+              Open data folder
+            </button>
+          </div>
           <p className="hint">
-            This proof of concept is a single-user local application. Do not
-            expose the API to the internet. There is no account system or remote
-            authorization.
+            Deckpress is a single-user desktop application. Nothing listens on
+            the network; only Scryfall and MPC are contacted, and only to fetch
+            card data and images.
           </p>
         </section>
         <section className="panel settings-card">
@@ -384,13 +435,62 @@ function LocalSettings() {
             high-resolution scan.
           </p>
           <p>
-            Use 300 DPI for proofs and 600 DPI for most home printing. Use 1200
+            Use 300 DPI for proofs and 800 DPI for most home printing. Use 1200
             DPI when your print shop requests it. High-resolution MPC images may
             already meet the target without AI.
           </p>
         </section>
       </div>
     </>
+  );
+}
+
+function ModelRow({
+  model,
+  isDefault,
+  loaded,
+  busy,
+  onDownload,
+  onLoad,
+}: {
+  model: ModelStatus;
+  isDefault: boolean;
+  loaded: boolean;
+  busy: boolean;
+  onDownload: () => void;
+  onLoad: () => void;
+}) {
+  return (
+    <div className="model-row">
+      <div>
+        <strong>{model.name}</strong>
+        <span className="muted">
+          {" · "}
+          {model.tier}
+          {isDefault ? " · default" : ""}
+          {" · "}
+          {(model.bytes / 1024 / 1024).toFixed(1)} MB · {model.license}
+        </span>
+        <p className="hint">{model.description}</p>
+      </div>
+      <div className="toolbar">
+        {model.installed ? (
+          <button type="button" disabled={busy || loaded} onClick={onLoad}>
+            {loaded ? "Loaded" : "Load now"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="primary"
+            disabled={busy || model.downloading}
+            onClick={onDownload}
+          >
+            <Download size={15} />
+            {model.downloading ? "Downloading…" : "Download"}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

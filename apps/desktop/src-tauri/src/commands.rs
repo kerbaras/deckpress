@@ -238,12 +238,31 @@ pub struct UploadMeta {
     pub bleed_mm: f64,
 }
 
+/// The image travels as the raw IPC body; metadata is a percent-encoded JSON
+/// header so large uploads never pass through JSON number arrays.
 #[tauri::command]
 pub async fn upload_art(
     state: State<'_, AppState>,
-    meta: UploadMeta,
-    bytes: Vec<u8>,
+    request: tauri::ipc::Request<'_>,
 ) -> AppResult<Art> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(AppError::user("Select an image file"));
+    };
+    let bytes = bytes.clone();
+    let header = request
+        .headers()
+        .get("x-deckpress-upload")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| AppError::user("Upload metadata is missing"))?;
+    let meta: UploadMeta =
+        serde_json::from_str(&percent_encoding::percent_decode_str(header).decode_utf8_lossy())
+            .map_err(|_| AppError::user("Upload metadata is invalid"))?;
+    if meta.name.trim().is_empty() || meta.name.chars().count() > 300 {
+        return Err(AppError::user("Card name is required"));
+    }
+    if !(0.0..=10.0).contains(&meta.bleed_mm) {
+        return Err(AppError::user("Bleed must be between 0 and 10 mm"));
+    }
     let images = Arc::clone(&state.images);
     tauri::async_runtime::spawn_blocking(move || {
         images.upload(
@@ -308,6 +327,19 @@ pub async fn save_pdf(
         return Err(AppError::user("Save the export as a .pdf file"));
     }
     Ok(tokio::fs::copy(source, destination).await?)
+}
+
+/// Writes user-visible text (deck backups) to a path the save dialog returned.
+#[tauri::command]
+pub async fn save_text(destination: String, contents: String) -> AppResult<()> {
+    if contents.len() > 64 * 1024 * 1024 {
+        return Err(AppError::user("Backup is too large to save"));
+    }
+    let destination = PathBuf::from(destination);
+    if destination.extension().and_then(|e| e.to_str()) != Some("json") {
+        return Err(AppError::user("Save the backup as a .json file"));
+    }
+    Ok(tokio::fs::write(destination, contents).await?)
 }
 
 #[tauri::command]

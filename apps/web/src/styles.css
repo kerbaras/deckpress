@@ -1811,6 +1811,42 @@ progress::-webkit-progress-value {
   color: var(--accent);
   overflow: auto;
 }
+.job-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.model-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #31343b;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.model-row {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 17px;
+  background: #0f1012;
+}
+.model-row + .model-row {
+  border-top: 1px solid #31343b;
+}
+.model-row strong {
+  font-size: 13px;
+}
+.model-row .muted {
+  font-size: 11.5px;
+}
+.model-row .hint {
+  margin: 4px 0 0;
+}
+.model-row .toolbar {
+  flex-shrink: 0;
+}
 .source-intro {
   margin: 15px 0 40px;
 }

@@ -316,7 +316,7 @@ export function Library({ open }: { open: (id: string) => void }) {
                       type="button"
                       aria-label={`Back up ${deck.name}`}
                       title="Back up deck JSON"
-                      onClick={() => downloadJson(deck)}
+                      onClick={() => void downloadJson(deck)}
                     >
                       <Download size={14} />
                     </button>
@@ -396,7 +396,7 @@ export function Library({ open }: { open: (id: string) => void }) {
           </p>
           <ErrorNotice error={task.error} />
           <div className="modal-actions">
-            <button type="button" onClick={() => downloadJson(remove)}>
+            <button type="button" onClick={() => void downloadJson(remove)}>
               Back up JSON
             </button>
             <button

@@ -817,13 +817,14 @@ function UploadArt({
             void task.run(async () => {
               if (file.size > 16 * 1024 * 1024)
                 throw new Error("Image exceeds 16 MB");
-              const data = new FormData();
-              data.set("image", file);
-              data.set("oracleId", entry.card.oracleId);
-              data.set("name", entry.card.name);
-              data.set("artist", artist);
-              data.set("bleedMm", String(bleed));
-              onUploaded(await api.upload(data));
+              onUploaded(
+                await api.upload(file, {
+                  oracleId: entry.card.oracleId,
+                  name: entry.card.name,
+                  artist,
+                  bleedMm: bleed,
+                }),
+              );
             });
         }}
       >
