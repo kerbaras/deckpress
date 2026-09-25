@@ -1,0 +1,50 @@
+[
+  {
+    "id": "realesr-general-x4v3",
+    "name": "Real-ESRGAN general x4v3 (compact)",
+    "tier": "default",
+    "file": "realesr-general-x4v3-dn50-256.fp16.onnx",
+    "scale": 4,
+    "tile": 256,
+    "bytes": 2444090,
+    "sha256": "ce83b46648c09c57c693ebe88788b4fbfa9b39923078843d512faaf70c11d8fd",
+    "bundled": true,
+    "url": null,
+    "license": "BSD-3-Clause",
+    "licenseUrl": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+    "source": "https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0 (realesr-general-x4v3 + wdn, denoise 0.5)",
+    "description": "SRVGG compact network, FP16, static 1x3x256x256 tiles. Best speed/quality balance for Scryfall scans."
+  },
+  {
+    "id": "realesr-animevideov3",
+    "name": "Real-ESRGAN anime video v3 (fast)",
+    "tier": "fast",
+    "file": "realesr-animevideov3-256.fp16.onnx",
+    "scale": 4,
+    "tile": 256,
+    "bytes": 1252633,
+    "sha256": "4259e7d26e5b99b224f73150a5b3d69ed7f898ec200601d3799ee5fa3cbcda75",
+    "bundled": true,
+    "url": null,
+    "license": "BSD-3-Clause",
+    "licenseUrl": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+    "source": "https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0 (realesr-animevideov3)",
+    "description": "Smallest network; about twice as fast on CPU. Good enough for 300 to 600 DPI proofs on machines without a GPU."
+  },
+  {
+    "id": "realesrgan-x4plus",
+    "name": "RealESRGAN x4plus (quality)",
+    "tier": "quality",
+    "file": "RealESRGAN_x4plus-256.fp16.onnx",
+    "scale": 4,
+    "tile": 256,
+    "bytes": 33733783,
+    "sha256": "ee9f0147825987af4b130a9564834bae53935cde1d5191ce2ead3f3a93a483e9",
+    "bundled": false,
+    "url": "https://github.com/kerbaras/deckpress/releases/download/models-v1/RealESRGAN_x4plus-256.fp16.onnx",
+    "license": "BSD-3-Clause",
+    "licenseUrl": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+    "source": "https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.1.0 (RealESRGAN_x4plus)",
+    "description": "RRDB network, FP16. Cleanest glyph edges and halftone handling, roughly 15x slower than the compact model. Downloaded on first use."
+  }
+]
