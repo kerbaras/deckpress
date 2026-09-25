@@ -373,6 +373,32 @@ fn draw_calibration_page(
     );
     surface.finish();
     page.finish();
+    if matches!(settings.backs, Backs::LongEdge | Backs::ShortEdge) {
+        draw_blank_back(document, layout, font)?;
+    }
+    Ok(())
+}
+
+/// Keeps front/back pairs aligned when the calibration sheet is printed in a
+/// duplex run: its back is a page with a single note.
+fn draw_blank_back(document: &mut Document, layout: &PrintLayout, font: &Font) -> AppResult<()> {
+    let mut page = document.start_page_with(
+        PageSettings::from_wh(layout.width as f32, layout.height as f32)
+            .ok_or_else(|| AppError::user("Paper size is invalid"))?,
+    );
+    let mut surface = page.surface();
+    let margin = mm_to_pt(15.0);
+    surface.set_fill(Some(fill(rgb::Color::new(110, 110, 110))));
+    surface.draw_text(
+        Point::from_xy(margin as f32, (margin + 9.0) as f32),
+        font.clone(),
+        8.5,
+        "Back of the calibration page. Intentionally blank.",
+        false,
+        TextDirection::LeftToRight,
+    );
+    surface.finish();
+    page.finish();
     Ok(())
 }
 
@@ -545,7 +571,12 @@ pub fn build_pdf(
         page.finish();
     }
     cancel.check()?;
-    let pages = sides.len() + usize::from(settings.calibration_page);
+    let calibration_pages = if settings.calibration_page {
+        1 + usize::from(matches!(settings.backs, Backs::LongEdge | Backs::ShortEdge))
+    } else {
+        0
+    };
+    let pages = sides.len() + calibration_pages;
     Ok(PdfOutput {
         bytes: document.finish()?,
         pages,
@@ -661,5 +692,24 @@ mod tests {
         assert!(output.bytes.starts_with(b"%PDF"));
         assert_eq!(std::fs::read_dir(&raster_dir).unwrap().count(), 1);
         assert!(messages.iter().any(|m| m.contains("Placed 4 of 4")));
+
+        let duplex = PrintSettings {
+            dpi: 150,
+            backs: Backs::LongEdge,
+            ..PrintSettings::default()
+        };
+        let output = build_pdf(
+            &deck(4),
+            &duplex,
+            &services,
+            &CancelToken::default(),
+            &mut |_, _, _| {},
+            &mut |_| Ok(png.clone()),
+        )
+        .unwrap();
+        assert_eq!(
+            output.pages, 4,
+            "calibration sheet keeps front/back pairs aligned"
+        );
     }
 }

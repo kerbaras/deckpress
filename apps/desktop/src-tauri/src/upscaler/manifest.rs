@@ -157,7 +157,7 @@ impl ModelManager {
             }
         };
         if let Some(notify) = waiter {
-            notify.notified().await;
+            crate::images::wait_for_leader(&self.downloading, id, &notify).await;
             return self
                 .path(&spec)
                 .ok_or_else(|| AppError::user("Model download failed"));

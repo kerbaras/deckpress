@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use image::{DynamicImage, ImageFormat, ImageReader};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 use reqwest::{redirect, Client, StatusCode};
 use sha2::{Digest, Sha256};
 use tokio::sync::Notify;
@@ -50,6 +50,27 @@ pub fn image_key(url: &str) -> String {
     hex::encode(Sha256::digest(url.as_bytes()))
 }
 
+/// Waits until the task that owns `key` in `pending` removes it. Registering
+/// the waiter before re-checking the map means a `notify_waiters` that fires
+/// between the lookup and the await cannot be missed.
+pub async fn wait_for_leader(
+    pending: &Mutex<HashMap<String, Arc<Notify>>>,
+    key: &str,
+    notify: &Arc<Notify>,
+) {
+    let notified = notify.notified();
+    tokio::pin!(notified);
+    notified.as_mut().enable();
+    let still_pending = pending
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(key)
+        .is_some_and(|current| Arc::ptr_eq(current, notify));
+    if still_pending {
+        notified.await;
+    }
+}
+
 fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
     image::guess_format(bytes).ok().filter(|format| {
         matches!(
@@ -67,15 +88,20 @@ pub fn mime_for(bytes: &[u8]) -> &'static str {
     }
 }
 
+/// Decodes with size limits and applies the EXIF orientation, so camera
+/// photos come out upright.
 pub fn decode(bytes: &[u8]) -> AppResult<DynamicImage> {
-    let reader = ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
+    let mut reader = ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(12_000);
     limits.max_image_height = Some(12_000);
     limits.max_alloc = Some(600 * 1024 * 1024);
-    let mut reader = reader;
     reader.limits(limits);
-    Ok(reader.decode()?)
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let mut image = DynamicImage::from_decoder(decoder)?;
+    image.apply_orientation(orientation);
+    Ok(image)
 }
 
 pub struct Images {
@@ -151,7 +177,7 @@ impl Images {
                 }
             };
             if let Some(notify) = waiter {
-                notify.notified().await;
+                wait_for_leader(&self.pending, &key, &notify).await;
                 continue;
             }
             let result = self.download_to(url, &path).await;
@@ -234,6 +260,15 @@ impl Images {
                     "Provider returned an unsupported image or a Google Drive download page. Download it manually and use Upload art.",
                 ));
             }
+            let bytes = tokio::task::spawn_blocking(move || {
+                decode(&bytes).map(|_| bytes).map_err(|_| {
+                    AppError::user(
+                        "Provider returned a damaged image. Retry later or upload the file.",
+                    )
+                })
+            })
+            .await
+            .map_err(|error| AppError::internal(error.to_string()))??;
             return Ok(bytes);
         }
         Err(AppError::user("Too many image redirects"))

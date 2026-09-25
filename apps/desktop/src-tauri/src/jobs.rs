@@ -114,7 +114,14 @@ impl Jobs {
             .map(|job| live.get(&job.id).cloned().unwrap_or(job))
             .collect();
         jobs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        jobs.truncate(KEEP);
+        let mut finished = 0;
+        jobs.retain(|job| {
+            if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+                return true;
+            }
+            finished += 1;
+            finished <= KEEP
+        });
         Ok(jobs)
     }
 
