@@ -10,6 +10,7 @@ import {
   Plus,
   Trash2,
   Upload,
+  Wand2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import burnImage from "../../../docs/prototype/assets/48fcafcca79ea3dd7877c5b56f9fecb3.jpg";
@@ -58,11 +59,14 @@ export function Library({
   open,
   createRequest = 0,
   onCreateHandled,
+  onBuild,
 }: {
   open: (id: string) => void;
   /** Bumped by the title bar's "New deck" action; opens the create dialog. */
   createRequest?: number;
   onCreateHandled?: () => void;
+  /** Opens the guided deck builder instead of an empty deck. */
+  onBuild?: () => void;
 }) {
   const client = useQueryClient();
   const query = useQuery({
@@ -405,6 +409,14 @@ export function Library({
       {create && (
         <NewDeck
           onClose={() => setCreate(false)}
+          {...(onBuild
+            ? {
+                onBuild: () => {
+                  setCreate(false);
+                  onBuild();
+                },
+              }
+            : {})}
           onCreated={(deck) => {
             void refresh();
             open(deck.id);
@@ -458,9 +470,11 @@ function coverage(deck: Deck) {
 function NewDeck({
   onClose,
   onCreated,
+  onBuild,
 }: {
   onClose: () => void;
   onCreated: (deck: Deck) => void;
+  onBuild?: () => void;
 }) {
   const [name, setName] = useState("");
   const [format, setFormat] = useState<Deck["format"]>("Commander");
@@ -503,6 +517,17 @@ function NewDeck({
         </label>
         <ErrorNotice error={task.error} />
         <div className="modal-actions">
+          {onBuild && (
+            <button
+              type="button"
+              className="new-deck-build"
+              title="Pick a format, colours and theme, then choose from scored suggestions"
+              onClick={onBuild}
+            >
+              <Wand2 size={15} />
+              Build with suggestions
+            </button>
+          )}
           <button type="button" onClick={onClose}>
             Cancel
           </button>

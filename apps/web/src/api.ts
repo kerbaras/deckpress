@@ -6,7 +6,9 @@ import {
   type ArtPreference,
   artPreferenceSchema,
   artSchema,
+  cardSchema,
   type Deck,
+  type DeckEntry,
   deckSchema,
   entrySchema,
   healthResponseSchema,
@@ -143,6 +145,100 @@ export const defaultWindowChrome: WindowChrome = {
   customControls: false,
   insetLeft: 0,
 };
+// Deck builder wizard payloads (mirrors packages/core-rs/src/builder.rs).
+const builderFormatSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  deckFormat: z.string(),
+  deckSize: z.number(),
+  landTarget: z.number(),
+  singleton: z.boolean(),
+  maxCopies: z.number(),
+  commander: z.boolean(),
+  needsSet: z.boolean(),
+  description: z.string(),
+});
+export type BuilderFormat = z.infer<typeof builderFormatSchema>;
+const builderStyleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  landAdjust: z.number(),
+  curve: z.array(z.number()),
+});
+export type BuilderStyle = z.infer<typeof builderStyleSchema>;
+const builderThemeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  needsTribe: z.boolean(),
+  cues: z.array(z.string()),
+  typeCues: z.array(z.string()),
+});
+export type BuilderTheme = z.infer<typeof builderThemeSchema>;
+export const builderOptionsSchema = z.object({
+  formats: z.array(builderFormatSchema),
+  colors: z.array(
+    z.object({ id: z.string(), name: z.string(), basic: z.string() }),
+  ),
+  styles: z.array(builderStyleSchema),
+  themes: z.array(builderThemeSchema),
+  source: z.string(),
+});
+export type BuilderOptions = z.infer<typeof builderOptionsSchema>;
+const builderSetSchema = z.object({
+  code: z.string(),
+  name: z.string(),
+  releasedAt: z.string(),
+  cardCount: z.number(),
+});
+export type BuilderSet = z.infer<typeof builderSetSchema>;
+export const builderSpecSchema = z.object({
+  format: z.string(),
+  set: z.string(),
+  colors: z.array(z.string()),
+  commander: cardSchema.nullable(),
+  style: z.string(),
+  theme: z.string(),
+  tribe: z.string(),
+});
+export type BuilderSpec = z.infer<typeof builderSpecSchema>;
+export const suggestionSchema = z.object({
+  card: cardSchema,
+  score: z.number(),
+  reasons: z.array(z.string()),
+  role: z.string(),
+  oracleText: z.string(),
+  popularityRank: z.number().nullable(),
+});
+export type Suggestion = z.infer<typeof suggestionSchema>;
+const suggestionPageSchema = z.object({
+  items: z.array(suggestionSchema),
+  page: z.number(),
+  hasMore: z.boolean(),
+  total: z.number(),
+  queries: z.array(z.string()),
+  colors: z.array(z.string()),
+});
+export type SuggestionPage = z.infer<typeof suggestionPageSchema>;
+export const builderSummarySchema = z.object({
+  count: z.number(),
+  target: z.number(),
+  lands: z.number(),
+  landTarget: z.number(),
+  singleton: z.boolean(),
+  maxCopies: z.number(),
+  curve: z.array(
+    z.object({ label: z.string(), count: z.number(), target: z.number() }),
+  ),
+  colors: z.array(
+    z.object({ color: z.string(), pips: z.number(), cards: z.number() }),
+  ),
+  issues: z.array(z.string()),
+  complete: z.boolean(),
+});
+export type BuilderSummary = z.infer<typeof builderSummarySchema>;
+
 const nothing = z
   .null()
   .or(z.undefined())
@@ -252,6 +348,21 @@ export const api = {
   savePdf: (id: string, destination: string) =>
     command("save_pdf", z.number(), { id, destination }),
   openDataDir: () => command("open_data_dir", nothing),
+  builderOptions: (_signal?: AbortSignal) =>
+    command("builder_options", builderOptionsSchema),
+  builderSets: (_signal?: AbortSignal) =>
+    command("builder_sets", z.array(builderSetSchema)),
+  builderCommanders: (query: string, colors: string[], _signal?: AbortSignal) =>
+    command("builder_commanders", z.array(suggestionSchema), {
+      query,
+      colors,
+    }),
+  builderSuggest: (spec: BuilderSpec, page: number, _signal?: AbortSignal) =>
+    command("builder_suggest", suggestionPageSchema, { spec, page }),
+  builderSummary: (spec: BuilderSpec, entries: DeckEntry[]) =>
+    command("builder_summary", builderSummarySchema, { spec, entries }),
+  builderFill: (spec: BuilderSpec, entries: DeckEntry[]) =>
+    command("builder_fill", z.array(entrySchema), { spec, entries }),
 };
 
 export const fetchHealth = (_signal?: AbortSignal) =>

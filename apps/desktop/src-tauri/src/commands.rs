@@ -362,3 +362,59 @@ pub async fn open_data_dir(state: State<'_, AppState>) -> AppResult<()> {
     })
     .await
 }
+
+// Deck builder wizard. All logic lives in `deckpress_core::builder`; these
+// commands only translate IPC payloads.
+
+#[tauri::command]
+pub fn builder_options() -> deckpress_core::builder::BuilderOptions {
+    deckpress_core::builder::options()
+}
+
+#[tauri::command]
+pub async fn builder_sets(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<deckpress_core::builder::SetOption>> {
+    state.builder.sets().await
+}
+
+#[tauri::command]
+pub async fn builder_commanders(
+    state: State<'_, AppState>,
+    query: String,
+    colors: Vec<String>,
+) -> AppResult<Vec<deckpress_core::builder::Suggestion>> {
+    if query.chars().count() > 80 {
+        return Err(AppError::user(
+            "Shorten the commander search to 80 characters",
+        ));
+    }
+    state.builder.commanders(&query, &colors).await
+}
+
+#[tauri::command]
+pub async fn builder_suggest(
+    state: State<'_, AppState>,
+    spec: deckpress_core::builder::BuilderSpec,
+    page: u32,
+) -> AppResult<deckpress_core::builder::SuggestionPage> {
+    state.builder.suggest(&spec, page.clamp(1, 100)).await
+}
+
+#[tauri::command]
+pub fn builder_summary(
+    state: State<'_, AppState>,
+    spec: deckpress_core::builder::BuilderSpec,
+    entries: Vec<deckpress_core::models::DeckEntry>,
+) -> AppResult<deckpress_core::builder::Summary> {
+    state.builder.summary(&spec, &entries)
+}
+
+#[tauri::command]
+pub async fn builder_fill(
+    state: State<'_, AppState>,
+    spec: deckpress_core::builder::BuilderSpec,
+    entries: Vec<deckpress_core::models::DeckEntry>,
+) -> AppResult<Vec<deckpress_core::models::DeckEntry>> {
+    state.builder.fill(&spec, &entries).await
+}

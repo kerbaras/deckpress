@@ -3,6 +3,7 @@
 //! upscaling and the raster/PDF print pipeline. The crate has no knowledge of
 //! Tauri; the app maps its commands onto these types.
 
+pub mod builder;
 pub mod error;
 pub mod images;
 pub mod jobs;
@@ -30,6 +31,7 @@ pub struct Core {
     pub models: Arc<upscaler::manifest::ModelManager>,
     pub jobs: Arc<jobs::Jobs>,
     pub style: Arc<style::StyleMatcher>,
+    pub builder: Arc<builder::Builder>,
 }
 
 impl Core {
@@ -61,6 +63,7 @@ impl Core {
             Arc::clone(&images),
             Arc::clone(&models),
         ));
+        let builder = Arc::new(builder::Builder::new(Arc::clone(&providers)));
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
             store,
@@ -69,6 +72,7 @@ impl Core {
             models,
             jobs,
             style,
+            builder,
         })
     }
 }
