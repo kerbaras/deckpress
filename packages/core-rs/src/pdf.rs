@@ -27,6 +27,8 @@ const MAX_IMAGE_BYTES: usize = 250 * 1024 * 1024;
 pub struct Side {
     pub entries: Vec<DeckEntry>,
     pub back: bool,
+    /// 1-based sheet number within the whole deck, for the sheet label.
+    pub sheet: usize,
 }
 
 pub struct PrintPlan {
@@ -62,23 +64,26 @@ pub fn print_plan(deck: &Deck, settings: &PrintSettings) -> AppResult<PrintPlan>
         })
         .collect();
     let mut sides = Vec::new();
-    for sheet in &sheets {
+    for (offset, sheet) in sheets.iter().enumerate() {
         sides.push(Side {
             entries: sheet.clone(),
             back: false,
+            sheet: first + offset + 1,
         });
         if matches!(settings.backs, Backs::LongEdge | Backs::ShortEdge) {
             sides.push(Side {
                 entries: sheet.clone(),
                 back: true,
+                sheet: first + offset + 1,
             });
         }
     }
     if settings.backs == Backs::Separate {
-        for sheet in sheets {
+        for (offset, sheet) in sheets.into_iter().enumerate() {
             sides.push(Side {
                 entries: sheet,
                 back: true,
+                sheet: first + offset + 1,
             });
         }
     }
@@ -116,6 +121,73 @@ fn line_path(x1: f64, y1: f64, x2: f64, y2: f64) -> Option<KPath> {
     builder.move_to(x1 as f32, y1 as f32);
     builder.line_to(x2 as f32, y2 as f32);
     builder.finish()
+}
+
+fn circle_path(cx: f64, cy: f64, r: f64) -> Option<KPath> {
+    // Four cubic segments; 0.5523 is the standard control-point ratio.
+    let (cx, cy, r) = (cx as f32, cy as f32, r as f32);
+    let k = 0.5523 * r;
+    let mut builder = PathBuilder::new();
+    builder.move_to(cx + r, cy);
+    builder.cubic_to(cx + r, cy + k, cx + k, cy + r, cx, cy + r);
+    builder.cubic_to(cx - k, cy + r, cx - r, cy + k, cx - r, cy);
+    builder.cubic_to(cx - r, cy - k, cx - k, cy - r, cx, cy - r);
+    builder.cubic_to(cx + k, cy - r, cx + r, cy - k, cx + r, cy);
+    builder.close();
+    builder.finish()
+}
+
+/// Registration target: a circle with a crosshair that overshoots it, the
+/// shape press operators line up when checking front/back register.
+fn draw_registration(
+    surface: &mut krilla::surface::Surface<'_>,
+    mark: &crate::layout::Registration,
+    color: rgb::Color,
+) {
+    surface.set_fill(None);
+    surface.set_stroke(Some(stroke(color, 0.25)));
+    let reach = mark.radius * 1.6;
+    for path in [
+        circle_path(mark.x, mark.y, mark.radius),
+        line_path(mark.x - reach, mark.y, mark.x + reach, mark.y),
+        line_path(mark.x, mark.y - reach, mark.x, mark.y + reach),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        surface.draw_path(&path);
+    }
+    surface.set_stroke(None);
+}
+
+/// Slug line in the bottom margin: which deck and sheet this is, and the
+/// facts a print shop asks for before running it.
+fn draw_sheet_label(
+    surface: &mut krilla::surface::Surface<'_>,
+    layout: &PrintLayout,
+    settings: &PrintSettings,
+    font: &Font,
+    color: rgb::Color,
+    text: &str,
+) {
+    let Some(baseline) = layout.label_baseline else {
+        return;
+    };
+    let x = layout
+        .slots
+        .first()
+        .map(|slot| slot.rect.x)
+        .unwrap_or(mm_to_pt(settings.margin_mm));
+    surface.set_fill(Some(fill(color)));
+    surface.draw_text(
+        Point::from_xy(x as f32, baseline as f32),
+        font.clone(),
+        5.0,
+        text,
+        false,
+        TextDirection::LeftToRight,
+    );
+    surface.set_fill(None);
 }
 
 fn stroke(color: rgb::Color, width: f64) -> Stroke {
@@ -411,7 +483,11 @@ pub fn build_pdf(
     progress: &mut dyn FnMut(usize, usize, String),
     read_source: &mut dyn FnMut(&str) -> AppResult<Vec<u8>>,
 ) -> AppResult<PdfOutput> {
-    let PrintPlan { layout, sides, .. } = print_plan(deck, settings)?;
+    let PrintPlan {
+        layout,
+        sides,
+        total_sheets,
+    } = print_plan(deck, settings)?;
     if settings.upscale && services.upscaler.is_none() {
         return Err(AppError::user(
             "Upscaling is enabled but no model is loaded",
@@ -568,6 +644,33 @@ pub fn build_pdf(
             }
             surface.set_stroke(None);
         }
+        for mark in &layout.registration {
+            draw_registration(&mut surface, mark, guide_color);
+        }
+        draw_sheet_label(
+            &mut surface,
+            &layout,
+            settings,
+            &font,
+            guide_color,
+            &format!(
+                "{} / sheet {} of {} / {} / {} x {} mm + {} mm bleed / {} dpi / print at 100%",
+                deck.name
+                    .to_uppercase()
+                    .chars()
+                    .filter(|c| c.is_ascii_graphic() || *c == ' ')
+                    .take(40)
+                    .collect::<String>()
+                    .trim(),
+                side.sheet,
+                total_sheets,
+                if side.back { "BACKS" } else { "FRONTS" },
+                settings.card_width_mm,
+                settings.card_height_mm,
+                settings.bleed_mm,
+                settings.dpi
+            ),
+        );
         surface.finish();
         page.finish();
     }

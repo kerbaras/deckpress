@@ -5,13 +5,14 @@ import {
   Copy,
   Download,
   FolderOpen,
+  Layers3,
   LayoutGrid,
   List,
   Plus,
   Trash2,
   Upload,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import burnImage from "../../../docs/prototype/assets/48fcafcca79ea3dd7877c5b56f9fecb3.jpg";
 import cubeImage from "../../../docs/prototype/assets/87e0158039c89cf1bdd854a215188d1d.jpg";
 import atraxaImage from "../../../docs/prototype/assets/06140bf59bb49753e6e56092cfe63477.jpg";
@@ -52,7 +53,16 @@ const samples = [
   },
 ];
 
-export function Library({ open }: { open: (id: string) => void }) {
+export function Library({
+  open,
+  createRequest = 0,
+  onCreateHandled,
+}: {
+  open: (id: string) => void;
+  /** Bumped by the title bar's "New deck" action; opens the create dialog. */
+  createRequest?: number;
+  onCreateHandled?: () => void;
+}) {
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ["decks"],
@@ -65,6 +75,12 @@ export function Library({ open }: { open: (id: string) => void }) {
   const [list, setList] = useState(false);
   const [create, setCreate] = useState(false);
   const [remove, setRemove] = useState<Deck | null>(null);
+  useEffect(() => {
+    if (createRequest > 0) {
+      setCreate(true);
+      onCreateHandled?.();
+    }
+  }, [createRequest, onCreateHandled]);
   const decks = query.data ?? [];
   const shown = decks
     .filter(
@@ -112,9 +128,12 @@ export function Library({ open }: { open: (id: string) => void }) {
           value={search}
           onChange={setSearch}
         />
-        <label className="button">
+        <label
+          className="button icon-button"
+          title="Restore a deck from a JSON backup"
+        >
           <Upload size={16} />
-          Restore deck
+          <span className="sr-only">Restore a deck from a JSON backup</span>
           <input
             className="sr-only"
             type="file"
@@ -211,15 +230,11 @@ export function Library({ open }: { open: (id: string) => void }) {
         ) : decks.length === 0 && !query.isError ? (
           <>
             <section className="welcome">
-              <span className="eyebrow">Your cards. Your editions.</span>
-              <h2>
-                Make the deck
-                <br />
-                <em>your own.</em>
-              </h2>
+              <Layers3 size={30} />
+              <h2>No decks yet</h2>
               <p>
-                Bring a decklist, find the art you love, and print it at the
-                right size. Your library stays on this machine.
+                Paste a decklist, pick the art for each card, and export a PDF
+                at the exact card size. Everything stays on this machine.
               </p>
               <button
                 type="button"
@@ -231,8 +246,8 @@ export function Library({ open }: { open: (id: string) => void }) {
               </button>
             </section>
             <div className="section-heading">
-              <h3>Or start with a sample</h3>
-              <span className="muted">Real cards, ready to explore</span>
+              <h3>Or start from a sample</h3>
+              <span className="muted">Real cards from Scryfall</span>
             </div>
             <div className="deck-grid sample-grid">
               {samples.map((sample) => (
@@ -371,8 +386,7 @@ export function Library({ open }: { open: (id: string) => void }) {
           </div>
         )}
         <footer className="library-footer">
-          <span>Made for your next game night.</span>
-          <span>Personal playtest proxies · Not for sale</span>
+          <span>Personal playtest proxies. Not for sale.</span>
         </footer>
       </div>
       {create && (

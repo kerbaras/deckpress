@@ -991,8 +991,26 @@ dependencies = [
 name = "deckpress"
 version = "0.1.0"
 dependencies = [
- "chrono",
+ "deckpress-core",
  "env_logger",
+ "hex",
+ "log",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tokio",
+]
+
+[[package]]
+name = "deckpress-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
  "fast_image_resize",
  "futures-util",
  "hex",
@@ -1001,16 +1019,11 @@ dependencies = [
  "log",
  "ndarray",
  "ort",
- "percent-encoding",
  "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

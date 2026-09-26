@@ -2,55 +2,21 @@
 //! maps to a former `/api/*` route; errors serialize as plain strings.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::error::{AppError, AppResult};
-use crate::images::{Images, UploadInput};
-use crate::jobs::Jobs;
-use crate::models::{
+use deckpress_core::error::{AppError, AppResult};
+use deckpress_core::images::UploadInput;
+use deckpress_core::models::{
     Art, ArtPage, ArtPreference, Deck, ImportLine, NewDeck, PrintJob, PrintSettings, ResolvedCards,
 };
-use crate::providers::Providers;
-use crate::store::Store;
-use crate::upscaler::manifest::{default_model_id, ModelManager, ModelStatus};
-use crate::upscaler::UpscalerInfo;
+use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
+use deckpress_core::upscaler::UpscalerInfo;
 
-pub struct AppState {
-    pub data_dir: PathBuf,
-    pub store: Arc<Store>,
-    pub providers: Arc<Providers>,
-    pub images: Arc<Images>,
-    pub models: Arc<ModelManager>,
-    pub jobs: Arc<Jobs>,
-}
-
-impl AppState {
-    pub fn new(data_dir: &Path, resource_dir: &Path) -> AppResult<Self> {
-        std::fs::create_dir_all(data_dir)?;
-        let store = Arc::new(Store::open(&data_dir.join("deckpress.sqlite"))?);
-        let providers = Arc::new(Providers::new(Arc::clone(&store))?);
-        let images = Arc::new(Images::new(data_dir, Arc::clone(&store))?);
-        let models = Arc::new(ModelManager::new(resource_dir, data_dir)?);
-        let jobs = Arc::new(Jobs::new(
-            Arc::clone(&store),
-            Arc::clone(&images),
-            Arc::clone(&models),
-            data_dir,
-        )?);
-        Ok(Self {
-            data_dir: data_dir.to_path_buf(),
-            store,
-            providers,
-            images,
-            models,
-            jobs,
-        })
-    }
-}
+pub type AppState = deckpress_core::Core;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,7 +67,7 @@ pub async fn download_model(state: State<'_, AppState>, id: String) -> AppResult
 #[tauri::command]
 pub async fn load_model(state: State<'_, AppState>, id: String) -> AppResult<UpscalerInfo> {
     let models = Arc::clone(&state.models);
-    let upscaler = tauri::async_runtime::spawn_blocking(move || models.upscaler(&id)).await??;
+    let upscaler = tokio::task::spawn_blocking(move || models.upscaler(&id)).await??;
     Ok(upscaler.info())
 }
 
@@ -264,7 +230,7 @@ pub async fn upload_art(
         return Err(AppError::user("Bleed must be between 0 and 10 mm"));
     }
     let images = Arc::clone(&state.images);
-    tauri::async_runtime::spawn_blocking(move || {
+    tokio::task::spawn_blocking(move || {
         images.upload(
             &bytes,
             UploadInput {
@@ -308,7 +274,7 @@ async fn with_desktop<F>(what: &str, call: F) -> AppResult<()>
 where
     F: FnOnce() -> Result<(), tauri_plugin_opener::Error> + Send + 'static,
 {
-    let task = tauri::async_runtime::spawn_blocking(call);
+    let task = tokio::task::spawn_blocking(call);
     match tokio::time::timeout(std::time::Duration::from_secs(8), task).await {
         Ok(Ok(Ok(()))) => Ok(()),
         Ok(Ok(Err(error))) => Err(AppError::user(format!("Could not {what}: {error}"))),

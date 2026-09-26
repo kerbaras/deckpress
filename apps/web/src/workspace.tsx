@@ -115,6 +115,18 @@ function DeckWorkspace({
       setIsSaving(false);
     }
   };
+  const dirty = deck !== saved;
+  useEffect(() => {
+    if (!dirty) return;
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!task.busy) void task.run(() => commit(deck));
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  });
   const selectArt = (entry: DeckEntry) => {
     setSelectedId(entry.id);
     setView("art");
@@ -152,7 +164,10 @@ function DeckWorkspace({
         </span>
         <button
           type="button"
-          disabled={task.busy || deck === saved}
+          className={dirty ? "primary" : undefined}
+          disabled={task.busy || !dirty}
+          aria-keyshortcuts="Control+S Meta+S"
+          title="Save changes (Ctrl+S)"
           onClick={() => void task.run(() => commit(deck))}
         >
           <Save size={15} />
@@ -161,10 +176,20 @@ function DeckWorkspace({
         <button
           type="button"
           className="icon-button"
+          aria-label="Back up deck as JSON"
+          title="Back up deck as JSON"
+          onClick={() => void downloadJson(deck)}
+        >
+          <Download size={16} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
           aria-label="Deck settings"
+          title="Deck settings"
           onClick={() => setMetadata(true)}
         >
-          <SlidersHorizontal size={17} />
+          <SlidersHorizontal size={16} />
         </button>
       </header>
       <nav className="workspace-tabs" aria-label="Deck workspace">
@@ -193,11 +218,6 @@ function DeckWorkspace({
         >
           <Printer size={16} />
           Print setup
-        </button>
-        <div className="spacer" />
-        <button type="button" onClick={() => void downloadJson(deck)}>
-          <Download size={15} />
-          Back up deck
         </button>
       </nav>
       <ErrorNotice error={task.error} />

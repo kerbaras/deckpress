@@ -3,7 +3,7 @@
 All weights come from [xinntao/Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)
 (BSD-3-Clause). They are exported to ONNX with a static `1x3x256x256` input,
 opset 17, then converted to FP16 with `onnxconverter-common` while keeping
-FP32 inputs and outputs. `models.json` is the manifest the app compiles in:
+FP32 inputs and outputs. `packages/core-rs/models.json` is the manifest compiled into `deckpress-core`:
 file names, SHA-256 digests, sizes, licenses and, for models that are not
 bundled, the download URL.
 

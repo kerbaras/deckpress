@@ -8,8 +8,14 @@ script downloads the Scryfall PNG for each card, runs every model with the same
 mana cost so the models can be compared where it matters. Judge the crops, not
 the art.
 
+With `--fidelity` the script also runs a reference test: each card is
+downsampled 4x and re-encoded as JPEG, upscaled back, and compared against the
+original with PSNR and SSIM on the same crops. Bicubic resampling is the
+baseline every model has to beat.
+
 Usage:
     python benchmark-models.py --models DIR --out DIR [--tile 256] [--overlap 16]
+        [--fidelity] [--jpeg-quality 85]
 
 Requires onnxruntime, numpy and Pillow. No PyTorch.
 """
@@ -17,6 +23,7 @@ Requires onnxruntime, numpy and Pillow. No PyTorch.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 import time
@@ -104,6 +111,65 @@ def crop(image: Image.Image, box: tuple[float, float, float, float]) -> Image.Im
     return image.crop((int(box[0] * w), int(box[1] * h), int(box[2] * w), int(box[3] * h)))
 
 
+def degrade(image: Image.Image, quality: int) -> Image.Image:
+    """Quarter-resolution JPEG, the kind of source a 4x model has to recover from."""
+    small = image.resize((image.width // 4, image.height // 4), Image.LANCZOS)
+    buffer = io.BytesIO()
+    small.save(buffer, format="JPEG", quality=quality)
+    buffer.seek(0)
+    return Image.open(buffer).convert("RGB")
+
+
+def gray(image: Image.Image) -> np.ndarray:
+    return np.asarray(image.convert("L"), dtype=np.float64)
+
+
+def psnr(a: np.ndarray, b: np.ndarray) -> float:
+    mse = np.mean((a - b) ** 2)
+    return float("inf") if mse == 0 else 10 * np.log10(255.0**2 / mse)
+
+
+def ssim(a: np.ndarray, b: np.ndarray, window: int = 7) -> float:
+    """Mean structural similarity over a uniform window (Wang et al. 2004)."""
+    c1, c2 = (0.01 * 255) ** 2, (0.03 * 255) ** 2
+
+    def blur(x: np.ndarray) -> np.ndarray:
+        pad = window // 2
+        padded = np.pad(x, pad, mode="reflect")
+        summed = np.cumsum(np.cumsum(padded, axis=0), axis=1)
+        summed = np.pad(summed, ((1, 0), (1, 0)))
+        h, w = x.shape
+        total = (
+            summed[window : window + h, window : window + w]
+            - summed[:h, window : window + w]
+            - summed[window : window + h, :w]
+            + summed[:h, :w]
+        )
+        return total / (window * window)
+
+    mu_a, mu_b = blur(a), blur(b)
+    var_a = blur(a * a) - mu_a**2
+    var_b = blur(b * b) - mu_b**2
+    cov = blur(a * b) - mu_a * mu_b
+    score = ((2 * mu_a * mu_b + c1) * (2 * cov + c2)) / (
+        (mu_a**2 + mu_b**2 + c1) * (var_a + var_b + c2)
+    )
+    return float(score.mean())
+
+
+def fidelity(reference: Image.Image, candidate: Image.Image) -> dict[str, dict[str, float]]:
+    if candidate.size != reference.size:
+        candidate = candidate.resize(reference.size, Image.BICUBIC)
+    scores: dict[str, dict[str, float]] = {}
+    for crop_name, box in CROPS.items():
+        ref, cand = gray(crop(reference, box)), gray(crop(candidate, box))
+        scores[crop_name] = {
+            "psnr": round(psnr(ref, cand), 2),
+            "ssim": round(ssim(ref, cand), 4),
+        }
+    return scores
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--models", type=Path, required=True)
@@ -111,6 +177,8 @@ def main() -> int:
     parser.add_argument("--tile", type=int, default=256)
     parser.add_argument("--overlap", type=int, default=16)
     parser.add_argument("--only", nargs="*", help="model file names to run")
+    parser.add_argument("--fidelity", action="store_true")
+    parser.add_argument("--jpeg-quality", type=int, default=85)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     cache = args.out / "cards"
@@ -128,8 +196,25 @@ def main() -> int:
         for p in model_paths
     }
     report: dict[str, dict[str, float]] = {name: {} for name in sessions}
+    quality: dict[str, dict[str, dict[str, dict[str, float]]]] = {}
     for label, set_code, number in CARDS:
         source = fetch_card(set_code, number, cache)
+        if args.fidelity:
+            reference = source.crop((0, 0, source.width // 4 * 4, source.height // 4 * 4))
+            degraded = degrade(reference, args.jpeg_quality)
+            bicubic = degraded.resize(reference.size, Image.BICUBIC)
+            quality[label] = {"bicubic": fidelity(reference, bicubic)}
+            for name, session in sessions.items():
+                restored, _ = upscale(session, degraded, args.tile, args.overlap)
+                quality[label][name] = fidelity(reference, restored)
+                restored.save(args.out / f"fidelity-{label}-{name}.png")
+            for name, scores in quality[label].items():
+                text, mana = scores["text-box"], scores["mana-cost"]
+                print(
+                    f"{label:14} {name:45} text {text['psnr']:5.2f} dB / {text['ssim']:.3f}"
+                    f"   mana {mana['psnr']:5.2f} dB / {mana['ssim']:.3f}",
+                    flush=True,
+                )
         rows: list[tuple[str, Image.Image]] = [("source (bicubic 4x)", source.resize(
             (source.width * 4, source.height * 4), Image.BICUBIC))]
         for name, session in sessions.items():
@@ -152,6 +237,8 @@ def main() -> int:
             sheet.save(args.out / f"compare-{label}-{crop_name}.png")
     (args.out / "timings.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
+    if args.fidelity:
+        (args.out / "fidelity.json").write_text(json.dumps(quality, indent=2))
     return 0
 
 

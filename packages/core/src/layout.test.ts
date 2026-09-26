@@ -17,20 +17,59 @@ describe("print geometry", () => {
           layout.height - mmToPt(options.marginMm) + 0.001,
         );
         for (const line of layout.guides) {
-          const midpoint = {
-            x: (line.x1 + line.x2) / 2,
-            y: (line.y1 + line.y2) / 2,
-          };
-          expect(
-            midpoint.x > slot.x &&
-              midpoint.x < slot.x + slot.width &&
-              midpoint.y > slot.y &&
-              midpoint.y < slot.y + slot.height,
-          ).toBe(false);
+          for (const point of [
+            { x: line.x1, y: line.y1 },
+            { x: line.x2, y: line.y2 },
+          ]) {
+            const { trim } = slot;
+            expect(
+              point.x > trim.x &&
+                point.x < trim.x + trim.width &&
+                point.y > trim.y &&
+                point.y < trim.y + trim.height,
+            ).toBe(false);
+          }
         }
       }
     },
   );
+
+  it("marks every card corner, not only the sheet margins", () => {
+    const layout = createLayout(printSettingsSchema.parse({}));
+    expect(layout.guides).toHaveLength(48);
+    const [first, , , below] = layout.slots;
+    if (!first || !below) throw new Error("Missing slots");
+    const tick = layout.guides.find(
+      (g) =>
+        g.x1 === first.trim.x &&
+        g.y1 > first.trim.y + first.trim.height &&
+        g.y2 < below.trim.y,
+    );
+    expect(tick?.y1).toBeCloseTo(
+      first.trim.y + first.trim.height + mmToPt(0.5),
+    );
+    expect(tick?.y2).toBeCloseTo(below.trim.y - mmToPt(0.5));
+    // Shared trim edges collapse to 4 lines each way: 16 outer marks, no ticks.
+    expect(
+      createLayout(printSettingsSchema.parse({ bleedMm: 0 })).guides,
+    ).toHaveLength(16);
+  });
+
+  it("adds registration targets and a sheet label only when marks are on", () => {
+    const duplex = createLayout(
+      printSettingsSchema.parse({ backs: "long-edge" }),
+    );
+    expect(duplex.registration).toHaveLength(3);
+    expect(duplex.labelBaseline).not.toBeNull();
+    expect(createLayout(printSettingsSchema.parse({})).registration).toEqual(
+      [],
+    );
+    const clean = createLayout(
+      printSettingsSchema.parse({ backs: "long-edge", guides: "none" }),
+    );
+    expect(clean.registration).toEqual([]);
+    expect(clean.labelBaseline).toBeNull();
+  });
 
   it("rejects impossible and manually overflowing layouts instead of shrinking cards", () => {
     expect(() =>

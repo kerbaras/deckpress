@@ -36,6 +36,7 @@ pub struct Jobs {
     cancels: Mutex<HashMap<String, CancelToken>>,
     sender: mpsc::UnboundedSender<Queued>,
     receiver: Mutex<Option<mpsc::UnboundedReceiver<Queued>>>,
+    runtime: tokio::runtime::Handle,
 }
 
 fn file_name(deck: &Deck, settings: &PrintSettings) -> String {
@@ -62,6 +63,7 @@ impl Jobs {
         images: Arc<Images>,
         models: Arc<ModelManager>,
         data_dir: &Path,
+        runtime: tokio::runtime::Handle,
     ) -> AppResult<Self> {
         let (sender, receiver) = mpsc::unbounded_channel();
         let jobs = Self {
@@ -74,6 +76,7 @@ impl Jobs {
             cancels: Mutex::new(HashMap::new()),
             sender,
             receiver: Mutex::new(Some(receiver)),
+            runtime,
         };
         std::fs::create_dir_all(&jobs.pdf_dir)?;
         std::fs::create_dir_all(&jobs.raster_dir)?;
@@ -87,7 +90,7 @@ impl Jobs {
         Ok(jobs)
     }
 
-    /// Starts the worker. Call once from the Tauri setup hook on the runtime.
+    /// Starts the worker on the runtime handed to `new`. Later calls are no-ops.
     pub fn start(self: &Arc<Self>) {
         let Some(mut receiver) = self
             .receiver
@@ -98,7 +101,7 @@ impl Jobs {
             return;
         };
         let jobs = Arc::clone(self);
-        tauri::async_runtime::spawn(async move {
+        self.runtime.spawn(async move {
             while let Some(queued) = receiver.recv().await {
                 jobs.run(queued).await;
             }
@@ -331,7 +334,7 @@ impl Jobs {
                 settings.upscale_model.clone()
             };
             let models = Arc::clone(&self.models);
-            Some(tauri::async_runtime::spawn_blocking(move || models.upscaler(&id)).await??)
+            Some(tokio::task::spawn_blocking(move || models.upscaler(&id)).await??)
         } else {
             None
         };
@@ -341,42 +344,40 @@ impl Jobs {
         let deck = deck.clone();
         let settings = settings.clone();
         let cancel = cancel.clone();
-        let (bytes, pages) =
-            tauri::async_runtime::spawn_blocking(move || -> AppResult<(u64, usize)> {
-                let mut last_persist = Instant::now();
-                let mut current = job.clone();
-                let mut progress = |completed: usize, total: usize, message: String| {
-                    current.completed = completed as u32;
-                    current.total = total as u32;
-                    current.message = message;
-                    let persist = last_persist.elapsed() > Duration::from_secs(2);
-                    if persist {
-                        last_persist = Instant::now();
-                    }
-                    jobs.publish(&current, persist);
-                };
-                let images = Arc::clone(&jobs.images);
-                let mut read_source = |url: &str| -> AppResult<Vec<u8>> {
-                    Ok(std::fs::read(images.local_path(url)?)?)
-                };
-                let output = build_pdf(
-                    &deck,
-                    &settings,
-                    &PdfServices {
-                        upscaler: upscaler.as_deref(),
-                        raster_dir: &jobs.raster_dir,
-                    },
-                    &cancel,
-                    &mut progress,
-                    &mut read_source,
-                )?;
-                let path = jobs.pdf_dir.join(format!("{}.pdf", job.id));
-                let tmp = path.with_extension("part");
-                std::fs::write(&tmp, &output.bytes)?;
-                std::fs::rename(&tmp, &path)?;
-                Ok((output.bytes.len() as u64, output.pages))
-            })
-            .await??;
+        let (bytes, pages) = tokio::task::spawn_blocking(move || -> AppResult<(u64, usize)> {
+            let mut last_persist = Instant::now();
+            let mut current = job.clone();
+            let mut progress = |completed: usize, total: usize, message: String| {
+                current.completed = completed as u32;
+                current.total = total as u32;
+                current.message = message;
+                let persist = last_persist.elapsed() > Duration::from_secs(2);
+                if persist {
+                    last_persist = Instant::now();
+                }
+                jobs.publish(&current, persist);
+            };
+            let images = Arc::clone(&jobs.images);
+            let mut read_source =
+                |url: &str| -> AppResult<Vec<u8>> { Ok(std::fs::read(images.local_path(url)?)?) };
+            let output = build_pdf(
+                &deck,
+                &settings,
+                &PdfServices {
+                    upscaler: upscaler.as_deref(),
+                    raster_dir: &jobs.raster_dir,
+                },
+                &cancel,
+                &mut progress,
+                &mut read_source,
+            )?;
+            let path = jobs.pdf_dir.join(format!("{}.pdf", job.id));
+            let tmp = path.with_extension("part");
+            std::fs::write(&tmp, &output.bytes)?;
+            std::fs::rename(&tmp, &path)?;
+            Ok((output.bytes.len() as u64, output.pages))
+        })
+        .await??;
         Ok((bytes, pages))
     }
 }

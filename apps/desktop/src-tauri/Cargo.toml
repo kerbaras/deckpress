@@ -1,7 +1,7 @@
 [package]
 name = "deckpress"
 version = "0.1.0"
-description = "Deckpress desktop: local MTG proxy deck builder and print pipeline"
+description = "Deckpress desktop: Tauri shell around deckpress-core"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
@@ -15,47 +15,20 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+deckpress-core = { path = "../../../packages/core-rs" }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-thiserror = "2"
-tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "fs"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
-fast_image_resize = { version = "6", features = ["image", "rayon"] }
-krilla = { version = "0.8", default-features = false, features = ["raster-images", "simple-text"] }
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "tls-rustls", "copy-dylibs"] }
-ndarray = "0.17"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 sha2 = "0.11"
 hex = "0.4"
-uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-url = "2"
 percent-encoding = "2"
-futures-util = { version = "0.3", default-features = false }
 log = "0.4"
 env_logger = "0.11"
-
-[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["coreml"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["directml"] }
 
 [features]
 default = []
 # Linux/Windows builds with NVIDIA support. Requires the CUDA/cuDNN runtime on the target machine.
-cuda = ["ort/cuda"]
-
-[dev-dependencies]
-tempfile = "3"
-
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
-panic = "abort"
-strip = true
+cuda = ["deckpress-core/cuda"]

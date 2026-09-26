@@ -34,6 +34,15 @@ pub struct Guide {
     pub y2: f64,
 }
 
+/// Circle-and-crosshair target printed on both sides of a duplex sheet so
+/// front/back alignment can be checked against the light.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Registration {
+    pub x: f64,
+    pub y: f64,
+    pub radius: f64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PrintLayout {
     pub width: f64,
@@ -42,7 +51,15 @@ pub struct PrintLayout {
     pub rows: u32,
     pub slots: Vec<Slot>,
     pub guides: Vec<Guide>,
+    pub registration: Vec<Registration>,
+    /// Baseline of the sheet label in the bottom margin, if there is room.
+    pub label_baseline: Option<f64>,
 }
+
+/// Registration targets and the label only appear when the sheet has marks
+/// at all; `guides: none` means a clean page.
+pub const REGISTRATION_RADIUS_MM: f64 = 1.5;
+const LABEL_SIZE_PT: f64 = 5.0;
 
 fn dedup(values: impl Iterator<Item = f64>) -> Vec<f64> {
     let mut out: Vec<f64> = Vec::new();
@@ -126,6 +143,8 @@ pub fn create_layout(options: &PrintSettings) -> AppResult<PrintLayout> {
             .flat_map(|slot| [slot.trim.y, slot.trim.y + card_height]),
     );
     let mut guides = Vec::new();
+    let mut registration = Vec::new();
+    let mut label_baseline = None;
     match options.guides {
         Guides::Full => {
             for &x in &xs {
@@ -150,6 +169,35 @@ pub fn create_layout(options: &PrintSettings) -> AppResult<PrintLayout> {
             let length = mm_to_pt(options.guide_length_mm);
             let vertical = length.min(y0 - offset - 0.5);
             let horizontal = length.min(x0 - offset - 0.5);
+            // Corner marks for every card: a tick along each trim-line
+            // extension inside every interior gutter, inset by the offset so
+            // no ink reaches the trim edge. Nothing fits when bleed and gap
+            // are both zero; the outer marks still line up every cut.
+            let gutter = 2.0 * bleed + gap;
+            if gutter - 2.0 * offset > mm_to_pt(0.2) {
+                for row in 1..rows as u32 {
+                    let top = y0 + f64::from(row) * (cell_height + gap);
+                    for &x in &xs {
+                        guides.push(Guide {
+                            x1: x,
+                            x2: x,
+                            y1: top - gap - bleed + offset,
+                            y2: top + bleed - offset,
+                        });
+                    }
+                }
+                for column in 1..columns as u32 {
+                    let left = x0 + f64::from(column) * (cell_width + gap);
+                    for &y in &ys {
+                        guides.push(Guide {
+                            y1: y,
+                            y2: y,
+                            x1: left - gap - bleed + offset,
+                            x2: left + bleed - offset,
+                        });
+                    }
+                }
+            }
             if vertical > 0.0 {
                 for &x in &xs {
                     guides.push(Guide {
@@ -185,6 +233,40 @@ pub fn create_layout(options: &PrintSettings) -> AppResult<PrintLayout> {
         }
         Guides::None => {}
     }
+    if options.guides != Guides::None {
+        let radius = mm_to_pt(REGISTRATION_RADIUS_MM);
+        let clearance = radius + mm_to_pt(1.0);
+        let duplex = matches!(options.backs, Backs::LongEdge | Backs::ShortEdge);
+        if duplex {
+            if y0 / 2.0 >= clearance {
+                registration.push(Registration {
+                    x: width / 2.0,
+                    y: y0 / 2.0,
+                    radius,
+                });
+            }
+            if x0 / 2.0 >= clearance {
+                registration.push(Registration {
+                    x: x0 / 2.0,
+                    y: height / 2.0,
+                    radius,
+                });
+                registration.push(Registration {
+                    x: width - x0 / 2.0,
+                    y: height / 2.0,
+                    radius,
+                });
+            }
+        }
+        let marks_end = match options.guides {
+            Guides::Crop => mm_to_pt(options.guide_offset_mm + options.guide_length_mm),
+            _ => 0.0,
+        };
+        let baseline = height - y0 + marks_end + LABEL_SIZE_PT * 1.6;
+        if height - baseline >= mm_to_pt(4.0) {
+            label_baseline = Some(baseline);
+        }
+    }
     Ok(PrintLayout {
         width,
         height,
@@ -192,6 +274,8 @@ pub fn create_layout(options: &PrintSettings) -> AppResult<PrintLayout> {
         rows: rows as u32,
         slots,
         guides,
+        registration,
+        label_baseline,
     })
 }
 
@@ -229,7 +313,52 @@ mod tests {
         assert_eq!(layout.slots.len(), 9);
         assert!((layout.width - 595.2756).abs() < 0.001);
         assert!((layout.height - 841.8898).abs() < 0.001);
-        assert_eq!(layout.guides.len(), 24);
+        // 24 outer marks plus a tick on every trim line in each of the two
+        // interior gutters: 2 gutters x 6 trim lines, both ways.
+        assert_eq!(layout.guides.len(), 48);
+        assert!(layout.registration.is_empty());
+        assert!(layout.label_baseline.is_some());
+    }
+
+    #[test]
+    fn interior_marks_stay_inside_the_bleed() {
+        let layout = create_layout(&PrintSettings::default()).unwrap();
+        let first = layout.slots[0].trim;
+        let below = layout.slots[3].trim;
+        let tick = layout
+            .guides
+            .iter()
+            .find(|g| g.x1 == first.x && g.y1 > first.y + first.height && g.y2 < below.y)
+            .expect("tick between rows");
+        assert!((tick.y1 - (first.y + first.height + mm_to_pt(0.5))).abs() < 1e-9);
+        assert!((tick.y2 - (below.y - mm_to_pt(0.5))).abs() < 1e-9);
+    }
+
+    #[test]
+    fn no_interior_marks_without_bleed_or_gap() {
+        let settings = PrintSettings {
+            bleed_mm: 0.0,
+            ..PrintSettings::default()
+        };
+        // Shared trim edges collapse to 4 lines each way: 16 outer marks.
+        assert_eq!(create_layout(&settings).unwrap().guides.len(), 16);
+    }
+
+    #[test]
+    fn duplex_sheets_get_registration_targets() {
+        let settings = PrintSettings {
+            backs: Backs::LongEdge,
+            ..PrintSettings::default()
+        };
+        let layout = create_layout(&settings).unwrap();
+        assert_eq!(layout.registration.len(), 3);
+        let clean = PrintSettings {
+            guides: Guides::None,
+            ..settings
+        };
+        let layout = create_layout(&clean).unwrap();
+        assert!(layout.registration.is_empty());
+        assert!(layout.label_baseline.is_none());
     }
 
     #[test]

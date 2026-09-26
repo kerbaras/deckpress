@@ -15,11 +15,11 @@ use tauri::http::{header, Request, Response, StatusCode};
 use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 
 use crate::commands::AppState;
-use crate::error::{AppError, AppResult};
-use crate::images::{mime_for, Images};
-use crate::models::{Art, PrintSettings};
-use crate::raster::{encode_jpeg, rasterize};
-use crate::upscaler::CancelToken;
+use deckpress_core::error::{AppError, AppResult};
+use deckpress_core::images::{mime_for, Images};
+use deckpress_core::models::{Art, PrintSettings};
+use deckpress_core::raster::{encode_jpeg, rasterize};
+use deckpress_core::upscaler::CancelToken;
 
 pub const IMAGE_SCHEME: &str = "dpimg";
 pub const PREVIEW_DPI: u32 = 150;
@@ -81,7 +81,7 @@ async fn preview(
     }
     let art = request.art;
     let dir = preview_dir.to_path_buf();
-    tauri::async_runtime::spawn_blocking(move || -> AppResult<Vec<u8>> {
+    tokio::task::spawn_blocking(move || -> AppResult<Vec<u8>> {
         let output = rasterize(
             &source,
             &art,
@@ -92,7 +92,7 @@ async fn preview(
         )?;
         let bytes = encode_jpeg(&output.image, 85)?;
         std::fs::create_dir_all(&dir)?;
-        let tmp = path.with_extension(format!("part-{}", crate::models::new_id()));
+        let tmp = path.with_extension(format!("part-{}", deckpress_core::models::new_id()));
         std::fs::write(&tmp, &bytes)?;
         std::fs::rename(&tmp, &path)?;
         Ok(bytes)

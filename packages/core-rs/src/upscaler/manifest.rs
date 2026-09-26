@@ -16,7 +16,7 @@ use super::tiling::{TiledUpscaler, DEFAULT_OVERLAP};
 use super::Upscaler;
 use crate::error::{AppError, AppResult};
 
-const MANIFEST: &str = include_str!("../../resources/models/models.json");
+const MANIFEST: &str = include_str!("../../models.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -269,14 +269,17 @@ impl ModelManager {
 mod tests {
     use super::*;
 
+    /// The ONNX files ship with the desktop app, not with this crate.
+    fn bundled_resources() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/src-tauri/resources")
+    }
+
     #[test]
     fn manifest_has_one_default_and_bundled_files_match_their_digests() {
         let specs = specs();
         assert_eq!(specs.iter().filter(|s| s.tier == "default").count(), 1);
         for spec in specs.iter().filter(|s| s.bundled) {
-            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("resources/models")
-                .join(&spec.file);
+            let path = bundled_resources().join("models").join(&spec.file);
             assert_eq!(sha256_file(&path).unwrap(), spec.sha256, "{}", spec.id);
             assert_eq!(
                 std::fs::metadata(&path).unwrap().len(),
@@ -292,9 +295,8 @@ mod tests {
 
     #[test]
     fn bundled_model_runs_on_cpu_and_produces_a_4x_tile() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let dir = tempfile::tempdir().unwrap();
-        let manager = ModelManager::new(root.join("resources"), dir.path()).unwrap();
+        let manager = ModelManager::new(bundled_resources(), dir.path()).unwrap();
         let upscaler = manager.upscaler(&default_model_id()).unwrap();
         let info = upscaler.info();
         assert_eq!(info.scale, 4);

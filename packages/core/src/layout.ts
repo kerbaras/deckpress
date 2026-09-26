@@ -18,6 +18,12 @@ export interface Guide {
   x2: number;
   y2: number;
 }
+/** Circle-and-crosshair target printed on both sides of a duplex sheet. */
+export interface Registration {
+  x: number;
+  y: number;
+  radius: number;
+}
 export interface PrintLayout {
   width: number;
   height: number;
@@ -25,7 +31,13 @@ export interface PrintLayout {
   rows: number;
   slots: Slot[];
   guides: Guide[];
+  registration: Registration[];
+  /** Baseline of the sheet label in the bottom margin, if there is room. */
+  labelBaseline: number | null;
 }
+
+export const REGISTRATION_RADIUS_MM = 1.5;
+export const LABEL_SIZE_PT = 5;
 
 export function createLayout(input: PrintSettings): PrintLayout {
   const options = printSettingsSchema.parse(input);
@@ -89,6 +101,8 @@ export function createLayout(input: PrintSettings): PrintLayout {
       });
     }
   const guides: Guide[] = [];
+  const registration: Registration[] = [];
+  let labelBaseline: number | null = null;
   const xs = [
     ...new Set(slots.flatMap((slot) => [slot.trim.x, slot.trim.x + cardWidth])),
   ];
@@ -105,6 +119,31 @@ export function createLayout(input: PrintSettings): PrintLayout {
     const length = mmToPt(options.guideLengthMm);
     const vertical = Math.min(length, y0 - offset - 0.5);
     const horizontal = Math.min(length, x0 - offset - 0.5);
+    // Corner marks for every card: a tick along each trim-line extension in
+    // every interior gutter, inset by the offset so no ink reaches the trim.
+    const gutter = 2 * bleed + gap;
+    if (gutter - 2 * offset > mmToPt(0.2)) {
+      for (let row = 1; row < rows; row++) {
+        const top = y0 + row * (cellHeight + gap);
+        for (const x of xs)
+          guides.push({
+            x1: x,
+            x2: x,
+            y1: top - gap - bleed + offset,
+            y2: top + bleed - offset,
+          });
+      }
+      for (let column = 1; column < columns; column++) {
+        const left = x0 + column * (cellWidth + gap);
+        for (const y of ys)
+          guides.push({
+            y1: y,
+            y2: y,
+            x1: left - gap - bleed + offset,
+            x2: left + bleed - offset,
+          });
+      }
+    }
     if (vertical > 0)
       for (const x of xs) {
         guides.push({
@@ -136,7 +175,36 @@ export function createLayout(input: PrintSettings): PrintLayout {
         });
       }
   }
-  return { width, height, columns, rows, slots, guides };
+  if (options.guides !== "none") {
+    const radius = mmToPt(REGISTRATION_RADIUS_MM);
+    const clearance = radius + mmToPt(1);
+    const duplex =
+      options.backs === "long-edge" || options.backs === "short-edge";
+    if (duplex) {
+      if (y0 / 2 >= clearance)
+        registration.push({ x: width / 2, y: y0 / 2, radius });
+      if (x0 / 2 >= clearance) {
+        registration.push({ x: x0 / 2, y: height / 2, radius });
+        registration.push({ x: width - x0 / 2, y: height / 2, radius });
+      }
+    }
+    const marksEnd =
+      options.guides === "crop"
+        ? mmToPt(options.guideOffsetMm + options.guideLengthMm)
+        : 0;
+    const baseline = height - y0 + marksEnd + LABEL_SIZE_PT * 1.6;
+    if (height - baseline >= mmToPt(4)) labelBaseline = baseline;
+  }
+  return {
+    width,
+    height,
+    columns,
+    rows,
+    slots,
+    guides,
+    registration,
+    labelBaseline,
+  };
 }
 
 export function duplexSlot(

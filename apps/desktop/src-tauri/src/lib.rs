@@ -1,18 +1,10 @@
-//! Deckpress desktop: Rust core behind Tauri commands. See `commands` for the
-//! API the webview calls and `protocol` for how images reach `<img>` tags.
+//! Deckpress desktop: a thin Tauri shell over `deckpress_core`. `commands`
+//! maps IPC calls onto the core services, `protocol` serves images to `<img>`
+//! tags, `window` handles the custom title bar.
 
 pub mod commands;
-pub mod error;
-pub mod images;
-pub mod jobs;
-pub mod layout;
-pub mod models;
-pub mod pdf;
 pub mod protocol;
-pub mod providers;
-pub mod raster;
-pub mod store;
-pub mod upscaler;
+pub mod window;
 
 use std::path::PathBuf;
 
@@ -37,10 +29,11 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(protocol::IMAGE_SCHEME, protocol::handle)
         .setup(|app| {
             let resource_dir = app.path().resource_dir()?.join("resources");
-            let state = AppState::new(&data_dir(app), &resource_dir)?;
-            state.jobs.start();
+            let runtime = tauri::async_runtime::handle().inner().clone();
+            let state = AppState::open(&data_dir(app), &resource_dir, runtime)?;
             log::info!("Deckpress data in {}", state.data_dir.display());
             app.manage(state);
+            window::setup(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -68,6 +61,7 @@ pub fn run() {
             commands::save_pdf,
             commands::save_text,
             commands::open_data_dir,
+            window::window_chrome,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Deckpress");

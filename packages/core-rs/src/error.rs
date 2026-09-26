@@ -64,7 +64,7 @@ internal_from!(
     serde_json::Error,
     image::ImageError,
     reqwest::Error,
-    tauri::Error,
+    tokio::task::JoinError,
     krilla::error::KrillaError,
     fast_image_resize::ResizeError,
     fast_image_resize::ImageBufferError,

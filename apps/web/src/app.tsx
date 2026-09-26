@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   ArrowRight,
-  Check,
   Download,
   FolderOpen,
   HardDrive,
@@ -10,6 +9,7 @@ import {
   Layers3,
   ExternalLink as LinkIcon,
   Printer,
+  RefreshCw,
   Settings2,
   ShieldCheck,
   X,
@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, fetchHealth, type ModelStatus } from "./api.ts";
 import { Library } from "./library.tsx";
+import { type Crumb, TitleBar } from "./titlebar.tsx";
 import {
   ErrorNotice,
   ExternalLink,
@@ -29,8 +30,27 @@ import { Workspace } from "./workspace.tsx";
 const routeFromHash = () =>
   window.location.hash.replace(/^#\/?/, "") || "decks";
 
+const sections = [
+  { id: "decks", name: "Decks", icon: Layers3 },
+  { id: "sources", name: "Art sources", icon: Images },
+  { id: "jobs", name: "Print jobs", icon: Printer },
+  { id: "settings", name: "Settings", icon: Settings2 },
+];
+
+const SIDEBAR_KEY = "deckpress.sidebar";
+
+function readSidebar(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_KEY) !== "closed";
+  } catch {
+    return true;
+  }
+}
+
 export function App() {
   const [route, setRoute] = useState(routeFromHash);
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebar);
+  const [newDeckRequest, setNewDeckRequest] = useState(0);
   const routeRef = useRef(route);
   const dirty = useRef(false);
   const onDirty = useCallback((value: boolean) => {
@@ -47,9 +67,10 @@ export function App() {
       dirty.current &&
       !window.confirm("Leave this deck and discard unsaved changes?")
     )
-      return;
+      return false;
     dirty.current = false;
     window.location.hash = `/${next}`;
+    return true;
   };
   useEffect(() => {
     const change = () => {
@@ -65,7 +86,8 @@ export function App() {
       dirty.current = false;
       routeRef.current = next;
       setRoute(next);
-      window.scrollTo(0, 0);
+      const main = document.getElementById("main");
+      if (main) main.scrollTop = 0;
     };
     const unload = (event: BeforeUnloadEvent) => {
       if (dirty.current) event.preventDefault();
@@ -77,9 +99,52 @@ export function App() {
       window.removeEventListener("beforeunload", unload);
     };
   }, []);
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((open) => {
+      try {
+        window.localStorage.setItem(SIDEBAR_KEY, open ? "closed" : "open");
+      } catch {
+        // Private mode or a full disk; the toggle still works for now.
+      }
+      return !open;
+    });
+  }, []);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [toggleSidebar]);
   const deckId = /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
+  const openDeck = useQuery({
+    queryKey: ["deck", deckId],
+    queryFn: ({ signal }) => api.deck(deckId as string, signal),
+    enabled: !!deckId,
+  });
+  const section =
+    sections.find((item) => route.startsWith(item.id)) ?? sections[0];
+  const crumbs: Crumb[] = deckId
+    ? [
+        { name: "Decks", route: "decks" },
+        { name: openDeck.data?.name ?? "Deck" },
+      ]
+    : section && section.id !== "decks"
+      ? [{ name: "Decks", route: "decks" }, { name: section.name }]
+      : [{ name: "Decks" }];
+  const newDeck = () => {
+    if (navigate("decks")) setNewDeckRequest((count) => count + 1);
+  };
+  const engine = health.isPending
+    ? "Starting the local engine"
+    : health.isError
+      ? "Local engine unavailable. Click to retry."
+      : "Local engine running. Everything is saved on this machine.";
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-sidebar={sidebarOpen ? "open" : "closed"}>
       <button
         type="button"
         className="skip-link"
@@ -87,90 +152,77 @@ export function App() {
       >
         Skip to content
       </button>
-      <aside className="sidebar">
-        <button
-          type="button"
-          className="brand"
-          aria-label="Deckpress home"
-          onClick={() => navigate("decks")}
-        >
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 28 28"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            aria-hidden="true"
-          >
-            <rect x="3" y="7" width="14" height="18" rx="3" />
-            <path d="M10 3h12a3 3 0 0 1 3 3v15" />
-            <path d="m8 16 2 3 3-6" />
-          </svg>
-          <span>Deckpress</span>
-        </button>
-        <nav aria-label="Main navigation">
-          {[
-            { id: "decks", name: "Decks", icon: Layers3 },
-            { id: "sources", name: "Art sources", icon: Images },
-            { id: "jobs", name: "Print jobs", icon: Printer },
-            { id: "settings", name: "Settings", icon: Settings2 },
-          ].map(({ id, name, icon: Icon }) => (
+      <TitleBar
+        crumbs={crumbs}
+        route={route}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={toggleSidebar}
+        onNavigate={navigate}
+        onNewDeck={newDeck}
+      />
+      <div className="app-body">
+        <aside className="sidebar" aria-hidden={!sidebarOpen}>
+          <nav aria-label="Main navigation">
+            {sections.map(({ id, name, icon: Icon }) => (
+              <button
+                type="button"
+                key={id}
+                aria-label={name}
+                title={name}
+                aria-current={route.startsWith(id) ? "page" : undefined}
+                onClick={() => navigate(id)}
+              >
+                <Icon size={17} />
+                <span>{name}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-bottom">
             <button
               type="button"
-              key={id}
-              aria-label={name}
-              title={name}
-              aria-current={route.startsWith(id) ? "page" : undefined}
-              onClick={() => navigate(id)}
+              className="connection"
+              title={engine}
+              aria-label={engine}
+              onClick={() => void health.refetch()}
             >
-              <Icon size={18} />
-              <span>{name}</span>
+              <span
+                className={`status-dot ${health.isError ? "offline" : ""}`}
+              />
+              <HardDrive size={13} aria-hidden="true" />
+              <span>
+                {health.isPending
+                  ? "Starting…"
+                  : health.isError
+                    ? "Engine unavailable"
+                    : "Local, no cloud"}
+              </span>
             </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <span className="local-label">
-            <HardDrive size={14} />
-            <span>Local workspace</span>
-          </span>
-          <button
-            type="button"
-            className="connection"
-            title="Check the local engine"
-            onClick={() => void health.refetch()}
-          >
-            <span className={`status-dot ${health.isError ? "offline" : ""}`} />
-            <span>
-              {health.isPending
-                ? "Starting…"
-                : health.isError
-                  ? "Engine unavailable · retry"
-                  : "Saved on this machine"}
-            </span>
-          </button>
-          <p>No account. No cloud sync.</p>
-        </div>
-      </aside>
-      <main id="main" className="main-content" tabIndex={-1}>
-        {deckId ? (
-          <Workspace
-            key={deckId}
-            id={deckId}
-            onDirty={onDirty}
-            onBack={() => navigate("decks")}
-            onJobs={() => navigate("jobs", true)}
-          />
-        ) : route === "jobs" ? (
-          <PrintJobs />
-        ) : route === "settings" ? (
-          <LocalSettings />
-        ) : route === "sources" ? (
-          <Sources onDecks={() => navigate("decks")} />
-        ) : (
-          <Library open={(id) => navigate(`decks/${id}`)} />
-        )}
-      </main>
+          </div>
+        </aside>
+        <main id="main" className="main-content" tabIndex={-1}>
+          {deckId ? (
+            <Workspace
+              key={deckId}
+              id={deckId}
+              onDirty={onDirty}
+              onBack={() => navigate("decks")}
+              onJobs={() => navigate("jobs", true)}
+            />
+          ) : route === "jobs" ? (
+            <PrintJobs />
+          ) : route === "settings" ? (
+            <LocalSettings />
+          ) : route === "sources" ? (
+            <Sources onDecks={() => navigate("decks")} />
+          ) : (
+            <Library
+              open={(id) => navigate(`decks/${id}`)}
+              createRequest={newDeckRequest}
+              onCreateHandled={() => setNewDeckRequest(0)}
+            />
+          )}
+        </main>
+      </div>
     </div>
   );
 }
@@ -194,8 +246,14 @@ function PrintJobs() {
         <h1>Print jobs</h1>
         <div className="spacer" />
         <span className="muted">Processed on this machine</span>
-        <button type="button" onClick={() => void query.refetch()}>
-          Refresh
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Refresh print jobs"
+          title="Refresh"
+          onClick={() => void query.refetch()}
+        >
+          <RefreshCw size={15} />
         </button>
       </header>
       <div className="page-content">
@@ -208,10 +266,8 @@ function PrintJobs() {
         ) : !query.data?.length ? (
           <div className="empty-state">
             <Printer size={38} />
-            <h2>Ready when your deck is.</h2>
-            <p>
-              Open a deck, choose Print setup, then generate your first PDF.
-            </p>
+            <h2>No print jobs yet</h2>
+            <p>Open a deck, choose Print setup, then generate a PDF.</p>
           </div>
         ) : (
           <div className="jobs-list">
@@ -263,6 +319,9 @@ function PrintJobs() {
                       </button>
                       <button
                         type="button"
+                        className="icon-button"
+                        aria-label="Save a copy"
+                        title="Save a copy…"
                         disabled={task.busy}
                         onClick={() =>
                           void task.run(async () => {
@@ -276,22 +335,26 @@ function PrintJobs() {
                         }
                       >
                         <Download size={16} />
-                        Save as…
                       </button>
                       <button
                         type="button"
+                        className="icon-button"
+                        aria-label="Show in folder"
+                        title="Show in folder"
                         disabled={task.busy}
                         onClick={() =>
                           void task.run(() => api.revealPdf(job.id))
                         }
                       >
                         <FolderOpen size={16} />
-                        Show file
                       </button>
                     </>
                   ) : ["queued", "running"].includes(job.status) ? (
                     <button
                       type="button"
+                      className="icon-button danger"
+                      aria-label="Cancel export"
+                      title="Cancel export"
                       disabled={task.busy}
                       onClick={() =>
                         void task.run(async () => {
@@ -301,7 +364,6 @@ function PrintJobs() {
                       }
                     >
                       <X size={15} />
-                      Cancel export
                     </button>
                   ) : null}
                 </div>
@@ -334,7 +396,7 @@ function LocalSettings() {
       <header className="page-header">
         <h1>Settings</h1>
         <div className="spacer" />
-        <span className="muted">Your local print workshop</span>
+        <span className="muted">Stored on this machine</span>
       </header>
       <div className="page-content settings-page">
         <ErrorNotice
@@ -387,9 +449,14 @@ function LocalSettings() {
             than the compact one.
           </p>
           <div className="toolbar">
-            <button type="button" onClick={() => void query.refetch()}>
-              <Check size={15} />
-              Refresh status
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Refresh model status"
+              title="Refresh status"
+              onClick={() => void query.refetch()}
+            >
+              <RefreshCw size={15} />
             </button>
             <ExternalLink href="https://github.com/xinntao/Real-ESRGAN">
               Real-ESRGAN & license
@@ -427,7 +494,7 @@ function LocalSettings() {
           </p>
         </section>
         <section className="panel settings-card">
-          <h2>Resolution, without the fine print</h2>
+          <h2>Resolution and DPI</h2>
           <p>
             A typical Scryfall PNG is about 745 × 1040 pixels, roughly 300 DPI
             at card size. Setting 1200 DPI alone resamples those pixels. AI
@@ -507,15 +574,10 @@ function Sources({ onDecks }: { onDecks: () => void }) {
       </header>
       <div className="page-content sources-page">
         <div className="source-intro">
-          <span className="eyebrow">One card, many editions</span>
-          <h2>
-            Find a look that
-            <br />
-            <em>belongs in your deck.</em>
-          </h2>
+          <h2>Where card images come from</h2>
           <p>
-            Choose a card in Art studio to browse these sources side by side.
-            Your original printing always stays on the left.
+            Select a card in Art studio to browse these sources side by side.
+            The original printing always stays on the left.
           </p>
         </div>
         <div className="source-list">

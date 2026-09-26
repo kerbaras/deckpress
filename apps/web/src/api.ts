@@ -94,12 +94,28 @@ export interface ImportResult {
   format: string;
 }
 export type Preferences = z.infer<typeof preferencesSchema>;
+export const windowChromeSchema = z.object({
+  platform: z.enum(["macos", "windows", "linux"]),
+  customControls: z.boolean(),
+  insetLeft: z.number(),
+});
+export type WindowChrome = z.infer<typeof windowChromeSchema>;
+/** Used when the command is unavailable (browser dev server, tests). */
+export const defaultWindowChrome: WindowChrome = {
+  platform: "linux",
+  customControls: false,
+  insetLeft: 0,
+};
 const nothing = z
   .null()
   .or(z.undefined())
   .transform(() => undefined);
 
 export const api = {
+  windowChrome: () =>
+    command("window_chrome", windowChromeSchema).catch(
+      () => defaultWindowChrome,
+    ),
   decks: (_signal?: AbortSignal) => command("list_decks", z.array(deckSchema)),
   deck: (id: string, _signal?: AbortSignal) =>
     command("get_deck", deckSchema, { id }),

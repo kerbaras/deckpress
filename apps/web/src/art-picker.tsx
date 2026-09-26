@@ -342,9 +342,15 @@ function ArtSession({
       <div className="comparison">
         <Monitor label="Original" art={original} zoom={zoom} />
         <Monitor label="Selected" art={candidate} zoom={zoom} selected>
-          <button type="button" onClick={() => setCandidate(original)}>
-            <RotateCcw size={13} />
-            Reset to original
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Reset to original art"
+            title="Reset to original art"
+            disabled={candidate?.id === original?.id}
+            onClick={() => setCandidate(original)}
+          >
+            <RotateCcw size={14} />
           </button>
         </Monitor>
       </div>
@@ -453,9 +459,14 @@ function ArtSession({
             />
             Official only
           </label>
-          <button type="button" onClick={() => setUpload(true)}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Upload your own art"
+            title="Upload your own art"
+            onClick={() => setUpload(true)}
+          >
             <Upload size={15} />
-            Upload art
           </button>
         </div>
         <div className="toolbar filter-toolbar">

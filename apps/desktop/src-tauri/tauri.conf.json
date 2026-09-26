@@ -12,16 +12,20 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Deckpress",
         "width": 1440,
         "height": 940,
         "minWidth": 1024,
-        "minHeight": 700
+        "minHeight": 700,
+        "center": true
       }
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: dpimg: http://dpimg.localhost; connect-src ipc: http://ipc.localhost dpimg: http://dpimg.localhost; font-src 'self' data:",
-      "assetProtocol": { "enable": false }
+      "assetProtocol": {
+        "enable": false
+      }
     }
   },
   "bundle": {
@@ -35,7 +39,6 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/models/models.json": "resources/models/models.json",
       "resources/models/README.md": "resources/models/README.md",
       "resources/models/realesr-general-x4v3-dn50-256.fp16.onnx": "resources/models/realesr-general-x4v3-dn50-256.fp16.onnx",
       "resources/models/realesr-animevideov3-256.fp16.onnx": "resources/models/realesr-animevideov3-256.fp16.onnx"

@@ -106,7 +106,6 @@ function renderWithClient(ui: ReactNode) {
 
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
-  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(
     function (this: HTMLDialogElement) {
       this.setAttribute("open", "");

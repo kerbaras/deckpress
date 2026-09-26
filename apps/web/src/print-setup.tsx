@@ -5,6 +5,7 @@ import {
   type Deck,
   duplexSlot,
   frontArt,
+  LABEL_SIZE_PT,
   mmToPixels,
   type PrintSettings,
   printableEntries,
@@ -395,7 +396,7 @@ export function PrintSetup({
                   })
                 }
               >
-                <option value="crop">Outer crop marks</option>
+                <option value="crop">Crop marks (sheet and card)</option>
                 <option value="full">Full cutting lines</option>
                 <option value="none">None</option>
               </select>
@@ -439,12 +440,20 @@ export function PrintSetup({
                   max={5}
                   set={(value) => change({ guideOffsetMm: value })}
                 />
+                <p className="hint">
+                  Marks in the sheet margin line up every cut. Each card also
+                  gets corner ticks in the bleed between neighbours
+                  {settings.bleedMm + settings.gapMm <= 0.5
+                    ? "; add bleed or a gap to make room for them"
+                    : ""}
+                  . Duplex sheets add registration targets on both faces.
+                </p>
               </>
             )}
             {settings.guides === "full" && (
               <p className="hint warning-text">
-                Full lines cross the trim edges. Use outer crop marks if you do
-                not want ink along the cut.
+                Full lines cross the trim edges. Use crop marks if you do not
+                want ink along the cut.
               </p>
             )}
           </section>
@@ -768,6 +777,43 @@ export function PrintSetup({
                         strokeWidth={settings.guideWidthPt}
                       />
                     ))}
+                  {layout.registration.map((mark) => (
+                    <g
+                      key={`${mark.x}:${mark.y}`}
+                      fill="none"
+                      stroke={settings.guideColor}
+                      strokeWidth={0.25}
+                    >
+                      <circle cx={mark.x} cy={mark.y} r={mark.radius} />
+                      <line
+                        x1={mark.x - mark.radius * 1.6}
+                        x2={mark.x + mark.radius * 1.6}
+                        y1={mark.y}
+                        y2={mark.y}
+                      />
+                      <line
+                        x1={mark.x}
+                        x2={mark.x}
+                        y1={mark.y - mark.radius * 1.6}
+                        y2={mark.y + mark.radius * 1.6}
+                      />
+                    </g>
+                  ))}
+                  {layout.labelBaseline !== null && layout.slots[0] && (
+                    <text
+                      x={layout.slots[0].x}
+                      y={layout.labelBaseline}
+                      fill={settings.guideColor}
+                      fontSize={LABEL_SIZE_PT}
+                      fontFamily="ui-monospace, monospace"
+                    >
+                      {deck.name.toUpperCase().slice(0, 40)} / SHEET{" "}
+                      {currentPage + 1} OF {totalSheets} /{" "}
+                      {back ? "BACKS" : "FRONTS"} / {settings.cardWidthMm} X{" "}
+                      {settings.cardHeightMm} MM + {settings.bleedMm} MM BLEED /{" "}
+                      {settings.dpi} DPI / PRINT AT 100%
+                    </text>
+                  )}
                 </svg>
               ) : (
                 <div className="empty-state">
