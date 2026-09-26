@@ -1,4 +1,3 @@
-import type { Card, DeckEntry } from "./core/index.ts";
 import {
   useInfiniteQuery,
   useQuery,
@@ -14,7 +13,7 @@ import {
   Trash2,
   Wand2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   type BuilderOptions,
@@ -22,6 +21,7 @@ import {
   type BuilderSummary,
   type Suggestion,
 } from "./api.ts";
+import type { Card, DeckEntry } from "./core/index.ts";
 import {
   addCard,
   blocker,
@@ -31,6 +31,7 @@ import {
   deckFormatOf,
   defaultDeckName,
   emptyState,
+  fitEntries,
   isLand,
   mergeEntries,
   orderEntries,
@@ -64,9 +65,11 @@ import {
 export function DeckBuilder({
   onBack,
   onCreated,
+  onDirty,
 }: {
   onBack: () => void;
   onCreated: (id: string) => void;
+  onDirty: (dirty: boolean) => void;
 }) {
   const options = useQuery({
     queryKey: ["builder", "options"],
@@ -95,7 +98,12 @@ export function DeckBuilder({
     );
   }
   return (
-    <Wizard options={options.data} onBack={onBack} onCreated={onCreated} />
+    <Wizard
+      options={options.data}
+      onBack={onBack}
+      onCreated={onCreated}
+      onDirty={onDirty}
+    />
   );
 }
 
@@ -103,10 +111,12 @@ function Wizard({
   options,
   onBack,
   onCreated,
+  onDirty,
 }: {
   options: BuilderOptions;
   onBack: () => void;
   onCreated: (id: string) => void;
+  onDirty: (dirty: boolean) => void;
 }) {
   const client = useQueryClient();
   const [state, setState] = useState<WizardState>(emptyState);
@@ -118,8 +128,16 @@ function Wizard({
   const step: StepId = steps[Math.min(index, steps.length - 1)] ?? "format";
   const stop = blocker(state, step, options.themes);
   const spec = toSpec(state);
-  const update = (patch: Partial<WizardState>) =>
-    setState((current) => ({ ...current, ...patch }));
+  const update = (patch: Partial<WizardState>) => {
+    const next = { ...state, ...patch };
+    setEntries(fitEntries(entries, state, next));
+    setState(next);
+  };
+  const picked = entries.some((entry) => entry.zone !== "commander");
+  useEffect(() => {
+    onDirty(picked);
+    return () => onDirty(false);
+  }, [picked, onDirty]);
   const styleName =
     options.styles.find((style) => style.id === state.style)?.name ?? "";
   const themeName =
@@ -151,6 +169,7 @@ function Wizard({
         ...(cover ? { coverEntryId: cover.id } : {}),
       });
       await client.invalidateQueries({ queryKey: ["decks"] });
+      onDirty(false);
       onCreated(deck.id);
     });
 
@@ -283,6 +302,8 @@ function CardsStage({
 }) {
   const [role, setRole] = useState("all");
   const fill = useTask();
+  const latest = useRef(entries);
+  latest.current = entries;
   const suggestions = useInfiniteQuery({
     queryKey: ["builder", "suggest", spec],
     queryFn: ({ pageParam, signal }) =>
@@ -315,6 +336,10 @@ function CardsStage({
   const runFill = () =>
     void fill.run(async () => {
       const added = await api.builderFill(spec, entries);
+      if (latest.current !== entries)
+        throw new Error(
+          "The deck changed while filling; use Fill remaining slots again",
+        );
       setEntries((current) => mergeEntries(current, added));
     });
   return (

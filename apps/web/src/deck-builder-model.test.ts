@@ -1,6 +1,6 @@
-import { artSchema, type Card } from "./core/index.ts";
 import { describe, expect, it } from "vitest";
 import type { BuilderFormat, BuilderTheme } from "./api.ts";
+import { artSchema, type Card } from "./core/index.ts";
 import {
   addCard,
   blocker,
@@ -9,6 +9,7 @@ import {
   deckFormatOf,
   defaultDeckName,
   emptyState,
+  fitEntries,
   mergeEntries,
   orderEntries,
   scorePercent,
@@ -173,6 +174,46 @@ describe("deck entries", () => {
     ]);
     expect(filled).toHaveLength(2);
     expect(copiesOf(filled, forest)).toBe(7);
+  });
+
+  it("drops picked cards that stop fitting the wizard settings", () => {
+    const red = { ...bolt, colors: ["R"] };
+    const green = {
+      ...card("Llanowar Elves", "Creature — Elf"),
+      colors: ["G"],
+    };
+    const picked = [...addCard([], red, 4), ...addCard([], green, 4)];
+    const rg = { ...emptyState, format: format({}), colors: ["R", "G"] };
+    expect(fitEntries(picked, rg, rg)).toEqual(picked);
+    expect(
+      fitEntries(picked, rg, { ...rg, colors: ["R"] }).map((e) => e.card.name),
+    ).toEqual(["Lightning Bolt"]);
+    expect(fitEntries(picked, rg, { ...rg, format: commander })).toEqual([]);
+
+    const wubg = { ...rg, format: commander, colors: [], commander: atraxa };
+    const withCommander = [commanderEntry(atraxa), ...picked];
+    const other = { ...atraxa, id: crypto.randomUUID(), colors: ["G"] };
+    const swapped = fitEntries(withCommander, wubg, {
+      ...wubg,
+      commander: other,
+    });
+    expect(swapped.map((e) => e.card.name)).toEqual(["Llanowar Elves"]);
+
+    const drafted = { ...rg, format: limited, set: "blb", colors: [] };
+    const inSet: Card = {
+      ...green,
+      faces: green.faces.map((face) => ({ ...face, set: "blb" })),
+    };
+    const kept = fitEntries(
+      [
+        ...addCard([], inSet, 4),
+        ...addCard([], red, 4),
+        ...addCard([], forest, 4),
+      ],
+      drafted,
+      drafted,
+    );
+    expect(kept.map((e) => e.card.name)).toEqual(["Llanowar Elves", "Forest"]);
   });
 
   it("orders commander first, then spells by mana value, lands last", () => {

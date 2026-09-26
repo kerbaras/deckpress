@@ -295,6 +295,7 @@ export function App() {
               <Sources />
             ) : route === "builder" ? (
               <DeckBuilder
+                onDirty={onDirty}
                 onBack={() => void navigate("decks")}
                 onCreated={(id) => void navigate(`decks/${id}`, true)}
               />

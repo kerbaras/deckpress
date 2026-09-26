@@ -1,5 +1,5 @@
-import { type Card, type Deck, type DeckEntry, formats } from "./core/index.ts";
 import type { BuilderFormat, BuilderSpec, BuilderTheme } from "./api.ts";
+import { type Card, type Deck, type DeckEntry, formats } from "./core/index.ts";
 
 /** Wizard steps in order; Commander decks pick a commander instead of colours. */
 export const stepIds = [
@@ -84,6 +84,32 @@ export function toSpec(state: WizardState): BuilderSpec | null {
     theme: state.theme,
     tribe: state.tribe.trim(),
   };
+}
+
+/**
+ * Drops picked cards that no longer fit the wizard settings: everything when
+ * the format changes, cards from another set for Draft/Limited, and cards
+ * outside the colour identity when colours (or the commander) change.
+ */
+export function fitEntries(
+  entries: DeckEntry[],
+  previous: WizardState,
+  next: WizardState,
+): DeckEntry[] {
+  if (next.format?.id !== previous.format?.id) return [];
+  const spec = toSpec(next);
+  if (!spec) return [];
+  const set = next.format?.needsSet ? spec.set.toLowerCase() : "";
+  const colors = spec.colors;
+  const anyColor = Boolean(set) && colors.length === 0;
+  return entries.filter((entry) => {
+    if (entry.zone === "commander") return entry.card.id === spec.commander?.id;
+    const printed = entry.card.faces[0]?.set.toLowerCase() ?? "";
+    if (set && printed !== set && !isBasic(entry.card)) return false;
+    return (
+      anyColor || entry.card.colors.every((color) => colors.includes(color))
+    );
+  });
 }
 
 /** The `Deck.format` label for a builder format; unknown labels fall back to Casual. */
