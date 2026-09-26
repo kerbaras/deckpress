@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
 
+use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, ExternalDeck};
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::UploadInput;
 use deckpress_core::models::{
@@ -361,6 +362,33 @@ pub async fn open_data_dir(state: State<'_, AppState>) -> AppResult<()> {
         tauri_plugin_opener::open_path(dir, None::<&str>)
     })
     .await
+}
+
+#[tauri::command]
+pub async fn search_decks(
+    state: State<'_, AppState>,
+    query: DeckQuery,
+    page: u32,
+) -> AppResult<DeckSearchPage> {
+    state.decksearch.search(query, page).await
+}
+
+#[tauri::command]
+pub async fn deck_detail(
+    state: State<'_, AppState>,
+    source: DeckSource,
+    id: String,
+) -> AppResult<ExternalDeck> {
+    state.decksearch.detail(source, &id).await
+}
+
+#[tauri::command]
+pub async fn import_external_deck(
+    state: State<'_, AppState>,
+    source: DeckSource,
+    id: String,
+) -> AppResult<ResolvedCards> {
+    state.decksearch.import(source, &id).await
 }
 
 // Deck builder wizard. All logic lives in `deckpress_core::builder`; these

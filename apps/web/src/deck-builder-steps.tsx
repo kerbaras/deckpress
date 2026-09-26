@@ -32,8 +32,8 @@ export function StepIntro({
 }) {
   return (
     <header className="builder-intro">
-      <h2>{title}</h2>
-      <p className="muted">{children}</p>
+      <h2 className="builder-intro-title">{title}</h2>
+      <p className="muted builder-intro-text">{children}</p>
     </header>
   );
 }

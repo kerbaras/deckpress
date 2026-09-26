@@ -4,6 +4,7 @@
 //! Tauri; the app maps its commands onto these types.
 
 pub mod builder;
+pub mod decksearch;
 pub mod error;
 pub mod images;
 pub mod jobs;
@@ -32,6 +33,7 @@ pub struct Core {
     pub jobs: Arc<jobs::Jobs>,
     pub style: Arc<style::StyleMatcher>,
     pub builder: Arc<builder::Builder>,
+    pub decksearch: Arc<decksearch::DeckSearch>,
 }
 
 impl Core {
@@ -64,6 +66,10 @@ impl Core {
             Arc::clone(&models),
         ));
         let builder = Arc::new(builder::Builder::new(Arc::clone(&providers)));
+        let decksearch = Arc::new(decksearch::DeckSearch::new(
+            Arc::clone(&store),
+            Arc::clone(&providers),
+        )?);
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
             store,
@@ -73,6 +79,7 @@ impl Core {
             jobs,
             style,
             builder,
+            decksearch,
         })
     }
 }

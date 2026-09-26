@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
+  Compass,
   Download,
   FolderOpen,
   HardDrive,
@@ -19,6 +20,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
+import { DeckSearch } from "./deck-search.tsx";
 import { Library } from "./library.tsx";
 import {
   PageToolbar,
@@ -43,6 +45,7 @@ const library = [
   { id: "decks", name: "Decks", icon: Layers3 },
   { id: "jobs", name: "Print jobs", icon: Printer },
   { id: "sources", name: "Art sources", icon: Images },
+  { id: "discover", name: "Discover", icon: Compass },
   { id: "builder", name: "Deck builder", icon: Wand2 },
 ];
 const RECENT_DECKS = 6;
@@ -293,6 +296,8 @@ export function App() {
               <LocalSettings />
             ) : route === "sources" ? (
               <Sources />
+            ) : route === "discover" ? (
+              <DeckSearch open={(id) => void navigate(`decks/${id}`)} />
             ) : route === "builder" ? (
               <DeckBuilder
                 onDirty={onDirty}
