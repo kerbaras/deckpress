@@ -1,3 +1,17 @@
+import { useQuery } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Download,
+  FlipHorizontal2,
+  PaintBucket,
+  Printer,
+  Save,
+  UnfoldHorizontal,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { api, previewSrc } from "./api.ts";
 import {
   type Art,
   backArt,
@@ -5,22 +19,12 @@ import {
   type Deck,
   duplexSlot,
   frontArt,
+  LABEL_SIZE_PT,
   mmToPixels,
   type PrintSettings,
   printableEntries,
   printSettingsSchema,
-} from "@deckpress/core";
-import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  Download,
-  Printer,
-  Save,
-} from "lucide-react";
-import { useEffect, useState } from "react";
-import { api } from "./api.ts";
+} from "./core/index.ts";
 import { ErrorNotice, useTask } from "./ui.tsx";
 
 const paperNames = {
@@ -32,6 +36,32 @@ const paperNames = {
   tabloid: "Tabloid",
   custom: "Custom",
 };
+
+export const bleedModes: {
+  value: PrintSettings["bleedMode"];
+  label: string;
+  description: string;
+  Icon: typeof FlipHorizontal2;
+}[] = [
+  {
+    value: "mirror",
+    label: "Mirror",
+    description: "Reflects the card edge so off-cuts stay on art (recommended)",
+    Icon: FlipHorizontal2,
+  },
+  {
+    value: "edge",
+    label: "Edge",
+    description: "Stretches the outermost pixels",
+    Icon: UnfoldHorizontal,
+  },
+  {
+    value: "solid",
+    label: "Solid",
+    description: "Flat colour",
+    Icon: PaintBucket,
+  },
+];
 
 export function PrintSetup({
   deck,
@@ -82,10 +112,13 @@ export function PrintSetup({
     ? Math.min(settings.pageTo, totalSheets)
     : totalSheets;
   const selectedSheets = Math.max(0, last - first);
+  const models = system.data?.models ?? [];
+  const selectedModel =
+    models.find((model) => model.id === settings.upscaleModel) ??
+    models.find((model) => model.id === system.data?.defaultModel);
+  const upscalerReady = !!selectedModel?.installed;
   const valid =
-    !!layout &&
-    selectedSheets > 0 &&
-    (!settings.upscale || system.data?.upscaler.available);
+    !!layout && selectedSheets > 0 && (!settings.upscale || upscalerReady);
   const currentPage = Math.max(first, Math.min(first + page, last - 1));
   const pageCards = layout
     ? cards.slice(
@@ -183,8 +216,8 @@ export function PrintSetup({
                 }}
               >
                 <option value="">Custom settings</option>
-                <option value="home">Home inkjet · A4 / 600 DPI</option>
-                <option value="letter">Home inkjet · Letter / 600 DPI</option>
+                <option value="home">Home inkjet · A4 / 800 DPI</option>
+                <option value="letter">Home inkjet · Letter / 800 DPI</option>
                 <option value="proof">Quick proof · A4 / 300 DPI</option>
                 <option value="shop">Print shop · A3 / 1200 DPI</option>
                 <option value="saved">Your saved preset</option>
@@ -352,26 +385,19 @@ export function PrintSetup({
               value={settings.bleedMm}
               set={(value) => change({ bleedMm: value })}
             />
-            <label className="setting-row">
-              Fill
-              <select
-                value={settings.bleedMode}
-                onChange={(event) =>
-                  change({
-                    bleedMode: event.target.value as PrintSettings["bleedMode"],
-                  })
-                }
-              >
-                <option value="solid">Solid color</option>
-                <option value="mirror">Mirror edge</option>
-                <option value="edge">Extend edge</option>
-              </select>
-            </label>
-            <label className="setting-row">
-              Border / corner color
+            <BleedModeControl
+              value={settings.bleedMode}
+              onChange={(bleedMode) => change({ bleedMode })}
+            />
+            <label
+              className="setting-row"
+              aria-disabled={settings.bleedMode !== "solid"}
+            >
+              Solid colour
               <input
                 type="color"
                 value={settings.bleedColor}
+                disabled={settings.bleedMode !== "solid"}
                 onChange={(event) => change({ bleedColor: event.target.value })}
               />
             </label>
@@ -392,7 +418,7 @@ export function PrintSetup({
                   })
                 }
               >
-                <option value="crop">Outer crop marks</option>
+                <option value="crop">Crop marks (sheet and card)</option>
                 <option value="full">Full cutting lines</option>
                 <option value="none">None</option>
               </select>
@@ -436,12 +462,20 @@ export function PrintSetup({
                   max={5}
                   set={(value) => change({ guideOffsetMm: value })}
                 />
+                <p className="hint">
+                  Marks in the sheet margin line up every cut. Each card also
+                  gets corner ticks in the bleed between neighbours
+                  {settings.bleedMm + settings.gapMm <= 0.5
+                    ? "; add bleed or a gap to make room for them"
+                    : ""}
+                  . Duplex sheets add registration targets on both faces.
+                </p>
               </>
             )}
             {settings.guides === "full" && (
               <p className="hint warning-text">
-                Full lines cross the trim edges. Use outer crop marks if you do
-                not want ink along the cut.
+                Full lines cross the trim edges. Use crop marks if you do not
+                want ink along the cut.
               </p>
             )}
           </section>
@@ -457,8 +491,9 @@ export function PrintSetup({
               >
                 <option value={300}>300 DPI · proof</option>
                 <option value={600}>600 DPI · home print</option>
-                <option value={1200}>1200 DPI · high resolution</option>
-                {![300, 600, 1200].includes(settings.dpi) && (
+                <option value={800}>800 DPI · recommended</option>
+                <option value={1200}>1200 DPI · print shop</option>
+                {![300, 600, 800, 1200].includes(settings.dpi) && (
                   <option value={settings.dpi}>{settings.dpi} DPI</option>
                 )}
               </select>
@@ -485,20 +520,53 @@ export function PrintSetup({
               <input
                 type="checkbox"
                 checked={settings.upscale}
-                disabled={!system.data?.upscaler.available}
+                disabled={!system.data}
                 onChange={(event) => change({ upscale: event.target.checked })}
               />
               Use local AI upscaling
             </label>
+            <label className="setting-row">
+              Model
+              <select
+                value={selectedModel?.id ?? ""}
+                disabled={!settings.upscale || models.length === 0}
+                onChange={(event) =>
+                  change({ upscaleModel: event.target.value })
+                }
+              >
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                    {model.installed ? "" : " · download required"}
+                  </option>
+                ))}
+              </select>
+            </label>
             <p className="hint">
-              {system.data?.upscaler.available
-                ? "NMKD Siax 4× · Upscayl engine. Runs locally, only when source resolution is below the target."
-                : (system.data?.upscaler.reason ?? "Checking local AI engine…")}
+              {system.data
+                ? upscalerReady
+                  ? `Real-ESRGAN 4× through ONNX Runtime${
+                      system.data.loaded
+                        ? ` on ${system.data.loaded.executionProvider}`
+                        : ""
+                    }. Runs on this machine, only when a scan is below the target resolution.`
+                  : "Download the selected model under Local AI in the top bar before exporting with upscaling."
+                : "Checking the local AI engine…"}
             </p>
             <p className="hint">
               AI can change fine text. Export one proof sheet before processing
               the full deck. Preview uses 150 DPI without AI.
             </p>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={settings.calibrationPage}
+                onChange={(event) =>
+                  change({ calibrationPage: event.target.checked })
+                }
+              />
+              Add a calibration page with a 100 mm ruler
+            </label>
             <ErrorNotice
               error={system.error}
               retry={() => void system.refetch()}
@@ -731,6 +799,43 @@ export function PrintSetup({
                         strokeWidth={settings.guideWidthPt}
                       />
                     ))}
+                  {layout.registration.map((mark) => (
+                    <g
+                      key={`${mark.x}:${mark.y}`}
+                      fill="none"
+                      stroke={settings.guideColor}
+                      strokeWidth={0.25}
+                    >
+                      <circle cx={mark.x} cy={mark.y} r={mark.radius} />
+                      <line
+                        x1={mark.x - mark.radius * 1.6}
+                        x2={mark.x + mark.radius * 1.6}
+                        y1={mark.y}
+                        y2={mark.y}
+                      />
+                      <line
+                        x1={mark.x}
+                        x2={mark.x}
+                        y1={mark.y - mark.radius * 1.6}
+                        y2={mark.y + mark.radius * 1.6}
+                      />
+                    </g>
+                  ))}
+                  {layout.labelBaseline !== null && layout.slots[0] && (
+                    <text
+                      x={layout.slots[0].x}
+                      y={layout.labelBaseline}
+                      fill={settings.guideColor}
+                      fontSize={LABEL_SIZE_PT}
+                      fontFamily="ui-monospace, monospace"
+                    >
+                      {deck.name.toUpperCase().slice(0, 40)} / SHEET{" "}
+                      {currentPage + 1} OF {totalSheets} /{" "}
+                      {back ? "BACKS" : "FRONTS"} / {settings.cardWidthMm} X{" "}
+                      {settings.cardHeightMm} MM + {settings.bleedMm} MM BLEED /{" "}
+                      {settings.dpi} DPI / PRINT AT 100%
+                    </text>
+                  )}
                 </svg>
               ) : (
                 <div className="empty-state">
@@ -823,6 +928,36 @@ export function PrintSetup({
   );
 }
 
+function BleedModeControl({
+  value,
+  onChange,
+}: {
+  value: PrintSettings["bleedMode"];
+  onChange: (value: PrintSettings["bleedMode"]) => void;
+}) {
+  return (
+    <fieldset className="bleed-fill">
+      <legend>Fill</legend>
+      {bleedModes.map(({ value: mode, label, description, Icon }) => (
+        <label key={mode}>
+          <input
+            type="radio"
+            name="bleed-fill"
+            value={mode}
+            checked={value === mode}
+            onChange={() => onChange(mode)}
+          />
+          <Icon size={15} aria-hidden="true" />
+          <span>
+            <strong>{label}</strong>
+            <span className="hint">{description}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 function NumberSetting({
   label,
   value,
@@ -873,25 +1008,15 @@ function PreviewImage({
   width: number;
   height: number;
 }) {
-  const key = new URLSearchParams({
-    art: JSON.stringify(art),
-    settings: JSON.stringify({
-      cardWidthMm: settings.cardWidthMm,
-      cardHeightMm: settings.cardHeightMm,
-      bleedMm: settings.bleedMm,
-      bleedMode: settings.bleedMode,
-      bleedColor: settings.bleedColor,
-    }),
+  const url = previewSrc(art, {
+    cardWidthMm: settings.cardWidthMm,
+    cardHeightMm: settings.cardHeightMm,
+    bleedMm: settings.bleedMm,
+    bleedMode: settings.bleedMode,
+    bleedColor: settings.bleedColor,
   });
   return (
-    <ProofImage
-      key={key.toString()}
-      url={`/api/preview?${key}`}
-      x={x}
-      y={y}
-      width={width}
-      height={height}
-    />
+    <ProofImage key={url} url={url} x={x} y={y} width={width} height={height} />
   );
 }
 

@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
+import { clearMocks, mockConvertFileSrc } from "@tauri-apps/api/mocks";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 
 Object.defineProperties(HTMLDialogElement.prototype, {
   showModal: {
@@ -19,4 +20,8 @@ Object.defineProperties(HTMLDialogElement.prototype, {
   },
 });
 
-afterEach(cleanup);
+beforeEach(() => mockConvertFileSrc("linux"));
+afterEach(() => {
+  cleanup();
+  clearMocks();
+});

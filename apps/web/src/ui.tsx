@@ -1,7 +1,8 @@
-import type { Art, DeckEntry } from "@deckpress/core";
 import { AlertCircle, ImageOff, LoaderCircle, Search, X } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import { ZodError } from "zod";
 import { imageSrc } from "./api.ts";
+import type { Art, DeckEntry } from "./core/index.ts";
 
 export const zoneNames = {
   main: "Mainboard",
@@ -23,6 +24,16 @@ export const prettyDate = (date: string) =>
     new Date(date),
   );
 
+export function errorMessage(error: unknown): string {
+  if (error instanceof ZodError) {
+    const issue = error.issues[0];
+    if (!issue) return "Invalid input";
+    const field = issue.path.map(String).join(".");
+    return field ? `${field}: ${issue.message}` : issue.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function ErrorNotice({
   error,
   retry,
@@ -34,7 +45,7 @@ export function ErrorNotice({
   return (
     <div className="notice error" role="alert">
       <AlertCircle size={17} />
-      <span>{error instanceof Error ? error.message : String(error)}</span>
+      <span>{errorMessage(error)}</span>
       {retry && (
         <button type="button" onClick={retry}>
           Retry
@@ -57,15 +68,18 @@ export function SearchField({
   value,
   onChange,
   label,
+  ref,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
+  ref?: Ref<HTMLInputElement>;
 }) {
   return (
     <div className="search">
-      <Search size={16} />
+      <Search size={16} aria-hidden="true" />
       <input
+        ref={ref}
         type="search"
         aria-label={label}
         placeholder={label}

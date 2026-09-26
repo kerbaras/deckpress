@@ -1,20 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
+import { save } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowRight,
-  Check,
+  AlertTriangle,
   Download,
+  FolderOpen,
   HardDrive,
   Images,
   Layers3,
   ExternalLink as LinkIcon,
+  Plus,
   Printer,
+  RefreshCw,
   Settings2,
   ShieldCheck,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, fetchHealth } from "./api.ts";
+import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
 import { Library } from "./library.tsx";
+import {
+  PageToolbar,
+  SidebarToggle,
+  TitleBar,
+  ToolbarSlotProvider,
+  useWindowState,
+} from "./titlebar.tsx";
 import {
   ErrorNotice,
   ExternalLink,
@@ -27,8 +37,34 @@ import { Workspace } from "./workspace.tsx";
 const routeFromHash = () =>
   window.location.hash.replace(/^#\/?/, "") || "decks";
 
+const library = [
+  { id: "decks", name: "Decks", icon: Layers3 },
+  { id: "jobs", name: "Print jobs", icon: Printer },
+  { id: "sources", name: "Art sources", icon: Images },
+];
+const RECENT_DECKS = 6;
+const SIDEBAR_KEY = "deckpress.sidebar";
+const confirmDiscard = () =>
+  confirmAction(
+    "Leave this deck and discard unsaved changes?",
+    "Discard changes",
+  );
+const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
+
+function readSidebar(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_KEY) !== "closed";
+  } catch {
+    return true;
+  }
+}
+
 export function App() {
   const [route, setRoute] = useState(routeFromHash);
+  const [sidebarOpen, setSidebarOpen] = useState(readSidebar);
+  const [newDeckRequest, setNewDeckRequest] = useState(0);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const window_ = useWindowState();
   const routeRef = useRef(route);
   const dirty = useRef(false);
   const onDirty = useCallback((value: boolean) => {
@@ -39,45 +75,95 @@ export function App() {
     queryFn: ({ signal }) => fetchHealth(signal),
     refetchInterval: 30_000,
   });
-  const navigate = (next: string, saved = false) => {
-    if (
-      !saved &&
-      dirty.current &&
-      !window.confirm("Leave this deck and discard unsaved changes?")
-    )
-      return;
+  const decks = useQuery({
+    queryKey: ["decks"],
+    queryFn: ({ signal }) => api.decks(signal),
+  });
+  const jobs = useQuery({
+    queryKey: ["jobs"],
+    queryFn: ({ signal }) => api.jobs(signal),
+    refetchInterval: 4000,
+    retry: false,
+  });
+  const activeJobs =
+    jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
+      .length ?? 0;
+  const navigate = async (next: string, saved = false) => {
+    if (!saved && dirty.current && !(await confirmDiscard())) return false;
     dirty.current = false;
     window.location.hash = `/${next}`;
+    return true;
   };
   useEffect(() => {
-    const change = () => {
+    const change = async () => {
       const next = routeFromHash();
       if (next === routeRef.current) return;
-      if (
-        dirty.current &&
-        !window.confirm("Leave this deck and discard unsaved changes?")
-      ) {
+      if (dirty.current) {
         window.history.replaceState(null, "", `#/${routeRef.current}`);
+        if (!(await confirmDiscard())) return;
+        dirty.current = false;
+        window.location.hash = `/${next}`;
         return;
       }
-      dirty.current = false;
       routeRef.current = next;
       setRoute(next);
-      window.scrollTo(0, 0);
+      const main = document.getElementById("main");
+      if (main) main.scrollTop = 0;
     };
     const unload = (event: BeforeUnloadEvent) => {
       if (dirty.current) event.preventDefault();
     };
-    window.addEventListener("hashchange", change);
+    const onChange = () => void change();
+    window.addEventListener("hashchange", onChange);
     window.addEventListener("beforeunload", unload);
     return () => {
-      window.removeEventListener("hashchange", change);
+      window.removeEventListener("hashchange", onChange);
       window.removeEventListener("beforeunload", unload);
     };
   }, []);
-  const deckId = /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
+  const toggleSidebar = useCallback(() => {
+    setSidebarOpen((open) => {
+      try {
+        window.localStorage.setItem(SIDEBAR_KEY, open ? "closed" : "open");
+      } catch {
+        // Private mode or a full disk; the toggle still works for now.
+      }
+      return !open;
+    });
+  }, []);
+  const newDeck = async () => {
+    if (await navigate("decks")) setNewDeckRequest((count) => count + 1);
+  };
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey)
+        return;
+      const key = event.key.toLowerCase();
+      if (key === "b") toggleSidebar();
+      else if (key === "n") void newDeck();
+      else if (key === ",") void navigate("settings");
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  });
+  const deckId = deckRoute(route);
+  const recent = (decks.data ?? [])
+    .slice()
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, RECENT_DECKS);
+  const modifier = window_.platform === "macos" ? "⌘" : "Ctrl+";
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      data-sidebar={sidebarOpen ? "open" : "closed"}
+      data-platform={window_.platform}
+      data-focused={window_.focused}
+      style={{
+        ["--inset-left" as string]: `${window_.fullscreen ? 0 : window_.insetLeft}px`,
+      }}
+    >
       <button
         type="button"
         className="skip-link"
@@ -85,95 +171,140 @@ export function App() {
       >
         Skip to content
       </button>
-      <aside className="sidebar">
-        <button
-          type="button"
-          className="brand"
-          aria-label="Deckpress home"
-          onClick={() => navigate("decks")}
-        >
-          <svg
-            width="28"
-            height="28"
-            viewBox="0 0 28 28"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            aria-hidden="true"
-          >
-            <rect x="3" y="7" width="14" height="18" rx="3" />
-            <path d="M10 3h12a3 3 0 0 1 3 3v15" />
-            <path d="m8 16 2 3 3-6" />
-          </svg>
-          <span>Deckpress</span>
-        </button>
-        <nav aria-label="Main navigation">
-          {[
-            { id: "decks", name: "Decks", icon: Layers3 },
-            { id: "sources", name: "Art sources", icon: Images },
-            { id: "jobs", name: "Print jobs", icon: Printer },
-            { id: "settings", name: "Settings", icon: Settings2 },
-          ].map(({ id, name, icon: Icon }) => (
-            <button
-              type="button"
-              key={id}
-              aria-label={name}
-              title={name}
-              aria-current={route.startsWith(id) ? "page" : undefined}
-              onClick={() => navigate(id)}
-            >
-              <Icon size={18} />
-              <span>{name}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <span className="local-label">
-            <HardDrive size={14} />
-            <span>Local workspace</span>
-          </span>
+      <aside className="sidebar" aria-hidden={!sidebarOpen}>
+        <div className="sidebar-head" data-tauri-drag-region>
+          <SidebarToggle
+            open
+            platform={window_.platform}
+            onToggle={toggleSidebar}
+          />
+        </div>
+        <nav className="sidebar-nav" aria-label="Main navigation">
           <button
             type="button"
-            className="connection"
-            title="Check API connection"
-            onClick={() => void health.refetch()}
+            className="sidebar-row sidebar-action"
+            aria-keyshortcuts="Control+N Meta+N"
+            title={`New deck (${modifier}N)`}
+            onClick={() => void newDeck()}
           >
-            <span className={`status-dot ${health.isError ? "offline" : ""}`} />
-            <span>
-              {health.isPending
-                ? "Connecting…"
-                : health.isError
-                  ? "API offline · retry"
-                  : "Saved on this machine"}
-            </span>
+            <Plus size={16} aria-hidden="true" />
+            <span className="sidebar-label">New deck</span>
           </button>
-          <p>No account. No cloud sync.</p>
+          <h2 className="sidebar-heading" id="sidebar-library">
+            Library
+          </h2>
+          <section className="sidebar-group" aria-labelledby="sidebar-library">
+            {library.map(({ id, name, icon: Icon }) => (
+              <button
+                type="button"
+                key={id}
+                className="sidebar-row"
+                title={name}
+                aria-current={
+                  !deckId && route.startsWith(id) ? "page" : undefined
+                }
+                data-ancestor={deckId && id === "decks" ? "true" : undefined}
+                onClick={() => void navigate(id)}
+              >
+                <Icon size={16} aria-hidden="true" />
+                <span className="sidebar-label">{name}</span>
+                {id === "jobs" && activeJobs > 0 && (
+                  <span className="sidebar-count">
+                    {activeJobs}
+                    <span className="sr-only"> in progress</span>
+                  </span>
+                )}
+              </button>
+            ))}
+          </section>
+          {recent.length > 0 && (
+            <>
+              <h2 className="sidebar-heading" id="sidebar-recent">
+                Recent decks
+              </h2>
+              <section
+                className="sidebar-group"
+                aria-labelledby="sidebar-recent"
+              >
+                {recent.map((deck) => (
+                  <button
+                    type="button"
+                    key={deck.id}
+                    className="sidebar-row sidebar-nested"
+                    title={`${deck.name} · ${deck.format}`}
+                    aria-current={deck.id === deckId ? "page" : undefined}
+                    onClick={() => void navigate(`decks/${deck.id}`)}
+                  >
+                    <span className="sidebar-label">{deck.name}</span>
+                  </button>
+                ))}
+              </section>
+            </>
+          )}
+        </nav>
+        <div className="sidebar-foot">
+          {health.isError && (
+            <button
+              type="button"
+              className="sidebar-row sidebar-alert"
+              title="The print engine did not start. Click to retry."
+              onClick={() => void health.refetch()}
+            >
+              <AlertTriangle size={16} aria-hidden="true" />
+              <span className="sidebar-label">Engine not running</span>
+            </button>
+          )}
+          <button
+            type="button"
+            className="sidebar-row"
+            title={`Settings (${modifier},)`}
+            aria-keyshortcuts="Control+, Meta+,"
+            aria-current={route.startsWith("settings") ? "page" : undefined}
+            onClick={() => void navigate("settings")}
+          >
+            <Settings2 size={16} aria-hidden="true" />
+            <span className="sidebar-label">Settings</span>
+          </button>
         </div>
       </aside>
-      <main id="main" className="main-content" tabIndex={-1}>
-        {deckId ? (
-          <Workspace
-            key={deckId}
-            id={deckId}
-            onDirty={onDirty}
-            onBack={() => navigate("decks")}
-            onJobs={() => navigate("jobs", true)}
-          />
-        ) : route === "jobs" ? (
-          <PrintJobs />
-        ) : route === "settings" ? (
-          <LocalSettings />
-        ) : route === "sources" ? (
-          <Sources onDecks={() => navigate("decks")} />
-        ) : (
-          <Library open={(id) => navigate(`decks/${id}`)} />
-        )}
-      </main>
+      <div className="app-content">
+        <TitleBar
+          state={window_}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={toggleSidebar}
+          onSlot={setSlot}
+        />
+        <main id="main" className="main-content" tabIndex={-1}>
+          <ToolbarSlotProvider value={slot}>
+            {deckId ? (
+              <Workspace
+                key={deckId}
+                id={deckId}
+                onDirty={onDirty}
+                onBack={() => void navigate("decks")}
+                onJobs={() => void navigate("jobs", true)}
+              />
+            ) : route === "jobs" ? (
+              <PrintJobs active={activeJobs} />
+            ) : route === "settings" ? (
+              <LocalSettings />
+            ) : route === "sources" ? (
+              <Sources />
+            ) : (
+              <Library
+                open={(id) => void navigate(`decks/${id}`)}
+                createRequest={newDeckRequest}
+                onCreateHandled={() => setNewDeckRequest(0)}
+              />
+            )}
+          </ToolbarSlotProvider>
+        </main>
+      </div>
     </div>
   );
 }
 
-function PrintJobs() {
+function PrintJobs({ active }: { active: number }) {
   const query = useQuery({
     queryKey: ["jobs"],
     queryFn: ({ signal }) => api.jobs(signal),
@@ -186,16 +317,29 @@ function PrintJobs() {
         : false,
   });
   const task = useTask();
+  const total = query.data?.length ?? 0;
   return (
     <>
-      <header className="page-header">
-        <h1>Print jobs</h1>
-        <div className="spacer" />
-        <span className="muted">Processed on this machine</span>
-        <button type="button" onClick={() => void query.refetch()}>
-          Refresh
+      <PageToolbar
+        title="Print jobs"
+        subtitle={
+          active
+            ? `${active} in progress`
+            : total
+              ? `${total} ${total === 1 ? "export" : "exports"}`
+              : undefined
+        }
+      >
+        <button
+          type="button"
+          className="icon-button quiet"
+          aria-label="Refresh print jobs"
+          title="Refresh"
+          onClick={() => void query.refetch()}
+        >
+          <RefreshCw size={16} />
         </button>
-      </header>
+      </PageToolbar>
       <div className="page-content">
         <ErrorNotice
           error={query.error ?? task.error}
@@ -206,10 +350,8 @@ function PrintJobs() {
         ) : !query.data?.length ? (
           <div className="empty-state">
             <Printer size={38} />
-            <h2>Ready when your deck is.</h2>
-            <p>
-              Open a deck, choose Print setup, then generate your first PDF.
-            </p>
+            <h2>No print jobs yet</h2>
+            <p>Open a deck, choose Print setup, then generate a PDF.</p>
           </div>
         ) : (
           <div className="jobs-list">
@@ -249,16 +391,54 @@ function PrintJobs() {
                 </div>
                 <div className="job-actions">
                   {job.status === "completed" ? (
-                    <a
-                      className="button primary"
-                      href={`/api/jobs/${job.id}/download`}
-                    >
-                      <Download size={16} />
-                      Download PDF
-                    </a>
+                    <>
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={task.busy}
+                        onClick={() => void task.run(() => api.openPdf(job.id))}
+                      >
+                        <Printer size={16} />
+                        Open PDF
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label="Save a copy"
+                        title="Save a copy…"
+                        disabled={task.busy}
+                        onClick={() =>
+                          void task.run(async () => {
+                            const destination = await save({
+                              defaultPath: job.fileName,
+                              filters: [{ name: "PDF", extensions: ["pdf"] }],
+                            });
+                            if (destination)
+                              await api.savePdf(job.id, destination);
+                          })
+                        }
+                      >
+                        <Download size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label="Show in folder"
+                        title="Show in folder"
+                        disabled={task.busy}
+                        onClick={() =>
+                          void task.run(() => api.revealPdf(job.id))
+                        }
+                      >
+                        <FolderOpen size={16} />
+                      </button>
+                    </>
                   ) : ["queued", "running"].includes(job.status) ? (
                     <button
                       type="button"
+                      className="icon-button danger"
+                      aria-label="Cancel export"
+                      title="Cancel export"
                       disabled={task.busy}
                       onClick={() =>
                         void task.run(async () => {
@@ -268,7 +448,6 @@ function PrintJobs() {
                       }
                     >
                       <X size={15} />
-                      Cancel export
                     </button>
                   ) : null}
                 </div>
@@ -279,9 +458,9 @@ function PrintJobs() {
         <div className="notice print-job-note">
           <Printer size={19} />
           <span>
-            Use <strong>100% / actual size</strong> in your PDF viewer. Disable
-            “Fit to page”. For AI exports, inspect rules text and mana symbols
-            before printing.
+            Print at <strong>100% / actual size</strong>. Disable “Fit to page”
+            and check the calibration page’s 100 mm ruler before the full run.
+            For AI exports, inspect rules text and mana symbols.
           </span>
         </div>
       </div>
@@ -294,64 +473,84 @@ function LocalSettings() {
     queryKey: ["settings"],
     queryFn: ({ signal }) => api.settings(signal),
   });
+  const task = useTask();
+  const loaded = query.data?.loaded;
   return (
     <>
-      <header className="page-header">
-        <h1>Settings</h1>
-        <div className="spacer" />
-        <span className="muted">Your local print workshop</span>
-      </header>
+      <PageToolbar title="Settings">
+        <button
+          type="button"
+          className="icon-button quiet"
+          aria-label="Open data folder"
+          title="Open data folder"
+          disabled={task.busy}
+          onClick={() => void task.run(() => api.openDataDir())}
+        >
+          <FolderOpen size={16} />
+        </button>
+      </PageToolbar>
       <div className="page-content settings-page">
-        <ErrorNotice error={query.error} retry={() => void query.refetch()} />
+        <ErrorNotice
+          error={query.error ?? task.error}
+          retry={() => void query.refetch()}
+        />
         <section className="panel settings-card">
           <div className="section-heading">
             <h2>Local AI upscaling</h2>
-            <span
-              className={`badge ${query.data?.upscaler.available ? "official" : ""}`}
-            >
-              {query.data?.upscaler.available ? "Configured" : "Not configured"}
+            <span className={`badge ${loaded ? "official" : ""}`}>
+              {loaded
+                ? `Loaded · ${loaded.executionProvider}`
+                : "Loads on first export"}
             </span>
           </div>
           <p>
-            NMKD Siax 4× runs through the same NCNN / Vulkan engine used by
-            Upscayl. It is a good candidate for clean scans and lightly
-            compressed images. Fine lettering can change, so always check a
-            proof.
+            Real-ESRGAN models run through ONNX Runtime inside the app: Core ML
+            on macOS, DirectML on Windows, CUDA or CPU on Linux. Every model
+            upscales 4× in 256 px tiles with feathered seams, then the result is
+            resized to your target DPI. Fine lettering can change, so always
+            check a proof.
           </p>
-          <dl>
-            <div>
-              <dt>Model</dt>
-              <dd className="mono">
-                {query.data?.upscaler.model ?? "4x_NMKD-Siax_200k"}
-              </dd>
-            </div>
-            <div>
-              <dt>Scale</dt>
-              <dd>4× per axis, then resized to target DPI</dd>
-            </div>
-            <div>
-              <dt>Model license</dt>
-              <dd>WTFPL, per OpenModelDB</dd>
-            </div>
-            <div>
-              <dt>Execution</dt>
-              <dd>Your machine. No cloud GPU.</dd>
-            </div>
-          </dl>
-          <p className="hint">{query.data?.upscaler.reason}</p>
-          <pre>pnpm setup:upscaler</pre>
+          <div className="model-list">
+            {(query.data?.models ?? []).map((model) => (
+              <ModelRow
+                key={model.id}
+                model={model}
+                isDefault={model.id === query.data?.defaultModel}
+                loaded={loaded?.modelId === model.id}
+                busy={task.busy}
+                onDownload={() =>
+                  void task.run(async () => {
+                    await api.downloadModel(model.id);
+                    await query.refetch();
+                  })
+                }
+                onLoad={() =>
+                  void task.run(async () => {
+                    await api.loadModel(model.id);
+                    await query.refetch();
+                  })
+                }
+              />
+            ))}
+          </div>
           <p className="hint">
-            Automatic setup supports macOS and Linux. For an existing engine,
-            set UPSCALE_BIN, UPSCALE_MODELS, UPSCALE_MODEL and UPSCALE_ENGINE in
-            the API environment. CPU-only machines can be very slow.
+            The compact and fast models ship with the app. The quality model is
+            downloaded once on request and verified by SHA-256 before it is
+            loaded. Without a GPU the quality model is roughly ten times slower
+            than the compact one.
           </p>
           <div className="toolbar">
-            <button type="button" onClick={() => void query.refetch()}>
-              <Check size={15} />
-              Check engine
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Refresh model status"
+              title="Refresh status"
+              onClick={() => void query.refetch()}
+            >
+              <RefreshCw size={15} />
             </button>
-            <ExternalLink href="https://openmodeldb.info/models/4x-NMKD-Siax-CX">
-              Model & license
+            <ExternalLink href="https://github.com/xinntao/Real-ESRGAN">
+              Real-ESRGAN & license
               <LinkIcon size={13} />
             </ExternalLink>
           </div>
@@ -360,23 +559,33 @@ function LocalSettings() {
           <h2>Storage & portability</h2>
           <p>
             Decks, personal ratings and labels live in local SQLite. Images,
-            upscaled results and PDFs are cached on disk under the API data
+            upscaled results and PDFs are cached on disk in the application data
             directory.
           </p>
+          <p className="mono hint">{query.data?.dataDir}</p>
           <p>
             Use “Back up deck” to export a JSON project. It preserves
             quantities, art choices and print settings, but not image files.
-            Custom uploads remain on this machine; keep the API data directory
-            when moving your library.
+            Custom uploads remain on this machine; keep the data directory when
+            moving your library.
           </p>
+          <div className="toolbar">
+            <button
+              type="button"
+              onClick={() => void task.run(() => api.openDataDir())}
+            >
+              <FolderOpen size={15} />
+              Open data folder
+            </button>
+          </div>
           <p className="hint">
-            This proof of concept is a single-user local application. Do not
-            expose the API to the internet. There is no account system or remote
-            authorization.
+            Deckpress is a single-user desktop application. Nothing listens on
+            the network; only Scryfall and MPC are contacted, and only to fetch
+            card data and images.
           </p>
         </section>
         <section className="panel settings-card">
-          <h2>Resolution, without the fine print</h2>
+          <h2>Resolution and DPI</h2>
           <p>
             A typical Scryfall PNG is about 745 × 1040 pixels, roughly 300 DPI
             at card size. Setting 1200 DPI alone resamples those pixels. AI
@@ -384,7 +593,7 @@ function LocalSettings() {
             high-resolution scan.
           </p>
           <p>
-            Use 300 DPI for proofs and 600 DPI for most home printing. Use 1200
+            Use 300 DPI for proofs and 800 DPI for most home printing. Use 1200
             DPI when your print shop requests it. High-resolution MPC images may
             already meet the target without AI.
           </p>
@@ -394,28 +603,65 @@ function LocalSettings() {
   );
 }
 
-function Sources({ onDecks }: { onDecks: () => void }) {
+function ModelRow({
+  model,
+  isDefault,
+  loaded,
+  busy,
+  onDownload,
+  onLoad,
+}: {
+  model: ModelStatus;
+  isDefault: boolean;
+  loaded: boolean;
+  busy: boolean;
+  onDownload: () => void;
+  onLoad: () => void;
+}) {
+  return (
+    <div className="model-row">
+      <div>
+        <strong>{model.name}</strong>
+        <span className="muted">
+          {" · "}
+          {model.tier}
+          {isDefault ? " · default" : ""}
+          {" · "}
+          {(model.bytes / 1024 / 1024).toFixed(1)} MB · {model.license}
+        </span>
+        <p className="hint">{model.description}</p>
+      </div>
+      <div className="toolbar">
+        {model.installed ? (
+          <button type="button" disabled={busy || loaded} onClick={onLoad}>
+            {loaded ? "Loaded" : "Load now"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="primary"
+            disabled={busy || model.downloading}
+            onClick={onDownload}
+          >
+            <Download size={15} />
+            {model.downloading ? "Downloading…" : "Download"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Sources() {
   return (
     <>
-      <header className="page-header">
-        <h1>Art sources</h1>
-        <div className="spacer" />
-        <button type="button" onClick={onDecks}>
-          Open your decks
-          <ArrowRight size={16} />
-        </button>
-      </header>
+      <PageToolbar title="Art sources" />
       <div className="page-content sources-page">
         <div className="source-intro">
-          <span className="eyebrow">One card, many editions</span>
-          <h2>
-            Find a look that
-            <br />
-            <em>belongs in your deck.</em>
-          </h2>
+          <h2>Where card images come from</h2>
           <p>
-            Choose a card in Art studio to browse these sources side by side.
-            Your original printing always stays on the left.
+            Select a card in Art studio to browse these sources side by side.
+            The original printing always stays on the left.
           </p>
         </div>
         <div className="source-list">

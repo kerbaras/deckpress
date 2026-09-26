@@ -1,0 +1,34 @@
+[package]
+name = "deckpress"
+version = "0.1.0"
+description = "Deckpress desktop: Tauri shell around deckpress-core"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+publish = false
+
+[lib]
+name = "deckpress_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+deckpress-core = { path = "../../../packages/core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+sha2 = "0.11"
+hex = "0.4"
+percent-encoding = "2"
+log = "0.4"
+env_logger = "0.11"
+
+[features]
+default = []
+# Linux/Windows builds with NVIDIA support. Requires the CUDA/cuDNN runtime on the target machine.
+cuda = ["deckpress-core/cuda"]

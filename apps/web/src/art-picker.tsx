@@ -1,12 +1,4 @@
 import {
-  type Art,
-  artPreferenceSchema,
-  backArt,
-  type Deck,
-  type DeckEntry,
-  frontArt,
-} from "@deckpress/core";
-import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -23,6 +15,14 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { api, type Preferences } from "./api.ts";
+import {
+  type Art,
+  artPreferenceSchema,
+  backArt,
+  type Deck,
+  type DeckEntry,
+  frontArt,
+} from "./core/index.ts";
 import {
   CardImage,
   ErrorNotice,
@@ -342,9 +342,15 @@ function ArtSession({
       <div className="comparison">
         <Monitor label="Original" art={original} zoom={zoom} />
         <Monitor label="Selected" art={candidate} zoom={zoom} selected>
-          <button type="button" onClick={() => setCandidate(original)}>
-            <RotateCcw size={13} />
-            Reset to original
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Reset to original art"
+            title="Reset to original art"
+            disabled={candidate?.id === original?.id}
+            onClick={() => setCandidate(original)}
+          >
+            <RotateCcw size={14} />
           </button>
         </Monitor>
       </div>
@@ -453,9 +459,14 @@ function ArtSession({
             />
             Official only
           </label>
-          <button type="button" onClick={() => setUpload(true)}>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Upload your own art"
+            title="Upload your own art"
+            onClick={() => setUpload(true)}
+          >
             <Upload size={15} />
-            Upload art
           </button>
         </div>
         <div className="toolbar filter-toolbar">
@@ -817,13 +828,14 @@ function UploadArt({
             void task.run(async () => {
               if (file.size > 16 * 1024 * 1024)
                 throw new Error("Image exceeds 16 MB");
-              const data = new FormData();
-              data.set("image", file);
-              data.set("oracleId", entry.card.oracleId);
-              data.set("name", entry.card.name);
-              data.set("artist", artist);
-              data.set("bleedMm", String(bleed));
-              onUploaded(await api.upload(data));
+              onUploaded(
+                await api.upload(file, {
+                  oracleId: entry.card.oracleId,
+                  name: entry.card.name,
+                  artist,
+                  bleedMm: bleed,
+                }),
+              );
             });
         }}
       >

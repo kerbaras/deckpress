@@ -1,12 +1,3 @@
-import {
-  type Deck,
-  type DeckEntry,
-  deckSchema,
-  formats,
-  frontArt,
-  mergeImport,
-  zones,
-} from "@deckpress/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -21,10 +12,20 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, downloadJson } from "./api.ts";
+import { api, confirmAction, downloadJson } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
+import {
+  type Deck,
+  type DeckEntry,
+  deckSchema,
+  formats,
+  frontArt,
+  mergeImport,
+  zones,
+} from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
 import { PrintSetup } from "./print-setup.tsx";
+import { PageToolbar } from "./titlebar.tsx";
 import {
   CardImage,
   countCards,
@@ -56,13 +57,12 @@ export function Workspace({
   if (query.isPending) return <Loading>Opening deck…</Loading>;
   if (!query.data)
     return (
-      <div className="page-content">
-        <button type="button" onClick={onBack}>
-          <ArrowLeft size={16} />
-          Back to decks
-        </button>
-        <ErrorNotice error={query.error} retry={() => void query.refetch()} />
-      </div>
+      <>
+        <PageToolbar title="Deck" leading={<BackButton onBack={onBack} />} />
+        <div className="page-content">
+          <ErrorNotice error={query.error} retry={() => void query.refetch()} />
+        </div>
+      </>
     );
   return (
     <DeckWorkspace
@@ -73,6 +73,33 @@ export function Workspace({
     />
   );
 }
+
+function BackButton({
+  onBack,
+  disabled,
+}: {
+  onBack: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="icon-button quiet"
+      aria-label="Back to decks"
+      title="Back to decks"
+      disabled={disabled}
+      onClick={onBack}
+    >
+      <ArrowLeft size={16} />
+    </button>
+  );
+}
+
+const views = [
+  { id: "edit", name: "Deck editor", icon: List },
+  { id: "art", name: "Art studio", icon: Image },
+  { id: "print", name: "Print setup", icon: Printer },
+] as const;
 
 function DeckWorkspace({
   initial,
@@ -115,6 +142,18 @@ function DeckWorkspace({
       setIsSaving(false);
     }
   };
+  const dirty = deck !== saved;
+  useEffect(() => {
+    if (!dirty) return;
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (!task.busy) void task.run(() => commit(deck));
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  });
   const selectArt = (entry: DeckEntry) => {
     setSelectedId(entry.id);
     setView("art");
@@ -123,36 +162,60 @@ function DeckWorkspace({
     deck.entries.find((entry) => entry.id === selectedId) ?? deck.entries[0];
   return (
     <fieldset className={`workspace workspace-${view}`} disabled={isSaving}>
-      <header className="page-header">
-        <button
-          type="button"
-          className="icon-button"
-          aria-label="Back to decks"
-          onClick={onBack}
+      <PageToolbar
+        title={deck.name}
+        subtitle={
+          <>
+            <span className="badge" data-tauri-drag-region>
+              {deck.format}
+            </span>
+            <span className="mono" data-tauri-drag-region>
+              {countCards(deck.entries)} cards
+            </span>
+          </>
+        }
+        leading={<BackButton onBack={onBack} disabled={isSaving} />}
+        center={
+          <nav
+            className="segmented workspace-views"
+            aria-label="Deck workspace"
+          >
+            {views.map(({ id, name, icon: Icon }) => (
+              <button
+                type="button"
+                key={id}
+                disabled={isSaving || (id !== "edit" && !deck.entries.length)}
+                aria-current={view === id ? "page" : undefined}
+                title={name}
+                onClick={() => setView(id)}
+              >
+                <Icon size={15} aria-hidden="true" />
+                <span>{name}</span>
+              </button>
+            ))}
+          </nav>
+        }
+      >
+        <span
+          className={dirty ? "save-state unsaved" : "save-state"}
+          role="status"
+          data-tauri-drag-region
         >
-          <ArrowLeft size={17} />
-        </button>
-        <div className="heading-group">
-          <h1>{deck.name}</h1>
-          <span className="badge">{deck.format}</span>
-        </div>
-        <span className="muted mono header-count">
-          {countCards(deck.entries)} cards
-        </span>
-        <div className="spacer" />
-        <span className={deck !== saved ? "save-state unsaved" : "save-state"}>
-          {deck !== saved ? (
+          {dirty ? (
             "Unsaved changes"
           ) : (
             <>
-              <Check size={13} />
-              Saved locally
+              <Check size={13} aria-hidden="true" />
+              Saved
             </>
           )}
         </span>
         <button
           type="button"
-          disabled={task.busy || deck === saved}
+          className={dirty ? "primary" : "quiet"}
+          disabled={task.busy || !dirty}
+          aria-keyshortcuts="Control+S Meta+S"
+          title="Save changes (Ctrl+S)"
           onClick={() => void task.run(() => commit(deck))}
         >
           <Save size={15} />
@@ -160,46 +223,25 @@ function DeckWorkspace({
         </button>
         <button
           type="button"
-          className="icon-button"
+          className="icon-button quiet"
+          aria-label="Back up deck as JSON"
+          title="Back up deck as JSON"
+          disabled={isSaving}
+          onClick={() => void downloadJson(deck)}
+        >
+          <Download size={16} />
+        </button>
+        <button
+          type="button"
+          className="icon-button quiet"
           aria-label="Deck settings"
+          title="Deck settings"
+          disabled={isSaving}
           onClick={() => setMetadata(true)}
         >
-          <SlidersHorizontal size={17} />
+          <SlidersHorizontal size={16} />
         </button>
-      </header>
-      <nav className="workspace-tabs" aria-label="Deck workspace">
-        <button
-          type="button"
-          aria-current={view === "edit" ? "page" : undefined}
-          onClick={() => setView("edit")}
-        >
-          <List size={16} />
-          Deck editor
-        </button>
-        <button
-          type="button"
-          disabled={!deck.entries.length}
-          aria-current={view === "art" ? "page" : undefined}
-          onClick={() => setView("art")}
-        >
-          <Image size={16} />
-          Art studio
-        </button>
-        <button
-          type="button"
-          disabled={!deck.entries.length}
-          aria-current={view === "print" ? "page" : undefined}
-          onClick={() => setView("print")}
-        >
-          <Printer size={16} />
-          Print setup
-        </button>
-        <div className="spacer" />
-        <button type="button" onClick={() => downloadJson(deck)}>
-          <Download size={15} />
-          Back up deck
-        </button>
-      </nav>
+      </PageToolbar>
       <ErrorNotice error={task.error} />
       {view === "edit" && (
         <div className="editor-layout">
@@ -503,10 +545,11 @@ function DeckCards({
                 type="button"
                 className="icon-button"
                 aria-label={`Remove ${entry.card.name}`}
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    window.confirm(
+                    await confirmAction(
                       `Remove all ${entry.quantity} copies of ${entry.card.name}?`,
+                      "Remove",
                     )
                   )
                     onChange({
