@@ -1,4 +1,4 @@
-import type { Card, DeckEntry } from "@deckpress/core";
+import type { Card, DeckEntry } from "./core/index.ts";
 import {
   useInfiniteQuery,
   useQuery,

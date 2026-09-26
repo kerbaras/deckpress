@@ -1,4 +1,3 @@
-import type { Card } from "@deckpress/core";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Crown } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -8,6 +7,7 @@ import {
   type BuilderOptions,
   type Suggestion,
 } from "./api.ts";
+import type { Card } from "./core/index.ts";
 import type { WizardState } from "./deck-builder-model.ts";
 import {
   CardImage,
@@ -362,6 +362,7 @@ function CurveSketch({ curve }: { curve: number[] }) {
         <span
           // biome-ignore lint/suspicious/noArrayIndexKey: fixed bucket order
           key={index}
+          className="builder-sketch-bar"
           style={{ height: `${Math.round((share / max) * 100)}%` }}
         />
       ))}

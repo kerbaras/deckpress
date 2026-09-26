@@ -1,4 +1,4 @@
-import { type Card, type Deck, type DeckEntry, formats } from "@deckpress/core";
+import { type Card, type Deck, type DeckEntry, formats } from "./core/index.ts";
 import type { BuilderFormat, BuilderSpec, BuilderTheme } from "./api.ts";
 
 /** Wizard steps in order; Commander decks pick a commander instead of colours. */

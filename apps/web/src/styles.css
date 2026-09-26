@@ -2877,13 +2877,13 @@ progress::-webkit-progress-value {
   height: 26px;
   margin-top: 4px;
 }
-.builder-sketch span {
+.builder-sketch-bar {
   flex: 1;
   min-height: 2px;
   background: #3b3e47;
   border-radius: 2px 2px 0 0;
 }
-.builder-option[aria-pressed="true"] .builder-sketch span {
+.builder-option[aria-pressed="true"] .builder-sketch-bar {
   background: var(--accent);
 }
 .builder-set {

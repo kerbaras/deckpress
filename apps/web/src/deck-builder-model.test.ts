@@ -1,4 +1,4 @@
-import { artSchema, type Card } from "@deckpress/core";
+import { artSchema, type Card } from "./core/index.ts";
 import { describe, expect, it } from "vitest";
 import type { BuilderFormat, BuilderTheme } from "./api.ts";
 import {
