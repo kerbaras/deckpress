@@ -221,6 +221,15 @@ fn roles_are_classified_from_text() {
         ),
         "removal"
     );
+    assert_eq!(
+        classify_role(
+            "Creature — Cat",
+            "Flash\nWhen this creature enters, return a creature you control to its owner's hand.",
+            2.0,
+            false
+        ),
+        "threat"
+    );
 }
 
 fn main_line(name: &str, quantity: u32) -> ImportLine {
@@ -527,6 +536,40 @@ fn fill_plan_uses_four_copies_in_sixty_card_formats() {
     let basics: u32 = plan.basics.iter().map(|(_, count)| count).sum();
     assert_eq!(nonland + basics, 60);
     assert_eq!(plan.basics, vec![("Mountain", basics)]);
+}
+
+#[test]
+fn fill_quotas_are_shares_of_the_whole_deck_not_the_gap() {
+    let pool = fixture_pool();
+    let rules = format_rules("standard").unwrap();
+    let style = style_rules("aggro").unwrap();
+    let colors = vec!["R".to_string()];
+    let ctx = Context {
+        rules,
+        style,
+        theme: theme_rules("none").unwrap(),
+        tribe: String::new(),
+        colors: colors.clone(),
+        commander: None,
+        meta: None,
+    };
+    let ranked = rank(&pool, &ctx);
+    // 55 cards in, none of them removal: the finished deck still owes
+    // aggro's 25% removal share, so the few open slots go to Lightning Bolt
+    // rather than one token copy.
+    let entries = vec![
+        entry(find(&pool, "Mountain"), 20, Zone::Main),
+        entry(find(&pool, "Rhystic Study"), 35, Zone::Main),
+    ];
+    let room = 60 - 55 - land_target(rules, style).saturating_sub(20);
+    assert!(room >= 2, "{room}");
+    let plan = plan_fill(rules, style, &colors, &entries, &ranked);
+    let bolt = plan
+        .entries
+        .iter()
+        .find(|added| added.card.name == "Lightning Bolt")
+        .unwrap();
+    assert_eq!(bolt.quantity, room.min(4));
 }
 
 #[test]

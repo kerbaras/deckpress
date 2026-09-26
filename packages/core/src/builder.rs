@@ -694,7 +694,8 @@ pub fn classify_role(
         "gets -",
         "fights",
         "sacrifices a creature",
-        "to its owner's hand",
+        "you don't control to its owner's hand",
+        "an opponent controls to its owner's hand",
         "to their owners' hands",
     ]) {
         return "removal";
@@ -1219,6 +1220,9 @@ pub fn plan_fill(
         .deck_size
         .saturating_sub(count)
         .saturating_sub(land_goal.saturating_sub(lands));
+    // Quotas are shares of the finished deck's non-land slots, so a deck that
+    // already holds some of a role only needs the difference.
+    let nonland_total = rules.deck_size.saturating_sub(land_goal.max(lands));
     let mut remaining = nonland_room;
     let eligible = |suggestion: &Suggestion, taken: &HashSet<&str>| {
         suggestion.score > 0.0
@@ -1238,7 +1242,7 @@ pub fn plan_fill(
         )
     });
     for (role, share) in style.quotas {
-        let goal = (share * f64::from(nonland_room)).round() as u32;
+        let goal = (share * f64::from(nonland_total)).round() as u32;
         let mut have = role_counts.get(role).copied().unwrap_or(0);
         for &index in &by_popularity {
             let suggestion = &ranked[index];
