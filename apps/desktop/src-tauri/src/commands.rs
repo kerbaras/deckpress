@@ -301,18 +301,43 @@ pub fn cancel_job(state: State<'_, AppState>, id: String) -> AppResult<PrintJob>
     state.jobs.cancel(&id)
 }
 
-#[tauri::command]
-pub fn open_pdf(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    let path = state.jobs.pdf_path(&id)?;
-    tauri_plugin_opener::open_path(path, None::<&str>)
-        .map_err(|error| AppError::user(format!("Could not open the PDF: {error}")))
+/// Runs a desktop-integration call (xdg-open, D-Bus file manager, ...) off
+/// the main thread and gives up after a few seconds, so a missing or stuck
+/// desktop service can never freeze the window.
+async fn with_desktop<F>(what: &str, call: F) -> AppResult<()>
+where
+    F: FnOnce() -> Result<(), tauri_plugin_opener::Error> + Send + 'static,
+{
+    let task = tauri::async_runtime::spawn_blocking(call);
+    match tokio::time::timeout(std::time::Duration::from_secs(8), task).await {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(error))) => Err(AppError::user(format!("Could not {what}: {error}"))),
+        Ok(Err(error)) => Err(AppError::internal(error.to_string())),
+        Err(_) => Err(AppError::user(format!(
+            "Could not {what}: the desktop did not respond. Use Save as instead."
+        ))),
+    }
 }
 
 #[tauri::command]
-pub fn reveal_pdf(state: State<'_, AppState>, id: String) -> AppResult<()> {
+pub async fn open_pdf(state: State<'_, AppState>, id: String) -> AppResult<()> {
     let path = state.jobs.pdf_path(&id)?;
-    tauri_plugin_opener::reveal_item_in_dir(path)
-        .map_err(|error| AppError::user(format!("Could not show the PDF: {error}")))
+    with_desktop("open the PDF", move || {
+        tauri_plugin_opener::open_path(path, None::<&str>)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn reveal_pdf(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    let path = state.jobs.pdf_path(&id)?;
+    with_desktop("show the PDF", move || {
+        tauri_plugin_opener::reveal_item_in_dir(&path).or_else(|_| {
+            let dir = path.parent().unwrap_or(&path);
+            tauri_plugin_opener::open_path(dir, None::<&str>)
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -343,7 +368,10 @@ pub async fn save_text(destination: String, contents: String) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn open_data_dir(state: State<'_, AppState>) -> AppResult<()> {
-    tauri_plugin_opener::open_path(&state.data_dir, None::<&str>)
-        .map_err(|error| AppError::user(format!("Could not open the data folder: {error}")))
+pub async fn open_data_dir(state: State<'_, AppState>) -> AppResult<()> {
+    let dir = state.data_dir.clone();
+    with_desktop("open the data folder", move || {
+        tauri_plugin_opener::open_path(dir, None::<&str>)
+    })
+    .await
 }

@@ -327,6 +327,7 @@ fn draw_calibration_page(
         mm_to_pt(settings.card_height_mm),
     );
     let bleed = mm_to_pt(settings.bleed_mm);
+    surface.set_fill(None);
     if let Some(path) = rect_path(margin, y, cw + 2.0 * bleed, ch + 2.0 * bleed) {
         surface.set_stroke(Some(stroke(muted, 0.3)));
         surface.draw_path(&path);
