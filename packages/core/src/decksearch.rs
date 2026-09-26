@@ -7,6 +7,7 @@
 //! searches need an exact card name on Archidekt, so the typed text is first
 //! matched against Scryfall's autocomplete catalogue.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -109,6 +110,84 @@ pub struct DeckSearch {
     providers: Arc<Providers>,
     client: Client,
     archidekt_next: Mutex<Instant>,
+}
+
+/// How often each card shows up in the most-viewed public decks matching a
+/// search: the deck builder's play-rate signal. Counts decks, not copies.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetaSample {
+    pub source: DeckSource,
+    /// Decks that were sampled.
+    pub decks: u32,
+    /// What the decks were searched by, e.g. `Atraxa, Praetors' Voice decks`.
+    pub label: String,
+    /// Front-face name, lower-cased → (display name, decks containing it).
+    #[serde(skip)]
+    counts: HashMap<String, (String, u32)>,
+}
+
+/// Archidekt names double-faced cards `Front // Back`; Scryfall does too but
+/// the builder may hold either, so match on the front face.
+fn front_face(name: &str) -> String {
+    name.split(" // ")
+        .next()
+        .unwrap_or(name)
+        .trim()
+        .to_lowercase()
+}
+
+impl MetaSample {
+    pub fn new(source: DeckSource, label: impl Into<String>) -> Self {
+        Self {
+            source,
+            decks: 0,
+            label: label.into(),
+            counts: HashMap::new(),
+        }
+    }
+
+    /// Counts one deck's main-deck cards (commander, sideboard and maybeboard
+    /// excluded). Returns false when the list is too small to be a real deck.
+    pub fn add_deck(&mut self, lines: &[ImportLine]) -> bool {
+        let names: HashSet<&str> = lines
+            .iter()
+            .filter(|line| line.zone == Zone::Main && line.quantity > 0)
+            .map(|line| line.name.as_str())
+            .collect();
+        if names.len() < 15 {
+            return false;
+        }
+        self.decks += 1;
+        for name in names {
+            let slot = self
+                .counts
+                .entry(front_face(name))
+                .or_insert_with(|| (name.to_string(), 0));
+            slot.1 += 1;
+        }
+        true
+    }
+
+    /// Decks (out of [`Self::decks`]) that run the card.
+    pub fn frequency(&self, name: &str) -> u32 {
+        self.counts
+            .get(&front_face(name))
+            .map(|(_, count)| *count)
+            .unwrap_or(0)
+    }
+
+    /// Cards in at least `min_decks` decks, most common first.
+    pub fn common(&self, min_decks: u32) -> Vec<(&str, u32)> {
+        let mut names: Vec<(&str, u32)> = self
+            .counts
+            .values()
+            .filter(|(_, count)| *count >= min_decks)
+            .map(|(name, count)| (name.as_str(), *count))
+            .collect();
+        names.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        names
+    }
 }
 
 /// Archidekt `deckFormat` ids taken from its client bundle, paired with the
@@ -618,5 +697,63 @@ impl DeckSearch {
         let deck = self.detail(source, id).await?;
         check_import_limits(&deck.lines)?;
         self.providers.resolve(deck.lines).await
+    }
+
+    /// Card frequencies across the `limit` most-viewed public Archidekt decks
+    /// matching `text` in `format`, keeping only decks whose colour identity
+    /// fits `colors` (any colours when empty). Decks that fail to load are
+    /// skipped; the deck lists are not resolved on Scryfall.
+    pub async fn meta_sample(
+        &self,
+        text: &str,
+        field: SearchField,
+        format: &str,
+        colors: &[String],
+        limit: usize,
+    ) -> AppResult<MetaSample> {
+        let mut sample = MetaSample::new(
+            DeckSource::Archidekt,
+            format!("{} {} decks", format, text.trim()),
+        );
+        let mut page = 1;
+        while (sample.decks as usize) < limit && page <= 3 {
+            let result = self
+                .search(
+                    DeckQuery {
+                        text: text.into(),
+                        field,
+                        format: format.into(),
+                        source: Some(DeckSource::Archidekt),
+                    },
+                    page,
+                )
+                .await?;
+            for item in &result.items {
+                if (sample.decks as usize) >= limit {
+                    break;
+                }
+                let fits = colors.is_empty()
+                    || item
+                        .color_identity
+                        .iter()
+                        .all(|color| colors.contains(color));
+                if !fits || item.card_count < 40 {
+                    continue;
+                }
+                match self.detail(DeckSource::Archidekt, &item.id).await {
+                    Ok(deck) => {
+                        sample.add_deck(&deck.lines);
+                    }
+                    Err(error) => {
+                        log::warn!("Skipping Archidekt deck {}: {error}", item.id);
+                    }
+                }
+            }
+            if !result.has_more {
+                break;
+            }
+            page += 1;
+        }
+        Ok(sample)
     }
 }

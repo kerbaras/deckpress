@@ -52,6 +52,7 @@ import {
   FormatStep,
   StyleStep,
 } from "./deck-builder-steps.tsx";
+import { sourceNames } from "./deck-search.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
   CardImage,
@@ -377,10 +378,13 @@ function CardsStage({
           <p className="hint builder-source">
             Pool: Scryfall search <code>{first.queries[0]}</code>
             {first.queries.length > 1 &&
-              ` and ${first.queries.length - 1} theme ${
+              ` and ${first.queries.length - 1} more ${
                 first.queries.length === 2 ? "query" : "queries"
               }`}
-            . Scores are a transparent heuristic; each card lists why.
+            .{" "}
+            {first.meta &&
+              `Play rates from the ${first.meta.decks} most-viewed public ${sourceNames[first.meta.source]} ${first.meta.label}. `}
+            Scores are a transparent heuristic; each card lists why.
           </p>
         )}
         <ErrorNotice

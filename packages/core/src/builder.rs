@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
 
+use crate::decksearch::{archidekt_format_id, DeckSearch, MetaSample, SearchField};
 use crate::error::{AppError, AppResult};
 use crate::models::{new_id, Card, DeckEntry, ImportLine, Zone};
 use crate::providers::{normalize_scryfall, Providers};
@@ -27,9 +28,18 @@ const SCRYFALL_SETS: &str = "https://api.scryfall.com/sets";
 /// Scryfall pages hold 175 cards; two pages per query keeps the first
 /// suggestion round under a handful of rate-limited requests.
 const POOL_PAGES: u32 = 2;
-/// Sum of every bonus `score` can award; scores are normalised against it so
+/// Sum of every bonus `score` can award without a public-deck sample; scores
+/// are normalised against it (plus [`META_WEIGHT`] when a sample exists) so
 /// only a card that ticks every box reaches 1.0.
 const MAX_SCORE: f64 = 0.25 + 0.45 + 0.20 + 0.15 + 0.15 + 0.05;
+/// Weight of the play-rate signal: the share of sampled public decks running
+/// the card. A staple in every sampled deck earns as much as a full theme hit.
+const META_WEIGHT: f64 = 0.35;
+/// Most-viewed public decks sampled per spec for the play-rate signal.
+pub const META_DECKS: usize = 10;
+/// Cards in at least this share of the sampled decks join the pool even when
+/// the Scryfall searches missed them.
+const META_POOL_SHARE: f64 = 0.3;
 pub const PAGE_SIZE: usize = 30;
 const CURVE_BUCKETS: usize = 7;
 const COLORS: [(&str, &str, &str); 5] = [
@@ -77,7 +87,7 @@ pub const FORMATS: [FormatRules; 7] = [
         needs_set: false,
         description: "60 cards from the newest sets, up to four copies each.",
         query: "format:standard",
-        order: "usd",
+        order: "edhrec",
     },
     FormatRules {
         id: "pioneer",
@@ -91,7 +101,7 @@ pub const FORMATS: [FormatRules; 7] = [
         needs_set: false,
         description: "60 cards, everything printed since Return to Ravnica.",
         query: "format:pioneer",
-        order: "usd",
+        order: "edhrec",
     },
     FormatRules {
         id: "modern",
@@ -105,7 +115,7 @@ pub const FORMATS: [FormatRules; 7] = [
         needs_set: false,
         description: "60 cards, modern card frames onward. Faster and lower to the ground.",
         query: "format:modern",
-        order: "usd",
+        order: "edhrec",
     },
     FormatRules {
         id: "commander",
@@ -177,6 +187,11 @@ pub struct StyleRules {
     pub curve: [f64; CURVE_BUCKETS],
     #[serde(skip)]
     favours: &'static [&'static str],
+    /// Share of the non-land slots "Fill remaining slots" reserves for each
+    /// role before spending the rest on the highest scores, so a themed deck
+    /// still ends up with its ramp, card draw and answers.
+    #[serde(skip)]
+    quotas: &'static [(&'static str, f64)],
 }
 
 pub const STYLES: [StyleRules; 4] = [
@@ -187,6 +202,7 @@ pub const STYLES: [StyleRules; 4] = [
         land_adjust: -3,
         curve: [0.02, 0.28, 0.35, 0.22, 0.10, 0.03, 0.0],
         favours: &["threat", "removal"],
+        quotas: &[("removal", 0.25), ("threat", 0.45)],
     },
     StyleRules {
         id: "midrange",
@@ -195,6 +211,12 @@ pub const STYLES: [StyleRules; 4] = [
         land_adjust: 0,
         curve: [0.02, 0.10, 0.25, 0.28, 0.20, 0.10, 0.05],
         favours: &["threat", "removal", "draw", "ramp"],
+        quotas: &[
+            ("ramp", 0.16),
+            ("removal", 0.14),
+            ("draw", 0.12),
+            ("interaction", 0.05),
+        ],
     },
     StyleRules {
         id: "control",
@@ -203,6 +225,13 @@ pub const STYLES: [StyleRules; 4] = [
         land_adjust: 2,
         curve: [0.02, 0.08, 0.22, 0.25, 0.20, 0.13, 0.10],
         favours: &["removal", "interaction", "draw", "wincon"],
+        quotas: &[
+            ("removal", 0.22),
+            ("interaction", 0.14),
+            ("draw", 0.16),
+            ("ramp", 0.10),
+            ("wincon", 0.08),
+        ],
     },
     StyleRules {
         id: "combo",
@@ -212,6 +241,12 @@ pub const STYLES: [StyleRules; 4] = [
         land_adjust: -1,
         curve: [0.05, 0.15, 0.30, 0.25, 0.15, 0.07, 0.03],
         favours: &["tutor", "draw", "ramp", "interaction"],
+        quotas: &[
+            ("tutor", 0.12),
+            ("draw", 0.16),
+            ("ramp", 0.14),
+            ("interaction", 0.10),
+        ],
     },
 ];
 
@@ -276,6 +311,7 @@ pub const THEMES: [ThemeRules; 8] = [
             "proliferate",
             "counters on",
             "counter on it",
+            "each kind of counter",
             "adapt",
             "evolve",
             "outlast",
@@ -382,7 +418,7 @@ pub fn options() -> BuilderOptions {
             .collect(),
         styles: STYLES.to_vec(),
         themes: THEMES.to_vec(),
-        source: "Card data and popularity from Scryfall (EDHREC rank as sorted by Scryfall).",
+        source: "Card data and popularity from Scryfall (EDHREC rank as sorted by Scryfall); play rates from the most-viewed public Archidekt decks.",
     }
 }
 
@@ -446,6 +482,8 @@ pub struct Suggestion {
     pub role: &'static str,
     pub oracle_text: String,
     pub popularity_rank: Option<u32>,
+    /// Sampled public decks that run the card (0 when no sample was taken).
+    pub meta_decks: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -458,6 +496,8 @@ pub struct SuggestionPage {
     /// The Scryfall queries that produced the pool, for the "why these cards" line.
     pub queries: Vec<String>,
     pub colors: Vec<String>,
+    /// The public-deck sample behind the play-rate reasons, if one was taken.
+    pub meta: Option<MetaSample>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -560,6 +600,8 @@ pub struct Context<'a> {
     pub tribe: String,
     pub colors: Vec<String>,
     pub commander: Option<CommanderProfile>,
+    /// Play rates from public decks for the same commander / format, if any.
+    pub meta: Option<MetaSample>,
 }
 
 /// What the chosen commander cares about, derived from its oracle text.
@@ -630,7 +672,14 @@ pub fn classify_role(
         return "wincon";
     }
     if any(&["add {", "add one mana", "add two mana", "add three mana"])
-        || (any(&["land card"]) && any(&["onto the battlefield"]))
+        || (any(&[
+            "land card",
+            "plains",
+            "island",
+            "swamp",
+            "mountain",
+            "forest",
+        ]) && any(&["onto the battlefield"]))
     {
         return "ramp";
     }
@@ -645,6 +694,9 @@ pub fn classify_role(
         "gets -",
         "fights",
         "sacrifices a creature",
+        "you don't control to its owner's hand",
+        "an opponent controls to its owner's hand",
+        "to their owners' hands",
     ]) {
         return "removal";
     }
@@ -721,6 +773,21 @@ fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
 
+/// EDHREC rank on a log scale (#1 → 1.0, #10 → 0.78, #1000 → 0.33), or the
+/// position within the Scryfall ordering for cards without one.
+/// Roughly log10 of the number of ranked cards on Scryfall.
+const RANKED_CARDS_LOG: f64 = 4.5;
+
+pub fn popularity(pool: &PoolCard) -> f64 {
+    match pool.edhrec_rank {
+        Some(rank) if rank > 0 => {
+            (1.0 - f64::from(rank).log10() / RANKED_CARDS_LOG).clamp(0.0, 1.0)
+        }
+        _ if pool.pool_len > 1 => 1.0 - pool.rank as f64 / (pool.pool_len - 1) as f64,
+        _ => 1.0,
+    }
+}
+
 /// The heuristic. Weights sum to just over one so a card that hits every
 /// mark saturates at 1.0.
 pub fn score(pool: &PoolCard, ctx: &Context<'_>) -> Suggestion {
@@ -731,12 +798,7 @@ pub fn score(pool: &PoolCard, ctx: &Context<'_>) -> Suggestion {
     let mut total = 0.0;
     let mut reasons = Vec::new();
 
-    // Popularity: position within the Scryfall ordering that returned it.
-    let popularity = if pool.pool_len > 1 {
-        1.0 - pool.rank as f64 / (pool.pool_len - 1) as f64
-    } else {
-        1.0
-    };
+    let popularity = popularity(pool);
     total += 0.25 * popularity;
     match (pool.edhrec_rank, ctx.rules.order) {
         (Some(rank), _) if rank <= 500 => reasons.push(format!("EDHREC rank #{rank} on Scryfall")),
@@ -749,6 +811,27 @@ pub fn score(pool: &PoolCard, ctx: &Context<'_>) -> Suggestion {
         }
         _ => {}
     }
+
+    // Play rate in public decks for the same commander / format.
+    let max_score = MAX_SCORE + ctx.meta.as_ref().map_or(0.0, |_| META_WEIGHT);
+    let meta_decks = ctx
+        .meta
+        .as_ref()
+        .filter(|meta| meta.decks > 0)
+        .map(|meta| {
+            let decks = meta.frequency(&card.name);
+            if decks > 0 {
+                total += META_WEIGHT * f64::from(decks) / f64::from(meta.decks);
+                reasons.push(format!(
+                    "In {decks} of the {} most-viewed {} {}",
+                    meta.decks,
+                    meta.source.label(),
+                    meta.label
+                ));
+            }
+            decks
+        })
+        .unwrap_or(0);
 
     // Theme fit.
     let mut themed = false;
@@ -882,11 +965,12 @@ pub fn score(pool: &PoolCard, ctx: &Context<'_>) -> Suggestion {
     }
     Suggestion {
         card: card.clone(),
-        score: round2((total / MAX_SCORE).clamp(0.0, 1.0)),
+        score: round2((total / max_score).clamp(0.0, 1.0)),
         reasons,
         role,
         oracle_text: pool.oracle_text.clone(),
         popularity_rank: pool.edhrec_rank,
+        meta_decks,
     }
 }
 
@@ -1119,38 +1203,90 @@ pub fn plan_fill(
     let mut count = summary.count;
     let lands = summary.lands;
     let land_goal = land_target(rules, style);
-    let owned: HashSet<&str> = active(entries)
+    let mut taken: HashSet<&str> = active(entries)
         .map(|entry| entry.card.oracle_id.as_str())
         .collect();
-    let mut added = Vec::new();
+    let role_of: HashMap<&str, &str> = ranked
+        .iter()
+        .map(|suggestion| (suggestion.card.oracle_id.as_str(), suggestion.role))
+        .collect();
+    let mut role_counts: HashMap<&str, u32> = HashMap::new();
+    for entry in active(entries) {
+        if let Some(role) = role_of.get(entry.card.oracle_id.as_str()) {
+            *role_counts.entry(role).or_default() += entry.quantity;
+        }
+    }
     let nonland_room = rules
         .deck_size
         .saturating_sub(count)
         .saturating_sub(land_goal.saturating_sub(lands));
+    // Quotas are shares of the finished deck's non-land slots, so a deck that
+    // already holds some of a role only needs the difference.
+    let nonland_total = rules.deck_size.saturating_sub(land_goal.max(lands));
     let mut remaining = nonland_room;
-    for suggestion in ranked {
+    let eligible = |suggestion: &Suggestion, taken: &HashSet<&str>| {
+        suggestion.score > 0.0
+            && !is_land(&suggestion.card.type_line)
+            && !taken.contains(suggestion.card.oracle_id.as_str())
+    };
+    // (rank position, copies) so the final list keeps the score order.
+    let mut picks: Vec<(usize, u32)> = Vec::new();
+    // Reserved role slots go to the most played cards in that role (public
+    // deck play rate, then EDHREC rank), the rest to the highest scores.
+    let mut by_popularity: Vec<usize> = (0..ranked.len()).collect();
+    by_popularity.sort_by_key(|&index| {
+        (
+            std::cmp::Reverse(ranked[index].meta_decks),
+            ranked[index].popularity_rank.unwrap_or(u32::MAX),
+            index,
+        )
+    });
+    for (role, share) in style.quotas {
+        let goal = (share * f64::from(nonland_total)).round() as u32;
+        let mut have = role_counts.get(role).copied().unwrap_or(0);
+        for &index in &by_popularity {
+            let suggestion = &ranked[index];
+            if remaining == 0 || have >= goal {
+                break;
+            }
+            if suggestion.role != *role || !eligible(suggestion, &taken) {
+                continue;
+            }
+            let quantity = rules.max_copies.min(remaining).min(goal - have);
+            remaining -= quantity;
+            have += quantity;
+            taken.insert(suggestion.card.oracle_id.as_str());
+            picks.push((index, quantity));
+        }
+    }
+    for (index, suggestion) in ranked.iter().enumerate() {
         if remaining == 0 {
             break;
         }
-        if suggestion.score <= 0.0
-            || is_land(&suggestion.card.type_line)
-            || owned.contains(suggestion.card.oracle_id.as_str())
-        {
+        if !eligible(suggestion, &taken) {
             continue;
         }
         let quantity = rules.max_copies.min(remaining);
         remaining -= quantity;
-        count += quantity;
-        added.push(DeckEntry {
-            id: new_id(),
-            card: suggestion.card.clone(),
-            quantity,
-            zone: Zone::Main,
-            selected_art: None,
-            selected_back: None,
-            excluded: false,
-        });
+        taken.insert(suggestion.card.oracle_id.as_str());
+        picks.push((index, quantity));
     }
+    picks.sort_unstable();
+    let added: Vec<DeckEntry> = picks
+        .into_iter()
+        .map(|(index, quantity)| {
+            count += quantity;
+            DeckEntry {
+                id: new_id(),
+                card: ranked[index].card.clone(),
+                quantity,
+                zone: Zone::Main,
+                selected_art: None,
+                selected_back: None,
+                excluded: false,
+            }
+        })
+        .collect();
     let mut pip_counts: HashMap<String, u32> = HashMap::new();
     for entry in active(entries).chain(added.iter()) {
         for (color, pips) in pips(&entry.card.mana_cost) {
@@ -1170,6 +1306,37 @@ pub fn plan_fill(
 
 pub struct Builder {
     providers: Arc<Providers>,
+    decks: Option<Arc<DeckSearch>>,
+}
+
+fn is_basic_name(lower: &str) -> bool {
+    lower == "wastes"
+        || COLORS
+            .iter()
+            .any(|(_, _, basic)| basic.eq_ignore_ascii_case(lower))
+        || lower.starts_with("snow-covered ")
+}
+
+/// Decks a card must appear in before it is pulled into the pool on play
+/// rate alone.
+pub fn meta_pool_threshold(decks: u32) -> u32 {
+    ((META_POOL_SHARE * f64::from(decks)).ceil() as u32).max(1)
+}
+
+/// Scryfall searches for named cards the pool is missing, within the format
+/// and colour identity of `base`. Names are batched so each query stays
+/// short; quotes cannot be escaped in Scryfall syntax, so they are dropped.
+pub fn meta_queries(base: &str, names: &[&str]) -> Vec<String> {
+    names
+        .chunks(12)
+        .map(|chunk| {
+            let exact: Vec<String> = chunk
+                .iter()
+                .map(|name| format!("!\"{}\"", name.replace('"', "")))
+                .collect();
+            format!("{base} ({})", exact.join(" or "))
+        })
+        .collect()
 }
 
 pub fn base_query(rules: &FormatRules, spec: &BuilderSpec, colors: &[String]) -> AppResult<String> {
@@ -1218,7 +1385,53 @@ fn is_empty_search(error: &AppError) -> bool {
 
 impl Builder {
     pub fn new(providers: Arc<Providers>) -> Self {
-        Self { providers }
+        Self {
+            providers,
+            decks: None,
+        }
+    }
+
+    /// Also samples public decks through `decks` for the play-rate signal.
+    pub fn with_deck_search(providers: Arc<Providers>, decks: Arc<DeckSearch>) -> Self {
+        Self {
+            providers,
+            decks: Some(decks),
+        }
+    }
+
+    /// The most-viewed public decks for the spec: the commander's decks in
+    /// Commander, otherwise decks in the format named after the theme (or
+    /// the play style) within the chosen colours. Failures only lose the
+    /// signal; the pool still comes from Scryfall.
+    async fn meta_sample(
+        &self,
+        rules: &FormatRules,
+        style: &StyleRules,
+        theme: &ThemeRules,
+        spec: &BuilderSpec,
+        colors: &[String],
+    ) -> Option<MetaSample> {
+        let decks = self.decks.as_ref()?;
+        archidekt_format_id(rules.deck_format)?;
+        let (text, field, colors): (String, SearchField, &[String]) = match &spec.commander {
+            Some(card) if rules.commander => (card.name.clone(), SearchField::Commander, &[]),
+            Some(_) => return None,
+            None if rules.needs_set => return None,
+            None if theme.needs_tribe => (spec.tribe.trim().to_string(), SearchField::Name, colors),
+            None if theme.id != "none" => (theme.name.to_string(), SearchField::Name, colors),
+            None => (style.name.to_string(), SearchField::Name, colors),
+        };
+        match decks
+            .meta_sample(&text, field, rules.deck_format, colors, META_DECKS)
+            .await
+        {
+            Ok(sample) if sample.decks > 0 => Some(sample),
+            Ok(_) => None,
+            Err(error) => {
+                log::warn!("Deck builder continues without public deck play rates: {error}");
+                None
+            }
+        }
     }
 
     /// Runs one Scryfall search for up to `pages` pages; an empty result is
@@ -1287,6 +1500,7 @@ impl Builder {
                     role: "commander",
                     oracle_text: pool.oracle_text,
                     popularity_rank: pool.edhrec_rank,
+                    meta_decks: 0,
                 }
             })
             .collect())
@@ -1369,7 +1583,12 @@ impl Builder {
     async fn pool(
         &self,
         spec: &BuilderSpec,
-    ) -> AppResult<(Vec<Suggestion>, Vec<String>, Vec<String>)> {
+    ) -> AppResult<(
+        Vec<Suggestion>,
+        Vec<String>,
+        Vec<String>,
+        Option<MetaSample>,
+    )> {
         let (rules, style, theme, colors) = self.resolve_context(spec)?;
         let base = base_query(rules, spec, &colors)?;
         let commander = match &spec.commander {
@@ -1411,6 +1630,35 @@ impl Builder {
                 }
             }
         }
+        let meta = self.meta_sample(rules, style, theme, spec, &colors).await;
+        if let Some(meta) = &meta {
+            let in_pool: HashSet<String> = pool
+                .iter()
+                .map(|card| card.card.name.to_lowercase())
+                .collect();
+            let missing: Vec<&str> = meta
+                .common(meta_pool_threshold(meta.decks))
+                .into_iter()
+                .map(|(name, _)| name)
+                .filter(|name| {
+                    let lower = name.to_lowercase();
+                    !in_pool.contains(&lower) && !is_basic_name(&lower)
+                })
+                .collect();
+            for query in meta_queries(&base, &missing) {
+                let cards = self.search(&query, "edhrec", 1).await?;
+                let pool_len = cards.len();
+                for (rank, value) in cards.iter().enumerate() {
+                    let Ok(card) = pool_card(value, rank, pool_len) else {
+                        continue;
+                    };
+                    if seen.insert(card.card.oracle_id.clone()) {
+                        pool.push(card);
+                    }
+                }
+                queries.push((query, "edhrec"));
+            }
+        }
         let ctx = Context {
             rules,
             style,
@@ -1418,16 +1666,19 @@ impl Builder {
             tribe: spec.tribe.trim().to_string(),
             colors: colors.clone(),
             commander,
+            meta,
         };
+        let ranked = rank(&pool, &ctx);
         Ok((
-            rank(&pool, &ctx),
+            ranked,
             queries.into_iter().map(|(query, _)| query).collect(),
             colors,
+            ctx.meta,
         ))
     }
 
     pub async fn suggest(&self, spec: &BuilderSpec, page: u32) -> AppResult<SuggestionPage> {
-        let (ranked, queries, colors) = self.pool(spec).await?;
+        let (ranked, queries, colors, meta) = self.pool(spec).await?;
         let page = page.max(1);
         let start = ((page - 1) as usize) * PAGE_SIZE;
         let total = ranked.len();
@@ -1439,6 +1690,7 @@ impl Builder {
             total,
             queries,
             colors,
+            meta,
         })
     }
 
@@ -1457,7 +1709,7 @@ impl Builder {
     ) -> AppResult<Vec<DeckEntry>> {
         validate_entries(entries)?;
         let (rules, style, _, colors) = self.resolve_context(spec)?;
-        let (ranked, _, _) = self.pool(spec).await?;
+        let (ranked, _, _, _) = self.pool(spec).await?;
         let plan = plan_fill(rules, style, &colors, entries, &ranked);
         let mut added = plan.entries;
         if !plan.basics.is_empty() {
