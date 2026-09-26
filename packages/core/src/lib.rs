@@ -3,6 +3,7 @@
 //! upscaling and the raster/PDF print pipeline. The crate has no knowledge of
 //! Tauri; the app maps its commands onto these types.
 
+pub mod builder;
 pub mod decksearch;
 pub mod error;
 pub mod images;
@@ -31,6 +32,7 @@ pub struct Core {
     pub models: Arc<upscaler::manifest::ModelManager>,
     pub jobs: Arc<jobs::Jobs>,
     pub style: Arc<style::StyleMatcher>,
+    pub builder: Arc<builder::Builder>,
     pub decksearch: Arc<decksearch::DeckSearch>,
 }
 
@@ -63,6 +65,7 @@ impl Core {
             Arc::clone(&images),
             Arc::clone(&models),
         ));
+        let builder = Arc::new(builder::Builder::new(Arc::clone(&providers)));
         let decksearch = Arc::new(decksearch::DeckSearch::new(
             Arc::clone(&store),
             Arc::clone(&providers),
@@ -75,6 +78,7 @@ impl Core {
             models,
             jobs,
             style,
+            builder,
             decksearch,
         })
     }

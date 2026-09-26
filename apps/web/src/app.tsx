@@ -14,10 +14,12 @@ import {
   RefreshCw,
   Settings2,
   ShieldCheck,
+  Wand2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
+import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
 import { Library } from "./library.tsx";
 import {
@@ -44,6 +46,7 @@ const library = [
   { id: "jobs", name: "Print jobs", icon: Printer },
   { id: "sources", name: "Art sources", icon: Images },
   { id: "discover", name: "Discover", icon: Compass },
+  { id: "builder", name: "Deck builder", icon: Wand2 },
 ];
 const RECENT_DECKS = 6;
 const SIDEBAR_KEY = "deckpress.sidebar";
@@ -295,11 +298,18 @@ export function App() {
               <Sources />
             ) : route === "discover" ? (
               <DeckSearch open={(id) => void navigate(`decks/${id}`)} />
+            ) : route === "builder" ? (
+              <DeckBuilder
+                onDirty={onDirty}
+                onBack={() => void navigate("decks")}
+                onCreated={(id) => void navigate(`decks/${id}`, true)}
+              />
             ) : (
               <Library
                 open={(id) => void navigate(`decks/${id}`)}
                 createRequest={newDeckRequest}
                 onCreateHandled={() => setNewDeckRequest(0)}
+                onBuild={() => void navigate("builder")}
               />
             )}
           </ToolbarSlotProvider>

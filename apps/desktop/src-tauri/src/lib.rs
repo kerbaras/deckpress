@@ -66,6 +66,12 @@ pub fn run() {
             commands::deck_detail,
             commands::import_external_deck,
             window::window_chrome,
+            commands::builder_options,
+            commands::builder_sets,
+            commands::builder_commanders,
+            commands::builder_suggest,
+            commands::builder_summary,
+            commands::builder_fill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Deckpress");
