@@ -539,6 +539,20 @@ function LocalSettings() {
             loaded. Without a GPU the quality model is roughly ten times slower
             than the compact one.
           </p>
+          {query.data?.styleModel && (
+            <div className="model-row">
+              <div>
+                <strong>{query.data.styleModel.name}</strong>
+                <span className="muted">
+                  {" · beta · "}
+                  {(query.data.styleModel.bytes / 1024 / 1024).toFixed(1)} MB ·{" "}
+                  {query.data.styleModel.license}
+                  {query.data.styleModel.installed ? "" : " · missing"}
+                </span>
+                <p className="hint">{query.data.styleModel.description}</p>
+              </div>
+            </div>
+          )}
           <div className="toolbar">
             <button
               type="button"

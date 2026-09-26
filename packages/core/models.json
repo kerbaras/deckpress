@@ -46,5 +46,22 @@
     "licenseUrl": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
     "source": "https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.1.0 (RealESRGAN_x4plus)",
     "description": "RRDB network, FP16. Cleanest glyph edges and halftone handling, roughly 15x slower than the compact model. Downloaded on first use."
+  },
+  {
+    "id": "style-mobilenetv3",
+    "name": "Art-style embedding (MobileNetV3-Small)",
+    "tier": "style",
+    "kind": "styleEmbedding",
+    "file": "style-mobilenetv3-224.fp16.onnx",
+    "scale": 1,
+    "tile": 224,
+    "bytes": 1900933,
+    "sha256": "cea9ecc09db9d94923c6bf4a4d2a21dc8962375b32fbbc4f46d66202e340b72a",
+    "bundled": true,
+    "url": null,
+    "license": "BSD-3-Clause",
+    "licenseUrl": "https://github.com/pytorch/vision/blob/main/LICENSE",
+    "source": "torchvision MobileNet_V3_Small_Weights.IMAGENET1K_V1 with a feature-statistics style head (apps/desktop/scripts/export-style-onnx.py)",
+    "description": "Turns a 224x224 art crop into a unit 1024-d vector: 60% texture/palette statistics from five intermediate layers, 40% pooled content features. Powers \"Match art style\"."
   }
 ]

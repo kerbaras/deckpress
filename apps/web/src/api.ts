@@ -1,7 +1,8 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { ask, save } from "@tauri-apps/plugin-dialog";
 import { z } from "zod";
 import {
+  type Art,
   type ArtPreference,
   artPreferenceSchema,
   artSchema,
@@ -39,7 +40,8 @@ export async function command<T>(
 const modelStatusSchema = z.object({
   id: z.string(),
   name: z.string(),
-  tier: z.enum(["default", "fast", "quality"]),
+  tier: z.enum(["default", "fast", "quality", "style"]),
+  kind: z.enum(["upscale", "styleEmbedding"]).default("upscale"),
   file: z.string(),
   scale: z.number(),
   tile: z.number(),
@@ -67,6 +69,7 @@ export const settingsSchema = z.object({
   models: z.array(modelStatusSchema),
   defaultModel: z.string(),
   loaded: upscalerInfoSchema.nullable(),
+  styleModel: modelStatusSchema.nullable().default(null),
   storage: z.string(),
   localOnly: z.boolean(),
   dataDir: z.string(),
@@ -94,6 +97,40 @@ export interface ImportResult {
   format: string;
 }
 export type Preferences = z.infer<typeof preferencesSchema>;
+const scoredArtSchema = z.object({
+  art: artSchema,
+  score: z.number(),
+  visual: z.number().nullable(),
+  metadata: z.number(),
+  reasons: z.array(z.string()),
+});
+export type ScoredArt = z.infer<typeof scoredArtSchema>;
+export const styleReportSchema = z.object({
+  method: z.enum(["model", "heuristic"]),
+  model: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+      executionProvider: z.string(),
+    })
+    .nullable(),
+  matches: z.array(
+    z.object({ entryId: z.string(), ranked: z.array(scoredArtSchema) }),
+  ),
+  warnings: z.array(z.string()),
+  embedded: z.number(),
+  skipped: z.number(),
+});
+export type StyleReport = z.infer<typeof styleReportSchema>;
+export interface StyleRequest {
+  reference: Art;
+  entries: { entryId: string; options: Art[] }[];
+  useModel?: boolean;
+}
+export interface StyleProgress {
+  done: number;
+  total: number;
+}
 export const windowChromeSchema = z.object({
   platform: z.enum(["macos", "windows", "linux"]),
   customControls: z.boolean(),
@@ -171,6 +208,18 @@ export const api = {
       face,
       page,
     }),
+  /** Ranks each entry's printings against a reference illustration (beta). */
+  matchArtStyle: (
+    request: StyleRequest,
+    onProgress?: (progress: StyleProgress) => void,
+  ) => {
+    const progress = new Channel<StyleProgress>();
+    progress.onmessage = (message) => onProgress?.(message);
+    return command("match_art_style", styleReportSchema, {
+      request,
+      progress,
+    });
+  },
   uploads: (oracleId: string, _signal?: AbortSignal) =>
     command("list_uploads", z.array(artSchema), { oracleId }),
   /** Image bytes travel as the raw IPC body; metadata rides in a header. */

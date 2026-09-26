@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use deckpress_core::error::{AppError, AppResult};
-use deckpress_core::upscaler::manifest::{default_model_id, sha256_file, specs, ModelManager};
+use deckpress_core::upscaler::manifest::{
+    default_model_id, sha256_file, specs, ModelKind, ModelManager,
+};
 use deckpress_core::upscaler::tiling::{feather, positions, reflect, TiledUpscaler};
 use deckpress_core::upscaler::{CancelToken, TileModel, Upscaler, UpscalerInfo};
 use image::RgbImage;
@@ -15,6 +17,13 @@ fn bundled_resources() -> PathBuf {
 fn manifest_has_one_default_and_bundled_files_match_their_digests() {
     let specs = specs();
     assert_eq!(specs.iter().filter(|s| s.tier == "default").count(), 1);
+    assert_eq!(
+        specs
+            .iter()
+            .filter(|s| s.kind == ModelKind::StyleEmbedding)
+            .count(),
+        1
+    );
     for spec in specs.iter().filter(|s| s.bundled) {
         let path = bundled_resources().join("models").join(&spec.file);
         assert_eq!(sha256_file(&path).unwrap(), spec.sha256, "{}", spec.id);

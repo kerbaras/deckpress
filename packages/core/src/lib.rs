@@ -12,6 +12,7 @@ pub mod pdf;
 pub mod providers;
 pub mod raster;
 pub mod store;
+pub mod style;
 pub mod upscaler;
 pub mod validate;
 
@@ -28,6 +29,7 @@ pub struct Core {
     pub images: Arc<images::Images>,
     pub models: Arc<upscaler::manifest::ModelManager>,
     pub jobs: Arc<jobs::Jobs>,
+    pub style: Arc<style::StyleMatcher>,
 }
 
 impl Core {
@@ -54,6 +56,11 @@ impl Core {
             runtime,
         )?);
         jobs.start();
+        let style = Arc::new(style::StyleMatcher::new(
+            Arc::clone(&store),
+            Arc::clone(&images),
+            Arc::clone(&models),
+        ));
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
             store,
@@ -61,6 +68,7 @@ impl Core {
             images,
             models,
             jobs,
+            style,
         })
     }
 }

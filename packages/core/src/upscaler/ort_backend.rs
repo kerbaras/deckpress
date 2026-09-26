@@ -63,6 +63,54 @@ fn candidates(cache_dir: &Path) -> Vec<Candidate> {
     list
 }
 
+/// Opens `path` with the first execution provider that accepts the model and
+/// returns the session with the provider's name.
+pub fn load_session(id: &str, path: &Path, cache_dir: &Path) -> AppResult<(Session, &'static str)> {
+    init_runtime();
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let mut last_error = None;
+    for candidate in candidates(cache_dir) {
+        let built = (|| -> AppResult<Session> {
+            Ok(Session::builder()?
+                .with_optimization_level(GraphOptimizationLevel::Level3)?
+                .with_intra_threads(threads)?
+                .with_execution_providers([candidate.dispatch])?
+                .commit_from_file(path)?)
+        })();
+        match built {
+            Ok(session) => {
+                log::info!("Loaded {id} with the {} execution provider", candidate.name);
+                return Ok((session, candidate.name));
+            }
+            Err(error) => {
+                log::warn!(
+                    "{} execution provider unavailable for {id}: {error}",
+                    candidate.name
+                );
+                last_error = Some(error);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| AppError::internal("No execution provider available")))
+}
+
+/// Static shape of the first tensor input/output of a session.
+pub fn io_shapes(session: &Session) -> AppResult<(Vec<i64>, Vec<i64>)> {
+    let input = session
+        .inputs()
+        .first()
+        .and_then(|input| input.dtype().tensor_shape().cloned())
+        .ok_or_else(|| AppError::internal("Model has no tensor input"))?;
+    let output = session
+        .outputs()
+        .first()
+        .and_then(|output| output.dtype().tensor_shape().cloned())
+        .ok_or_else(|| AppError::internal("Model has no tensor output"))?;
+    Ok((input.to_vec(), output.to_vec()))
+}
+
 pub struct OrtModel {
     session: Session,
     spec: ModelSpec,
@@ -74,52 +122,12 @@ pub struct OrtModel {
 
 impl OrtModel {
     pub fn load(spec: &ModelSpec, path: &Path, cache_dir: &Path) -> AppResult<Self> {
-        init_runtime();
-        let threads = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-        let mut last_error = None;
-        for candidate in candidates(cache_dir) {
-            let built = (|| -> AppResult<Session> {
-                Ok(Session::builder()?
-                    .with_optimization_level(GraphOptimizationLevel::Level3)?
-                    .with_intra_threads(threads)?
-                    .with_execution_providers([candidate.dispatch])?
-                    .commit_from_file(path)?)
-            })();
-            match built {
-                Ok(session) => {
-                    log::info!(
-                        "Loaded {} with the {} execution provider",
-                        spec.id,
-                        candidate.name
-                    );
-                    return Self::from_session(session, spec, candidate.name);
-                }
-                Err(error) => {
-                    log::warn!(
-                        "{} execution provider unavailable for {}: {error}",
-                        candidate.name,
-                        spec.id
-                    );
-                    last_error = Some(error);
-                }
-            }
-        }
-        Err(last_error.unwrap_or_else(|| AppError::internal("No execution provider available")))
+        let (session, provider) = load_session(&spec.id, path, cache_dir)?;
+        Self::from_session(session, spec, provider)
     }
 
     fn from_session(session: Session, spec: &ModelSpec, provider: &'static str) -> AppResult<Self> {
-        let input = session
-            .inputs()
-            .first()
-            .and_then(|input| input.dtype().tensor_shape().cloned())
-            .ok_or_else(|| AppError::internal("Model has no tensor input"))?;
-        let output = session
-            .outputs()
-            .first()
-            .and_then(|output| output.dtype().tensor_shape().cloned())
-            .ok_or_else(|| AppError::internal("Model has no tensor output"))?;
+        let (input, output) = io_shapes(&session)?;
         if input.len() != 4 || output.len() != 4 {
             return Err(AppError::internal("Model input/output must be NCHW"));
         }

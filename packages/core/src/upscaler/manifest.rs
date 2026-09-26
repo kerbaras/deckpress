@@ -18,12 +18,24 @@ use crate::error::{AppError, AppResult};
 
 const MANIFEST: &str = include_str!("../../models.json");
 
+/// What a model in the manifest is for. Upscalers run through the tiled
+/// super-resolution path; style embedders turn one image into a vector.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelKind {
+    #[default]
+    Upscale,
+    StyleEmbedding,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelSpec {
     pub id: String,
     pub name: String,
     pub tier: String,
+    #[serde(default)]
+    pub kind: ModelKind,
     pub file: String,
     pub scale: u32,
     pub tile: u32,
@@ -53,7 +65,7 @@ pub fn specs() -> Vec<ModelSpec> {
 pub fn default_model_id() -> String {
     specs()
         .into_iter()
-        .find(|spec| spec.tier == "default")
+        .find(|spec| spec.kind == ModelKind::Upscale && spec.tier == "default")
         .map(|spec| spec.id)
         .expect("manifest has a default model")
 }
@@ -105,7 +117,29 @@ impl ModelManager {
         self.specs
             .iter()
             .find(|spec| spec.id == id)
-            .ok_or_else(|| AppError::user(format!("Unknown upscaling model '{id}'")))
+            .ok_or_else(|| AppError::user(format!("Unknown model '{id}'")))
+    }
+
+    /// The bundled art-style embedding model, if the manifest has one.
+    pub fn style_spec(&self) -> Option<&ModelSpec> {
+        self.specs
+            .iter()
+            .find(|spec| spec.kind == ModelKind::StyleEmbedding)
+    }
+
+    /// Where ONNX Runtime may keep compiled-model caches.
+    pub fn cache_dir(&self) -> &Path {
+        &self.cache_dir
+    }
+
+    /// Installed location of a model, or an actionable error.
+    pub fn installed_path(&self, spec: &ModelSpec) -> AppResult<PathBuf> {
+        self.path(spec).ok_or_else(|| {
+            AppError::user(format!(
+                "{} is not installed. Download it from Print setup first.",
+                spec.name
+            ))
+        })
     }
 
     pub fn path(&self, spec: &ModelSpec) -> Option<PathBuf> {
@@ -117,16 +151,26 @@ impl ModelManager {
         downloaded.is_file().then_some(downloaded)
     }
 
-    pub fn status(&self) -> Vec<ModelStatus> {
+    fn status_of(&self, spec: &ModelSpec) -> ModelStatus {
         let downloading = self.downloading.lock().unwrap_or_else(|e| e.into_inner());
+        ModelStatus {
+            installed: self.path(spec).is_some(),
+            downloading: downloading.contains_key(&spec.id),
+            spec: spec.clone(),
+        }
+    }
+
+    /// Upscaling models only; the style embedder is reported separately.
+    pub fn status(&self) -> Vec<ModelStatus> {
         self.specs
             .iter()
-            .map(|spec| ModelStatus {
-                installed: self.path(spec).is_some(),
-                downloading: downloading.contains_key(&spec.id),
-                spec: spec.clone(),
-            })
+            .filter(|spec| spec.kind == ModelKind::Upscale)
+            .map(|spec| self.status_of(spec))
             .collect()
+    }
+
+    pub fn style_status(&self) -> Option<ModelStatus> {
+        self.style_spec().map(|spec| self.status_of(spec))
     }
 
     /// Downloads a model to `models/` and verifies its SHA-256 before it is
@@ -248,12 +292,13 @@ impl ModelManager {
             return Ok(existing.clone());
         }
         let spec = self.spec(id)?;
-        let path = self.path(spec).ok_or_else(|| {
-            AppError::user(format!(
-                "{} is not installed. Download it from Print setup first.",
+        if spec.kind != ModelKind::Upscale {
+            return Err(AppError::user(format!(
+                "{} is not an upscaling model",
                 spec.name
-            ))
-        })?;
+            )));
+        }
+        let path = self.installed_path(spec)?;
         std::fs::create_dir_all(&self.cache_dir)?;
         let model = OrtModel::load(spec, &path, &self.cache_dir)?;
         let upscaler: Arc<dyn Upscaler> = Arc::new(TiledUpscaler::new(model, DEFAULT_OVERLAP));

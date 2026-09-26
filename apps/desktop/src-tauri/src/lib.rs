@@ -49,6 +49,7 @@ pub fn run() {
             commands::import_url,
             commands::resolve_cards,
             commands::search_art,
+            commands::match_art_style,
             commands::preferences,
             commands::save_preference,
             commands::list_uploads,
