@@ -18,7 +18,7 @@ use crate::commands::AppState;
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::{mime_for, Images};
 use deckpress_core::models::{Art, PrintSettings};
-use deckpress_core::raster::{encode_jpeg, rasterize};
+use deckpress_core::raster::{encode_jpeg, rasterize, PIPELINE_VERSION};
 use deckpress_core::upscaler::CancelToken;
 
 pub const IMAGE_SCHEME: &str = "dpimg";
@@ -65,6 +65,7 @@ async fn preview(
     hasher.update(&source);
     hasher.update(
         serde_json::json!([
+            PIPELINE_VERSION,
             request.art.bleed_mm,
             request.art.provider,
             settings.card_width_mm,

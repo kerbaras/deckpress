@@ -17,8 +17,11 @@ import {
   ArrowLeft,
   ArrowRight,
   Download,
+  FlipHorizontal2,
+  PaintBucket,
   Printer,
   Save,
+  UnfoldHorizontal,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, previewSrc } from "./api.ts";
@@ -33,6 +36,32 @@ const paperNames = {
   tabloid: "Tabloid",
   custom: "Custom",
 };
+
+export const bleedModes: {
+  value: PrintSettings["bleedMode"];
+  label: string;
+  description: string;
+  Icon: typeof FlipHorizontal2;
+}[] = [
+  {
+    value: "mirror",
+    label: "Mirror",
+    description: "Reflects the card edge so off-cuts stay on art (recommended)",
+    Icon: FlipHorizontal2,
+  },
+  {
+    value: "edge",
+    label: "Edge",
+    description: "Stretches the outermost pixels",
+    Icon: UnfoldHorizontal,
+  },
+  {
+    value: "solid",
+    label: "Solid",
+    description: "Flat colour",
+    Icon: PaintBucket,
+  },
+];
 
 export function PrintSetup({
   deck,
@@ -356,26 +385,19 @@ export function PrintSetup({
               value={settings.bleedMm}
               set={(value) => change({ bleedMm: value })}
             />
-            <label className="setting-row">
-              Fill
-              <select
-                value={settings.bleedMode}
-                onChange={(event) =>
-                  change({
-                    bleedMode: event.target.value as PrintSettings["bleedMode"],
-                  })
-                }
-              >
-                <option value="solid">Solid color</option>
-                <option value="mirror">Mirror edge</option>
-                <option value="edge">Extend edge</option>
-              </select>
-            </label>
-            <label className="setting-row">
-              Border / corner color
+            <BleedModeControl
+              value={settings.bleedMode}
+              onChange={(bleedMode) => change({ bleedMode })}
+            />
+            <label
+              className="setting-row"
+              aria-disabled={settings.bleedMode !== "solid"}
+            >
+              Solid colour
               <input
                 type="color"
                 value={settings.bleedColor}
+                disabled={settings.bleedMode !== "solid"}
                 onChange={(event) => change({ bleedColor: event.target.value })}
               />
             </label>
@@ -903,6 +925,36 @@ export function PrintSetup({
         </section>
       </div>
     </div>
+  );
+}
+
+function BleedModeControl({
+  value,
+  onChange,
+}: {
+  value: PrintSettings["bleedMode"];
+  onChange: (value: PrintSettings["bleedMode"]) => void;
+}) {
+  return (
+    <fieldset className="bleed-fill">
+      <legend>Fill</legend>
+      {bleedModes.map(({ value: mode, label, description, Icon }) => (
+        <label key={mode}>
+          <input
+            type="radio"
+            name="bleed-fill"
+            value={mode}
+            checked={value === mode}
+            onChange={() => onChange(mode)}
+          />
+          <Icon size={15} aria-hidden="true" />
+          <span>
+            <strong>{label}</strong>
+            <span className="hint">{description}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
