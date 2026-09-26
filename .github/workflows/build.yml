@@ -80,20 +80,68 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Tauri signs and notarizes the .app when these are set, but treats an
+      # empty variable as a value, so only export the secrets that exist.
+      - name: Configure macOS signing
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!name}" ]; then
+              printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "${!name}" >> "$GITHUB_ENV"
+            else
+              echo "::notice::$name is not set; macOS build will not be signed/notarized"
+            fi
+          done
+
       - name: Build and package
         run: >
           pnpm --filter @deckpress/desktop exec tauri build
           --target ${{ matrix.target }}
           --bundles ${{ matrix.bundles }}
 
+      - name: Collect installers
+        run: |
+          shopt -s nullglob
+          mkdir dist
+          cp target/${{ matrix.target }}/release/bundle/{deb/*.deb,rpm/*.rpm,appimage/*.AppImage,dmg/*.dmg,msi/*.msi,nsis/*.exe} dist/
+          ls -l dist
+
       - uses: actions/upload-artifact@v7
         with:
           name: deckpress-${{ matrix.name }}
           if-no-files-found: error
-          path: |
-            target/${{ matrix.target }}/release/bundle/deb/*.deb
-            target/${{ matrix.target }}/release/bundle/rpm/*.rpm
-            target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
-            target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            target/${{ matrix.target }}/release/bundle/msi/*.msi
-            target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          path: dist/*
+
+  nightly:
+    name: Publish nightly prerelease
+    if: github.event_name != 'pull_request'
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: deckpress-*
+          merge-multiple: true
+          path: dist
+
+      - name: Recreate the nightly release
+        run: |
+          ls -l dist
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly dist/* \
+            --prerelease --latest=false \
+            --target "$GITHUB_SHA" \
+            --title "Nightly (${GITHUB_SHA::7})" \
+            --notes "Development build of \`${GITHUB_SHA}\` from \`${GITHUB_REF_NAME}\`. Replaced on every push to main."
