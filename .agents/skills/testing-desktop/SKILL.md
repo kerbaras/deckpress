@@ -27,6 +27,7 @@ pnpm dev
 
 - Adjust the ONNX path to the installed version. Do not assume a standalone release binary resolves its bundled resources the same way as an installed package or `tauri dev`.
 - Use `wmctrl -a Deckpress` and `wmctrl -r Deckpress -b add,maximized_vert,maximized_horz` before recording.
+- For responsive checks, inspect the native minimum width in `tauri.conf.json` and measure actual restored-window bounds with `wmctrl -lG` after edge resizing. Tool screenshots use scaled coordinates, not necessarily CSS pixels; do not claim a breakpoint passed when the native size limit prevented reaching it.
 - Settings shows the data directory and model status. A bundled model's Load button should produce `Loaded · CPU` on a CPU-only Linux host.
 - Data normally lives under `~/.local/share/dev.kerbaras.deckpress`. Use `DECKPRESS_DATA_DIR` before launch when test isolation is needed. Backups reference uploaded images, so retain the data directory when checking restore.
 

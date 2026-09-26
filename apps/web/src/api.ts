@@ -12,7 +12,7 @@ import {
   parseDecklist,
 } from "@deckpress/core";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { ask, save } from "@tauri-apps/plugin-dialog";
 import { z } from "zod";
 
 /** Calls a Rust command over Tauri IPC and validates the response shape. */
@@ -226,6 +226,19 @@ export function previewSrc(
     IMAGE_SCHEME,
   );
 }
+/** Native yes/no dialog for destructive actions; resolves false when declined. */
+export function confirmAction(
+  message: string,
+  okLabel: string,
+): Promise<boolean> {
+  return ask(message, {
+    title: "Deckpress",
+    kind: "warning",
+    okLabel,
+    cancelLabel: "Cancel",
+  });
+}
+
 /** Deck backup through the native save dialog; resolves false when cancelled. */
 export async function downloadJson(deck: Deck): Promise<boolean> {
   const destination = await save({

@@ -21,7 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, downloadJson } from "./api.ts";
+import { api, confirmAction, downloadJson } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import { ImportPanel } from "./import-panel.tsx";
 import { PrintSetup } from "./print-setup.tsx";
@@ -186,6 +186,7 @@ function DeckWorkspace({
                 key={id}
                 disabled={isSaving || (id !== "edit" && !deck.entries.length)}
                 aria-current={view === id ? "page" : undefined}
+                title={name}
                 onClick={() => setView(id)}
               >
                 <Icon size={15} aria-hidden="true" />
@@ -544,10 +545,11 @@ function DeckCards({
                 type="button"
                 className="icon-button"
                 aria-label={`Remove ${entry.card.name}`}
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    window.confirm(
+                    await confirmAction(
                       `Remove all ${entry.quantity} copies of ${entry.card.name}?`,
+                      "Remove",
                     )
                   )
                     onChange({

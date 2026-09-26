@@ -437,8 +437,13 @@ pre {
   flex: 1 1 0;
   justify-content: flex-end;
 }
+.toolbar-center > *,
+.toolbar-trail > * {
+  flex-shrink: 0;
+}
 .toolbar-title {
   margin: 0;
+  min-width: 0;
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -2136,7 +2141,8 @@ progress::-webkit-progress-value {
     gap: 20px;
     grid-template-columns: 260px minmax(0, 1fr);
   }
-  .toolbar-subtitle .mono {
+  .toolbar-subtitle .mono,
+  .save-state {
     display: none;
   }
   .card-groups {
@@ -2170,6 +2176,14 @@ progress::-webkit-progress-value {
     gap: 18px;
   }
 }
+@media (max-width: 1150px) {
+  .workspace-views span {
+    display: none;
+  }
+  .workspace-views button {
+    padding: 0 10px;
+  }
+}
 @media (max-width: 1000px) {
   :root {
     --sidebar: 52px;
@@ -2196,7 +2210,6 @@ progress::-webkit-progress-value {
   .sample-tile .deck-caption p {
     font-size: 10px;
   }
-  .save-state,
   .toolbar-subtitle {
     display: none;
   }
@@ -2254,8 +2267,7 @@ progress::-webkit-progress-value {
   }
 }
 @media (max-width: 760px) {
-  :where(.titlebar) .primary span,
-  .workspace-views span {
+  :where(.titlebar) .primary span {
     display: none;
   }
   :where(.titlebar) .search {

@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, fetchHealth, type ModelStatus } from "./api.ts";
+import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
 import { Library } from "./library.tsx";
 import {
   PageToolbar,
@@ -44,6 +44,11 @@ const library = [
 ];
 const RECENT_DECKS = 6;
 const SIDEBAR_KEY = "deckpress.sidebar";
+const confirmDiscard = () =>
+  confirmAction(
+    "Leave this deck and discard unsaved changes?",
+    "Discard changes",
+  );
 const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
 
 function readSidebar(): boolean {
@@ -83,29 +88,23 @@ export function App() {
   const activeJobs =
     jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
       .length ?? 0;
-  const navigate = (next: string, saved = false) => {
-    if (
-      !saved &&
-      dirty.current &&
-      !window.confirm("Leave this deck and discard unsaved changes?")
-    )
-      return false;
+  const navigate = async (next: string, saved = false) => {
+    if (!saved && dirty.current && !(await confirmDiscard())) return false;
     dirty.current = false;
     window.location.hash = `/${next}`;
     return true;
   };
   useEffect(() => {
-    const change = () => {
+    const change = async () => {
       const next = routeFromHash();
       if (next === routeRef.current) return;
-      if (
-        dirty.current &&
-        !window.confirm("Leave this deck and discard unsaved changes?")
-      ) {
+      if (dirty.current) {
         window.history.replaceState(null, "", `#/${routeRef.current}`);
+        if (!(await confirmDiscard())) return;
+        dirty.current = false;
+        window.location.hash = `/${next}`;
         return;
       }
-      dirty.current = false;
       routeRef.current = next;
       setRoute(next);
       const main = document.getElementById("main");
@@ -114,10 +113,11 @@ export function App() {
     const unload = (event: BeforeUnloadEvent) => {
       if (dirty.current) event.preventDefault();
     };
-    window.addEventListener("hashchange", change);
+    const onChange = () => void change();
+    window.addEventListener("hashchange", onChange);
     window.addEventListener("beforeunload", unload);
     return () => {
-      window.removeEventListener("hashchange", change);
+      window.removeEventListener("hashchange", onChange);
       window.removeEventListener("beforeunload", unload);
     };
   }, []);
@@ -131,8 +131,8 @@ export function App() {
       return !open;
     });
   }, []);
-  const newDeck = () => {
-    if (navigate("decks")) setNewDeckRequest((count) => count + 1);
+  const newDeck = async () => {
+    if (await navigate("decks")) setNewDeckRequest((count) => count + 1);
   };
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
@@ -140,8 +140,8 @@ export function App() {
         return;
       const key = event.key.toLowerCase();
       if (key === "b") toggleSidebar();
-      else if (key === "n") newDeck();
-      else if (key === ",") navigate("settings");
+      else if (key === "n") void newDeck();
+      else if (key === ",") void navigate("settings");
       else return;
       event.preventDefault();
     };
@@ -185,7 +185,7 @@ export function App() {
             className="sidebar-row sidebar-action"
             aria-keyshortcuts="Control+N Meta+N"
             title={`New deck (${modifier}N)`}
-            onClick={newDeck}
+            onClick={() => void newDeck()}
           >
             <Plus size={16} aria-hidden="true" />
             <span className="sidebar-label">New deck</span>
@@ -204,7 +204,7 @@ export function App() {
                   !deckId && route.startsWith(id) ? "page" : undefined
                 }
                 data-ancestor={deckId && id === "decks" ? "true" : undefined}
-                onClick={() => navigate(id)}
+                onClick={() => void navigate(id)}
               >
                 <Icon size={16} aria-hidden="true" />
                 <span className="sidebar-label">{name}</span>
@@ -233,7 +233,7 @@ export function App() {
                     className="sidebar-row sidebar-nested"
                     title={`${deck.name} · ${deck.format}`}
                     aria-current={deck.id === deckId ? "page" : undefined}
-                    onClick={() => navigate(`decks/${deck.id}`)}
+                    onClick={() => void navigate(`decks/${deck.id}`)}
                   >
                     <span className="sidebar-label">{deck.name}</span>
                   </button>
@@ -260,7 +260,7 @@ export function App() {
             title={`Settings (${modifier},)`}
             aria-keyshortcuts="Control+, Meta+,"
             aria-current={route.startsWith("settings") ? "page" : undefined}
-            onClick={() => navigate("settings")}
+            onClick={() => void navigate("settings")}
           >
             <Settings2 size={16} aria-hidden="true" />
             <span className="sidebar-label">Settings</span>
@@ -281,8 +281,8 @@ export function App() {
                 key={deckId}
                 id={deckId}
                 onDirty={onDirty}
-                onBack={() => navigate("decks")}
-                onJobs={() => navigate("jobs", true)}
+                onBack={() => void navigate("decks")}
+                onJobs={() => void navigate("jobs", true)}
               />
             ) : route === "jobs" ? (
               <PrintJobs active={activeJobs} />
@@ -292,7 +292,7 @@ export function App() {
               <Sources />
             ) : (
               <Library
-                open={(id) => navigate(`decks/${id}`)}
+                open={(id) => void navigate(`decks/${id}`)}
                 createRequest={newDeckRequest}
                 onCreateHandled={() => setNewDeckRequest(0)}
               />
