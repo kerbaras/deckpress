@@ -26,6 +26,9 @@ const SCRYFALL_SETS: &str = "https://api.scryfall.com/sets";
 /// Scryfall pages hold 175 cards; two pages per query keeps the first
 /// suggestion round under a handful of rate-limited requests.
 const POOL_PAGES: u32 = 2;
+/// Sum of every bonus `score` can award; scores are normalised against it so
+/// only a card that ticks every box reaches 1.0.
+const MAX_SCORE: f64 = 0.25 + 0.45 + 0.20 + 0.15 + 0.15 + 0.05;
 pub const PAGE_SIZE: usize = 30;
 const CURVE_BUCKETS: usize = 7;
 const COLORS: [(&str, &str, &str); 5] = [
@@ -878,7 +881,7 @@ pub fn score(pool: &PoolCard, ctx: &Context<'_>) -> Suggestion {
     }
     Suggestion {
         card: card.clone(),
-        score: round2(total.clamp(0.0, 1.0)),
+        score: round2((total / MAX_SCORE).clamp(0.0, 1.0)),
         reasons,
         role,
         oracle_text: pool.oracle_text.clone(),
@@ -1582,7 +1585,7 @@ mod tests {
             .iter()
             .any(|reason| reason.contains("Atraxa, Praetors' Voice also cares")));
         assert!(
-            engine.score > 0.5 && engine.score <= 1.0,
+            engine.score > 0.4 && engine.score <= 1.0,
             "{}",
             engine.score
         );
