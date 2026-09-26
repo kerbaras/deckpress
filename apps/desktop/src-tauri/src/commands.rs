@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use tauri::ipc::Channel;
 use tauri::State;
 
 use deckpress_core::error::{AppError, AppResult};
@@ -13,6 +14,7 @@ use deckpress_core::images::UploadInput;
 use deckpress_core::models::{
     Art, ArtPage, ArtPreference, Deck, ImportLine, NewDeck, PrintJob, PrintSettings, ResolvedCards,
 };
+use deckpress_core::style::{StyleReport, StyleRequest};
 use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
 use deckpress_core::upscaler::UpscalerInfo;
 
@@ -41,6 +43,7 @@ pub struct Settings {
     pub models: Vec<ModelStatus>,
     pub default_model: String,
     pub loaded: Option<UpscalerInfo>,
+    pub style_model: Option<ModelStatus>,
     pub storage: &'static str,
     pub local_only: bool,
     pub data_dir: String,
@@ -52,6 +55,7 @@ pub fn settings(state: State<'_, AppState>) -> AppResult<Settings> {
         models: state.models.status(),
         default_model: default_model_id(),
         loaded: state.models.loaded_info(),
+        style_model: state.models.style_status(),
         storage: "Local SQLite",
         local_only: true,
         data_dir: state.data_dir.display().to_string(),
@@ -132,6 +136,27 @@ pub async fn search_art(
         "mpc" => state.providers.community(&name, page).await,
         _ => Err(AppError::user("Unknown art provider")),
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StyleProgress {
+    pub done: usize,
+    pub total: usize,
+}
+
+#[tauri::command]
+pub async fn match_art_style(
+    state: State<'_, AppState>,
+    request: StyleRequest,
+    progress: Channel<StyleProgress>,
+) -> AppResult<StyleReport> {
+    state
+        .style
+        .rank(request, |done, total| {
+            let _ = progress.send(StyleProgress { done, total });
+        })
+        .await
 }
 
 #[derive(Debug, Serialize)]

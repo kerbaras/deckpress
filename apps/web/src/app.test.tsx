@@ -15,6 +15,13 @@ import {
   printSettingsSchema,
 } from "./core/index.ts";
 import { PrintSetup } from "./print-setup.tsx";
+import {
+  applyPicks,
+  collectOptions,
+  optionsKey,
+  StyleMatch,
+  targetsFor,
+} from "./style-match.tsx";
 
 const id = "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240";
 const original = artSchema.parse({
@@ -50,6 +57,7 @@ const compactModel = {
   id: "realesr-general-x4v3",
   name: "Real-ESRGAN general x4v3 (compact)",
   tier: "default" as const,
+  kind: "upscale" as const,
   file: "realesr-general-x4v3-dn50-256.fp16.onnx",
   scale: 4,
   tile: 256,
@@ -123,6 +131,7 @@ beforeEach(() => {
     storage: "Local SQLite",
     localOnly: true,
     dataDir: "/tmp/deckpress",
+    styleModel: null,
   });
 });
 
@@ -242,6 +251,256 @@ it("keeps the original scan while selecting art for one copy and saving a person
     [3, undefined],
     [1, alternate.id],
   ]);
+});
+
+it("ranks the other cards against a reference art and only applies the picks the user keeps", async () => {
+  const user = userEvent.setup();
+  const boltId = "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241";
+  const bolt = artSchema.parse({
+    ...original,
+    id: "scryfall:bolt-m11",
+    name: "Fireblast",
+    imageUrl: "https://cards.scryfall.io/bolt.png",
+  });
+  const boltShowcase = artSchema.parse({
+    ...alternate,
+    id: "scryfall:bolt-showcase",
+    name: "Fireblast",
+  });
+  const other: DeckEntry = {
+    ...entry,
+    id: boltId,
+    card: {
+      ...entry.card,
+      id: boltId,
+      oracleId: boltId,
+      name: "Fireblast",
+      faces: [bolt],
+    },
+    quantity: 2,
+  };
+  const spellId = "c4f5c8d1-0903-40be-8f8c-e9dcb5aa7242";
+  const spell = artSchema.parse({
+    ...original,
+    id: "scryfall:spell",
+    name: "Shock",
+  });
+  const third: DeckEntry = {
+    ...entry,
+    id: spellId,
+    card: {
+      ...entry.card,
+      id: spellId,
+      oracleId: spellId,
+      name: "Shock",
+      faces: [spell],
+    },
+    quantity: 1,
+  };
+  const full: Deck = { ...deck, entries: [entry, other, third] };
+  expect(targetsFor(full, entry).map((item) => item.id)).toEqual([
+    boltId,
+    spellId,
+  ]);
+
+  vi.spyOn(api, "art").mockImplementation(async (provider, oracleId) => ({
+    items:
+      provider !== "scryfall"
+        ? [community]
+        : oracleId === boltId
+          ? [bolt, boltShowcase]
+          : oracleId === spellId
+            ? [spell]
+            : [original, alternate],
+    page: 1,
+    hasMore: false,
+    total: 2,
+  }));
+  vi.spyOn(api, "uploads").mockResolvedValue([]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  vi.spyOn(api, "settings").mockResolvedValue({
+    models: [compactModel],
+    defaultModel: compactModel.id,
+    loaded: null,
+    storage: "Local SQLite",
+    localOnly: true,
+    dataDir: "/tmp/deckpress",
+    styleModel: {
+      ...compactModel,
+      tier: "style" as const,
+      kind: "styleEmbedding" as const,
+    },
+  });
+  const match = vi
+    .spyOn(api, "matchArtStyle")
+    .mockImplementation(async (request, onProgress) => {
+      onProgress?.({ done: 1, total: 3 });
+      return {
+        method: "heuristic",
+        model: null,
+        warnings: [
+          "Art-style model could not be loaded; ranking by metadata only",
+        ],
+        embedded: 0,
+        skipped: 0,
+        matches: request.entries.map((item) => ({
+          entryId: item.entryId,
+          ranked: [...item.options]
+            .sort(
+              (a, b) =>
+                Number(b.tags.includes("showcase")) -
+                Number(a.tags.includes("showcase")),
+            )
+            .map((art) => ({
+              art,
+              score: art.tags.includes("showcase") ? 0.9 : 0.2,
+              visual: null,
+              metadata: art.tags.includes("showcase") ? 0.9 : 0.2,
+              reasons: art.tags.includes("showcase")
+                ? ["Same artist", "Shared label: showcase"]
+                : [],
+            })),
+        })),
+      };
+    });
+  const apply = vi.fn(async (value: Deck) => value);
+  renderWithClient(
+    <ArtPicker deck={full} entry={entry} onSelect={vi.fn()} onApply={apply} />,
+  );
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Select Mystical Archive 42 by Anato Finnstark",
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: /Match art style/ }));
+  const dialog = screen.getByRole("dialog", { name: "Match art style" });
+  expect(within(dialog).getByText(/other 2 cards/)).toBeVisible();
+  await user.click(
+    within(dialog).getByRole("button", { name: "Find matches" }),
+  );
+  expect(await within(dialog).findByText("Metadata only")).toBeVisible();
+  expect(match).toHaveBeenCalledWith(
+    expect.objectContaining({
+      reference: alternate,
+      useModel: true,
+      entries: [
+        { entryId: boltId, options: [bolt, boltShowcase] },
+        { entryId: spellId, options: [spell] },
+      ],
+    }),
+    expect.any(Function),
+  );
+  expect(within(dialog).getByText(/could not be loaded/)).toBeVisible();
+  expect(within(dialog).getByText("1 of 2 cards will change")).toBeVisible();
+  const shock = within(dialog).getByRole("group", {
+    name: "Printing for Shock",
+  });
+  expect(within(shock).getByText("No other printings")).toBeVisible();
+  const fireblast = within(dialog).getByRole("group", {
+    name: "Printing for Fireblast",
+  });
+  expect(
+    within(fireblast).getByRole("button", {
+      name: "Use Mystical Archive 42 by Anato Finnstark",
+    }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await user.click(within(fireblast).getByRole("button", { name: "Keep" }));
+  expect(within(dialog).getByText("No changes selected")).toBeVisible();
+  expect(within(dialog).getByRole("button", { name: /Apply/ })).toBeDisabled();
+  await user.click(
+    within(fireblast).getByRole("button", {
+      name: "Use Mystical Archive 42 by Anato Finnstark",
+    }),
+  );
+  await user.click(
+    within(dialog).getByRole("button", { name: "Apply 1 changes" }),
+  );
+  await waitFor(() => expect(apply).toHaveBeenCalledOnce());
+  expect(
+    apply.mock.calls[0]?.[0].entries.map((item) => [
+      item.id,
+      item.selectedArt?.id,
+    ]),
+  ).toEqual([
+    [id, undefined],
+    [boltId, boltShowcase.id],
+    [spellId, undefined],
+  ]);
+  expect(
+    applyPicks(full, { [boltId]: bolt }).entries[1]?.selectedArt,
+  ).toBeNull();
+});
+
+it("keys candidate collection on the chosen printing and includes it", async () => {
+  vi.spyOn(api, "art").mockResolvedValue({
+    items: [original],
+    page: 1,
+    hasMore: false,
+    total: 1,
+  });
+  const swapped: DeckEntry = { ...entry, selectedArt: community };
+  expect(optionsKey(swapped)).not.toEqual(optionsKey(entry));
+  expect(optionsKey({ ...entry, id: "other-entry" })).toEqual(
+    optionsKey(entry),
+  );
+  expect((await collectOptions(entry)).map((art) => art.id)).toEqual([
+    original.id,
+  ]);
+  expect((await collectOptions(swapped)).map((art) => art.id)).toEqual([
+    original.id,
+    community.id,
+  ]);
+});
+
+it("returns to the start with the error when collecting printings fails", async () => {
+  const user = userEvent.setup();
+  const other: DeckEntry = {
+    ...entry,
+    id: "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241",
+    card: {
+      ...entry.card,
+      id: "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241",
+      oracleId: "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241",
+      name: "Fireblast",
+    },
+  };
+  const art = vi
+    .spyOn(api, "art")
+    .mockRejectedValueOnce(new Error("Scryfall is unreachable"))
+    .mockResolvedValue({
+      items: [alternate],
+      page: 1,
+      hasMore: false,
+      total: 1,
+    });
+  const match = vi.spyOn(api, "matchArtStyle").mockResolvedValue({
+    method: "heuristic",
+    model: null,
+    warnings: [],
+    embedded: 0,
+    skipped: 0,
+    matches: [{ entryId: other.id, ranked: [] }],
+  });
+  renderWithClient(
+    <StyleMatch
+      deck={{ ...deck, entries: [entry, other] }}
+      entry={entry}
+      reference={original}
+      onClose={vi.fn()}
+      onApply={vi.fn(async (value: Deck) => value)}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Find matches" }));
+  expect(await screen.findByText(/Scryfall is unreachable/)).toBeVisible();
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(match).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(match).toHaveBeenCalledOnce());
+  expect(art).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText(/Scryfall is unreachable/)).toBeNull();
 });
 
 it("intersects official provenance, labels and source resolution without inventing popularity", () => {

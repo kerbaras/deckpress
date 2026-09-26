@@ -58,3 +58,31 @@ Takeaways:
 - PSNR tracks SSIM but is flat (18-20 dB for all candidates), so it is not a
   useful discriminator here. Visual crops are written next to `fidelity.json`
   as `compare-<card>-<region>.png`.
+
+## Art-style embedding (`style-mobilenetv3-224.fp16.onnx`, beta)
+
+Not an upscaler. "Match art style" in the Art studio ranks every Scryfall
+printing of the other cards in a deck against one reference illustration.
+The model is torchvision's MobileNetV3-Small (ImageNet weights, BSD-3-Clause)
+with a fixed style head added in `scripts/export-style-onnx.py`: Gram-free
+channel mean/std statistics from five intermediate blocks (60%, texture and
+palette) concatenated with the pooled classifier features (40%, content),
+L2-normalised to a 1024-d unit vector. Static `1x3x224x224` input, FP16,
+1.9 MB, CPU inference around 10 ms per crop.
+
+Preprocessing lives in `packages/core/src/style/embed.rs`: RGB, the
+illustration window of a full card scan (7-93% wide, 11-56% tall) when no
+dedicated art crop is available, centre square, Catmull-Rom resize to 224,
+values scaled to 0..1 with no mean/std normalisation (the head is
+statistics-based, so the export bakes none in).
+
+`scripts/benchmark-style.py` scores 24 Scryfall art crops from six artists
+(Seb McKinnon, Rebecca Guay, John Avon, Johannes Voss, Kev Walker, Nils
+Hamm). Nearest-neighbour same-artist accuracy is 0.58 against a chance rate
+of about 0.17; mean cosine is 0.684 within an artist and 0.566 across
+artists. That is a useful signal but not a decisive one, so the final score
+blends 70% visual similarity (cosine remapped from the observed 0.30-0.95
+range) with 30% metadata (same artist, shared frame labels, set, source,
+release era). When the model cannot load or an image cannot be fetched the
+matcher falls back to metadata alone and says so in the report. Nothing is
+applied without the user reviewing each pick.

@@ -10,6 +10,7 @@ import {
   Heart,
   ExternalLink as LinkIcon,
   RotateCcw,
+  Sparkles,
   Upload,
   ZoomIn,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import {
   type DeckEntry,
   frontArt,
 } from "./core/index.ts";
+import { StyleMatch } from "./style-match.tsx";
 import {
   CardImage,
   ErrorNotice,
@@ -144,6 +146,7 @@ function ArtSession({
   const [zoom, setZoom] = useState(1);
   const [scope, setScope] = useState("entry");
   const [upload, setUpload] = useState(false);
+  const [styleMatch, setStyleMatch] = useState(false);
   const task = useTask();
   const prefs = useQuery({
     queryKey: ["preferences"],
@@ -287,6 +290,18 @@ function ArtSession({
           </button>
         </div>
         <div className="spacer" />
+        {face === 0 && candidate && deck.entries.length > 1 && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Match art style across the deck (beta)"
+            title="Match art style across the deck (beta)"
+            disabled={task.busy}
+            onClick={() => setStyleMatch(true)}
+          >
+            <Sparkles size={15} />
+          </button>
+        )}
         <button
           type="button"
           className="icon-button"
@@ -339,6 +354,15 @@ function ArtSession({
         </button>
       </div>
       <ErrorNotice error={task.error} />
+      {styleMatch && candidate && (
+        <StyleMatch
+          deck={deck}
+          entry={entry}
+          reference={candidate}
+          onClose={() => setStyleMatch(false)}
+          onApply={onApply}
+        />
+      )}
       <div className="comparison">
         <Monitor label="Original" art={original} zoom={zoom} />
         <Monitor label="Selected" art={candidate} zoom={zoom} selected>
