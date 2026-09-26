@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
+  Compass,
   Download,
   FolderOpen,
   HardDrive,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
+import { DeckSearch } from "./deck-search.tsx";
 import { Library } from "./library.tsx";
 import {
   PageToolbar,
@@ -41,6 +43,7 @@ const library = [
   { id: "decks", name: "Decks", icon: Layers3 },
   { id: "jobs", name: "Print jobs", icon: Printer },
   { id: "sources", name: "Art sources", icon: Images },
+  { id: "discover", name: "Discover", icon: Compass },
 ];
 const RECENT_DECKS = 6;
 const SIDEBAR_KEY = "deckpress.sidebar";
@@ -290,6 +293,8 @@ export function App() {
               <LocalSettings />
             ) : route === "sources" ? (
               <Sources />
+            ) : route === "discover" ? (
+              <DeckSearch open={(id) => void navigate(`decks/${id}`)} />
             ) : (
               <Library
                 open={(id) => void navigate(`decks/${id}`)}

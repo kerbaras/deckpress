@@ -1,0 +1,114 @@
+{
+  "count": 1000,
+  "next": "http://archidekt.com/api/decks/v3/?deckFormat=3&name=Atraxa&orderBy=-viewCount&page=2&pageSize=3",
+  "results": [
+    {
+      "id": 3949764,
+      "name": "Upping the Average - Atraxa Infect",
+      "size": 100,
+      "updatedAt": "2023-02-08T09:32:52.172427Z",
+      "createdAt": "2023-02-05T22:59:49.147507Z",
+      "deckFormat": 3,
+      "edhBracket": null,
+      "featured": "https://storage.googleapis.com/archidekt-card-images/2xm/d0d33d52-3d28-4635-b985-51e126289259_art_crop.jpg",
+      "customFeatured": "",
+      "viewCount": 62387,
+      "comments": 0,
+      "private": false,
+      "unlisted": false,
+      "theorycrafted": false,
+      "game": null,
+      "tags": [],
+      "parentFolderId": 57984,
+      "parentFolderName": null,
+      "parentFolderCreatedAt": null,
+      "hasPrimer": false,
+      "owner": {
+        "id": 962,
+        "username": "JoeyDH"
+      },
+      "colors": {
+        "W": 11,
+        "U": 17,
+        "B": 18,
+        "R": 0,
+        "G": 21
+      },
+      "cardPackage": null,
+      "deckHelp": null,
+      "contest": null
+    },
+    {
+      "id": 3948982,
+      "name": "Upping the Average - Atraxa Superfriends",
+      "size": 100,
+      "updatedAt": "2023-02-08T09:33:12.722583Z",
+      "createdAt": "2023-02-05T20:50:05.177436Z",
+      "deckFormat": 3,
+      "edhBracket": null,
+      "featured": "https://storage.googleapis.com/archidekt-card-images/2xm/d0d33d52-3d28-4635-b985-51e126289259_art_crop.jpg",
+      "customFeatured": "",
+      "viewCount": 37798,
+      "comments": 0,
+      "private": false,
+      "unlisted": false,
+      "theorycrafted": false,
+      "game": null,
+      "tags": [],
+      "parentFolderId": 57984,
+      "parentFolderName": null,
+      "parentFolderCreatedAt": null,
+      "hasPrimer": false,
+      "owner": {
+        "id": 962,
+        "username": "JoeyDH"
+      },
+      "colors": {
+        "W": 24,
+        "U": 26,
+        "B": 12,
+        "R": 0,
+        "G": 18
+      },
+      "cardPackage": null,
+      "deckHelp": null,
+      "contest": null
+    },
+    {
+      "id": 3949182,
+      "name": "Upping the Average - Atraxa Superfriends (Budget)",
+      "size": 100,
+      "updatedAt": "2023-02-08T09:33:15.359524Z",
+      "createdAt": "2023-02-05T21:21:24.796776Z",
+      "deckFormat": 3,
+      "edhBracket": null,
+      "featured": "https://storage.googleapis.com/archidekt-card-images/2xm/d0d33d52-3d28-4635-b985-51e126289259_art_crop.jpg",
+      "customFeatured": "",
+      "viewCount": 24575,
+      "comments": 0,
+      "private": false,
+      "unlisted": false,
+      "theorycrafted": false,
+      "game": null,
+      "tags": [],
+      "parentFolderId": 57984,
+      "parentFolderName": null,
+      "parentFolderCreatedAt": null,
+      "hasPrimer": false,
+      "owner": {
+        "id": 962,
+        "username": "JoeyDH"
+      },
+      "colors": {
+        "W": 20,
+        "U": 24,
+        "B": 15,
+        "R": 0,
+        "G": 24
+      },
+      "cardPackage": null,
+      "deckHelp": null,
+      "contest": null
+    }
+  ]
+}

@@ -15,6 +15,14 @@ fn only_allows_known_https_image_hosts() {
     assert!(validate_image_url("http://cards.scryfall.io/png/front/a.png").is_err());
     assert!(validate_image_url("https://example.com/a.png").is_err());
     assert!(validate_image_url("https://user@cards.scryfall.io/a.png").is_err());
+    assert!(validate_image_url(
+        "https://storage.googleapis.com/archidekt-card-images/mom/abc_art_crop.jpg"
+    )
+    .is_ok());
+    assert!(
+        validate_image_url("https://card-images.archidekt.com/art/front/d/0/d0d3.webp").is_ok()
+    );
+    assert!(validate_image_url("https://storage.googleapis.com/other-bucket/a.jpg").is_err());
     assert!(validate_image_url("https://cards.scryfall.io:8443/a.png").is_err());
 }
 

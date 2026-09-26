@@ -1,0 +1,218 @@
+{
+  "id": 3949764,
+  "name": "Upping the Average - Atraxa Infect",
+  "createdAt": "2023-02-05T22:59:49.147507Z",
+  "updatedAt": "2023-02-08T09:32:52.172427Z",
+  "deckFormat": 3,
+  "viewCount": 62387,
+  "featured": "https://storage.googleapis.com/archidekt-card-images/2xm/d0d33d52-3d28-4635-b985-51e126289259_art_crop.jpg",
+  "private": false,
+  "unlisted": false,
+  "categories": [
+    {
+      "id": 34008496,
+      "name": "Land",
+      "isPremier": false,
+      "includedInDeck": true,
+      "includedInPrice": true
+    },
+    {
+      "id": 34008495,
+      "name": "Planeswalker",
+      "isPremier": false,
+      "includedInDeck": true,
+      "includedInPrice": true
+    },
+    {
+      "id": 34008494,
+      "name": "Enchantment",
+      "isPremier": false,
+      "includedInDeck": true,
+      "includedInPrice": true
+    },
+    {
+      "id": 34008493,
+      "name": "Artifact",
+      "isPremier": false,
+      "includedInDeck": true,
+      "includedInPrice": true
+    },
+    {
+      "id": 34008492,
+      "name": "Sorcery",
+      "isPremier": false,
+      "includedInDeck": true,
+      "includedInPrice": true
+    },
+    {
+      "id": 34008491,
+      "name": "Instant",
+      "isPremier": false,
+      "includedInDeck": true,
+      "includedInPrice": true
+    },
+    {
+      "id": 34008490,
+      "name": "Creature",
+      "isPremier": false,
+      "includedInDeck": true,
+      "includedInPrice": true
+    },
+    {
+      "id": 34008489,
+      "name": "Commander",
+      "isPremier": true,
+      "includedInDeck": true,
+      "includedInPrice": true
+    },
+    {
+      "id": 34008488,
+      "name": "Maybeboard",
+      "isPremier": false,
+      "includedInDeck": false,
+      "includedInPrice": false
+    },
+    {
+      "id": 34008487,
+      "name": "Sideboard",
+      "isPremier": false,
+      "includedInDeck": true,
+      "includedInPrice": true
+    }
+  ],
+  "description": "{\"ops\": [{\"attributes\": {\"bold\": true, \"link\": \"https://youtu.be/z15zB7_hT08\"}, \"insert\": \"https://youtu.be/z15zB7_hT08\"}, {\"insert\": \"\\n\\n\"}, {\"attributes\": {\"underline\": true, \"bold\": true}, \"insert\": \"Cards Added:\"}, {\"insert\": \"\\nPath of Ancestry\\nGlistening Sphere\\nExpand the Sphere\\nExperimental Augury\\n\\nInfectious Bite\\nInfectious Inquiry\\nVraska\\u2019s Fall\\nPrologue to Phyresis\\n\\nSkrelv, Defector Mite\\nTainted Observer\\nVoidwing Hybrid\\nVishgraz, the Doomhive\\nIxhel, Scion of Atraxa\\nContaminant Grafter\\nGlissa\\u2019s Retriever\\nTyrannax Rex\\nBloated Contaminator\\n\\nPhyresis Outbreak\\nWhite Sun Twilight\\n\"}]}",
+  "owner": {
+    "id": 962,
+    "username": "JoeyDH"
+  },
+  "cards": [
+    {
+      "quantity": 1,
+      "categories": [
+        "Commander"
+      ],
+      "modifier": "Normal",
+      "card": {
+        "collectorNumber": "190",
+        "edition": {
+          "editioncode": "2xm",
+          "editionname": "Double Masters"
+        },
+        "oracleCard": {
+          "name": "Atraxa, Praetors' Voice",
+          "colorIdentity": [
+            "White",
+            "Blue",
+            "Black",
+            "Green"
+          ],
+          "cmc": 4,
+          "manaCost": "{G}{W}{U}{B}",
+          "types": [
+            "Creature"
+          ]
+        }
+      }
+    },
+    {
+      "quantity": 1,
+      "categories": [
+        "Creature"
+      ],
+      "modifier": "Normal",
+      "card": {
+        "collectorNumber": "111",
+        "edition": {
+          "editioncode": "onc",
+          "editionname": "Phyrexia: All Will Be One Commander"
+        },
+        "oracleCard": {
+          "name": "Phyrexian Swarmlord",
+          "colorIdentity": [
+            "Green"
+          ],
+          "cmc": 6,
+          "manaCost": "{4}{G}{G}",
+          "types": [
+            "Creature"
+          ]
+        }
+      }
+    },
+    {
+      "quantity": 2,
+      "categories": [
+        "Land"
+      ],
+      "modifier": "Normal",
+      "card": {
+        "collectorNumber": "335",
+        "edition": {
+          "editioncode": "scd",
+          "editionname": "Starter Commander Decks"
+        },
+        "oracleCard": {
+          "name": "Plains",
+          "colorIdentity": [
+            "White"
+          ],
+          "cmc": 0,
+          "manaCost": "",
+          "types": [
+            "Land"
+          ]
+        }
+      }
+    },
+    {
+      "quantity": 1,
+      "categories": [
+        "Instant"
+      ],
+      "modifier": "Normal",
+      "card": {
+        "collectorNumber": "170",
+        "edition": {
+          "editioncode": "2x2",
+          "editionname": "Double Masters 2022"
+        },
+        "oracleCard": {
+          "name": "Anguished Unmaking",
+          "colorIdentity": [
+            "White",
+            "Black"
+          ],
+          "cmc": 3,
+          "manaCost": "{1}{W}{B}",
+          "types": [
+            "Instant"
+          ]
+        }
+      }
+    },
+    {
+      "quantity": 1,
+      "categories": [
+        "Maybeboard"
+      ],
+      "modifier": "Normal",
+      "card": {
+        "collectorNumber": "139",
+        "edition": {
+          "editioncode": "onc",
+          "editionname": "Phyrexia: All Will Be One Commander"
+        },
+        "oracleCard": {
+          "name": "Plague Myr",
+          "colorIdentity": [],
+          "cmc": 2,
+          "manaCost": "{2}",
+          "types": [
+            "Creature",
+            "Artifact"
+          ]
+        }
+      }
+    }
+  ]
+}
