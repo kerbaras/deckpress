@@ -1,7 +1,6 @@
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
-import { defaultClientConditions } from "vite";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -10,9 +9,6 @@ export default defineConfig({
     babel({ presets: [reactCompilerPreset()] }),
     tailwindcss(),
   ],
-  resolve: {
-    conditions: ["@deckpress/source", ...defaultClientConditions],
-  },
   // Tauri's dev window loads this server; production bundles `dist` into the app.
   clearScreen: false,
   server: {

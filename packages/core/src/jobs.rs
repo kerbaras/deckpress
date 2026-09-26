@@ -39,7 +39,7 @@ pub struct Jobs {
     runtime: tokio::runtime::Handle,
 }
 
-fn file_name(deck: &Deck, settings: &PrintSettings) -> String {
+pub fn file_name(deck: &Deck, settings: &PrintSettings) -> String {
     let stem: String = deck
         .name
         .chars()
@@ -55,6 +55,33 @@ fn file_name(deck: &Deck, settings: &PrintSettings) -> String {
         stem
     };
     format!("{stem}-{}dpi.pdf", settings.dpi)
+}
+
+/// The Node API wrote finished exports to `jobs/<id>.pdf`. Move them to
+/// `pdfs/` so migrated print history still opens.
+fn adopt_legacy_pdfs(legacy_dir: &Path, pdf_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(legacy_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        if path.extension().is_some_and(|ext| ext == "pdf") {
+            let target = pdf_dir.join(name);
+            if !target.exists() {
+                if let Err(error) = std::fs::rename(&path, &target) {
+                    log::warn!(
+                        "Could not move {} to {}: {error}",
+                        path.display(),
+                        target.display()
+                    );
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_dir(legacy_dir);
 }
 
 impl Jobs {
@@ -80,6 +107,7 @@ impl Jobs {
         };
         std::fs::create_dir_all(&jobs.pdf_dir)?;
         std::fs::create_dir_all(&jobs.raster_dir)?;
+        adopt_legacy_pdfs(&data_dir.join("jobs"), &jobs.pdf_dir);
         for mut job in jobs.store.list::<PrintJob>(KIND)? {
             if matches!(job.status, JobStatus::Queued | JobStatus::Running) {
                 job.status = JobStatus::Failed;
@@ -150,6 +178,7 @@ impl Jobs {
     }
 
     pub fn create(&self, deck: Deck, settings: PrintSettings) -> AppResult<PrintJob> {
+        settings.validate()?;
         let plan = print_plan(&deck, &settings)?;
         if settings.upscale {
             let id = if settings.upscale_model.is_empty() {
@@ -379,30 +408,5 @@ impl Jobs {
         })
         .await??;
         Ok((bytes, pages))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn file_names_are_safe_and_carry_the_dpi() {
-        let deck = Deck {
-            id: "d".into(),
-            name: "Mono/Red: Burn!".into(),
-            format: String::new(),
-            notes: String::new(),
-            entries: vec![],
-            cover_entry_id: String::new(),
-            print_settings: PrintSettings::default(),
-            revision: 0,
-            created_at: String::new(),
-            updated_at: String::new(),
-        };
-        assert_eq!(
-            file_name(&deck, &PrintSettings::default()),
-            "Mono-Red--Burn-800dpi.pdf"
-        );
     }
 }

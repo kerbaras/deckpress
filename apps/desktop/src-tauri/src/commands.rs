@@ -175,11 +175,7 @@ pub fn save_preference(
     if id.is_empty() || id.chars().count() > 160 {
         return Err(AppError::user("Invalid art id"));
     }
-    if preference.rating > 5 || preference.tags.len() > 50 {
-        return Err(AppError::user(
-            "Rating must be 0-5 and labels are limited to 50",
-        ));
-    }
+    let preference = preference.normalized()?;
     let stored = StoredPreference {
         id,
         preference: preference.clone(),

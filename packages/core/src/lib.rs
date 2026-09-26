@@ -13,6 +13,7 @@ pub mod providers;
 pub mod raster;
 pub mod store;
 pub mod upscaler;
+pub mod validate;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

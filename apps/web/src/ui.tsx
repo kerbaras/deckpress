@@ -1,8 +1,8 @@
-import type { Art, DeckEntry } from "@deckpress/core";
 import { AlertCircle, ImageOff, LoaderCircle, Search, X } from "lucide-react";
 import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { ZodError } from "zod";
 import { imageSrc } from "./api.ts";
+import type { Art, DeckEntry } from "./core/index.ts";
 
 export const zoneNames = {
   main: "Mainboard",

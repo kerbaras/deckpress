@@ -38,7 +38,7 @@ impl<M: TileModel> TiledUpscaler<M> {
 }
 
 /// Mirror index without repeating the edge sample (numpy `reflect`).
-fn reflect(index: i64, len: i64) -> usize {
+pub fn reflect(index: i64, len: i64) -> usize {
     if len <= 1 {
         return 0;
     }
@@ -48,7 +48,7 @@ fn reflect(index: i64, len: i64) -> usize {
 }
 
 /// 1D feather ramp for an output tile: 0..1 over `ramp` samples at both ends.
-fn feather(size: usize, ramp: usize) -> Vec<f32> {
+pub fn feather(size: usize, ramp: usize) -> Vec<f32> {
     (0..size)
         .map(|i| {
             if ramp == 0 {
@@ -61,7 +61,7 @@ fn feather(size: usize, ramp: usize) -> Vec<f32> {
         .collect()
 }
 
-fn positions(len: u32, tile: u32, step: u32) -> Vec<u32> {
+pub fn positions(len: u32, tile: u32, step: u32) -> Vec<u32> {
     if len <= tile {
         return vec![0];
     }
@@ -185,107 +185,5 @@ impl<M: TileModel> Upscaler for TiledUpscaler<M> {
         }
         RgbImage::from_raw(ow as u32, oh as u32, pixels)
             .ok_or_else(|| AppError::internal("Upscaled buffer has the wrong size"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Nearest-neighbour 2x "model" with a batch of 2, used to validate tiling.
-    struct Nearest;
-
-    impl TileModel for Nearest {
-        fn tile(&self) -> u32 {
-            16
-        }
-        fn scale(&self) -> u32 {
-            2
-        }
-        fn batch(&self) -> usize {
-            2
-        }
-        fn info(&self) -> UpscalerInfo {
-            UpscalerInfo {
-                model_id: "nearest".into(),
-                model_name: "Nearest".into(),
-                scale: 2,
-                tile: 16,
-                execution_provider: "test".into(),
-            }
-        }
-        fn run(&mut self, input: &[f32]) -> AppResult<Vec<f32>> {
-            let (t, s) = (16usize, 2usize);
-            let mut out = vec![0f32; input.len() * s * s];
-            for n in 0..self.batch() {
-                for c in 0..3 {
-                    for y in 0..t * s {
-                        for x in 0..t * s {
-                            out[n * 3 * t * t * s * s + c * t * t * s * s + y * t * s + x] =
-                                input[n * 3 * t * t + c * t * t + (y / s) * t + x / s];
-                        }
-                    }
-                }
-            }
-            Ok(out)
-        }
-    }
-
-    #[test]
-    fn reflect_padding_mirrors_without_edge_repeat() {
-        assert_eq!(reflect(5, 5), 3);
-        assert_eq!(reflect(4, 5), 4);
-        assert_eq!(reflect(8, 5), 0);
-        assert_eq!(reflect(3, 1), 0);
-    }
-
-    #[test]
-    fn feather_is_symmetric_and_full_in_the_middle() {
-        let ramp = feather(8, 2);
-        assert!((ramp[0] - 0.25).abs() < 1e-6);
-        assert!((ramp[1] - 0.75).abs() < 1e-6);
-        assert_eq!(ramp[3], 1.0);
-        assert_eq!(ramp[0], ramp[7]);
-    }
-
-    #[test]
-    fn positions_cover_the_whole_axis() {
-        assert_eq!(positions(10, 16, 12), vec![0]);
-        assert_eq!(positions(40, 16, 12), vec![0, 12, 24]);
-        assert_eq!(positions(41, 16, 12), vec![0, 12, 24, 25]);
-    }
-
-    #[test]
-    fn tiled_nearest_reproduces_exact_upscale_on_odd_sizes() {
-        let mut image = RgbImage::new(37, 29);
-        for (x, y, p) in image.enumerate_pixels_mut() {
-            *p = image::Rgb([
-                (x * 7 % 256) as u8,
-                (y * 5 % 256) as u8,
-                ((x + y) % 256) as u8,
-            ]);
-        }
-        let upscaler = TiledUpscaler::new(Nearest, 4);
-        let mut calls = Vec::new();
-        let out = upscaler
-            .upscale(&image, &CancelToken::default(), &mut |d, t| {
-                calls.push((d, t))
-            })
-            .unwrap();
-        assert_eq!((out.width(), out.height()), (74, 58));
-        for (x, y, p) in out.enumerate_pixels() {
-            assert_eq!(p, image.get_pixel(x / 2, y / 2), "pixel {x},{y}");
-        }
-        assert_eq!(calls.first().unwrap().0, 0);
-        assert_eq!(calls.last().unwrap().0, calls.last().unwrap().1);
-    }
-
-    #[test]
-    fn cancellation_stops_before_inference() {
-        let token = CancelToken::default();
-        token.cancel();
-        let upscaler = TiledUpscaler::new(Nearest, 4);
-        let result = upscaler.upscale(&RgbImage::new(8, 8), &token, &mut |_, _| {});
-        assert!(matches!(result, Err(AppError::Cancelled)));
     }
 }

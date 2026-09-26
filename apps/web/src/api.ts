@@ -1,3 +1,6 @@
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { ask, save } from "@tauri-apps/plugin-dialog";
+import { z } from "zod";
 import {
   type ArtPreference,
   artPreferenceSchema,
@@ -10,10 +13,7 @@ import {
   jobSchema,
   type PrintSettings,
   parseDecklist,
-} from "@deckpress/core";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { ask, save } from "@tauri-apps/plugin-dialog";
-import { z } from "zod";
+} from "./core/index.ts";
 
 /** Calls a Rust command over Tauri IPC and validates the response shape. */
 export async function command<T>(

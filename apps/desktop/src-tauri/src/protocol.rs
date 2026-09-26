@@ -31,8 +31,22 @@ struct PreviewRequest {
     settings: PrintSettings,
 }
 
-fn respond(status: StatusCode, mime: &str, body: Vec<u8>) -> Response<Vec<u8>> {
-    Response::builder()
+/// Origins allowed to read `dpimg://` bodies with CORS: the packaged webview
+/// and, in debug builds, the Vite dev server.
+fn webview_origin(origin: Option<&str>) -> Option<&str> {
+    let origin = origin?;
+    let allowed = matches!(origin, "tauri://localhost" | "http://tauri.localhost")
+        || (cfg!(debug_assertions) && origin.starts_with("http://localhost:"));
+    allowed.then_some(origin)
+}
+
+fn respond(
+    status: StatusCode,
+    mime: &str,
+    body: Vec<u8>,
+    origin: Option<&str>,
+) -> Response<Vec<u8>> {
+    let mut builder = Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, mime)
         .header(
@@ -42,8 +56,13 @@ fn respond(status: StatusCode, mime: &str, body: Vec<u8>) -> Response<Vec<u8>> {
             } else {
                 "no-store"
             },
-        )
-        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+        );
+    if let Some(origin) = webview_origin(origin) {
+        builder = builder
+            .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin)
+            .header(header::VARY, "Origin");
+    }
+    builder
         .body(body)
         .unwrap_or_else(|_| Response::new(Vec::new()))
 }
@@ -60,6 +79,7 @@ async fn preview(
         upscale: false,
         ..request.settings
     };
+    settings.validate()?;
     let source = images.read(&request.art.image_url).await?;
     let mut hasher = Sha256::new();
     hasher.update(&source);
@@ -101,11 +121,19 @@ async fn preview(
     .await?
 }
 
-async fn serve(state: Arc<Served>, path: String) -> Response<Vec<u8>> {
+async fn serve(state: Arc<Served>, path: String, origin: Option<String>) -> Response<Vec<u8>> {
+    let origin = origin.as_deref();
     let decoded = percent_decode_str(path.trim_start_matches('/')).decode_utf8_lossy();
     let (kind, payload) = match decoded.split_once('/') {
         Some(parts) => parts,
-        None => return respond(StatusCode::NOT_FOUND, "text/plain", b"Not found".to_vec()),
+        None => {
+            return respond(
+                StatusCode::NOT_FOUND,
+                "text/plain",
+                b"Not found".to_vec(),
+                origin,
+            )
+        }
     };
     let result = match kind {
         "image" => state.images.read(payload).await,
@@ -119,7 +147,7 @@ async fn serve(state: Arc<Served>, path: String) -> Response<Vec<u8>> {
             } else {
                 mime_for(&bytes)
             };
-            respond(StatusCode::OK, mime, bytes)
+            respond(StatusCode::OK, mime, bytes, origin)
         }
         Err(error) => {
             let status = match &error {
@@ -128,7 +156,7 @@ async fn serve(state: Arc<Served>, path: String) -> Response<Vec<u8>> {
                 AppError::User(_) | AppError::Conflict(_) => StatusCode::BAD_REQUEST,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            respond(status, "text/plain", error.to_string().into_bytes())
+            respond(status, "text/plain", error.to_string().into_bytes(), origin)
         }
     }
 }
@@ -149,7 +177,12 @@ pub fn handle<R: Runtime>(
         preview_dir: state.data_dir.join("preview"),
     });
     let path = request.uri().path().to_string();
+    let origin = request
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     tauri::async_runtime::spawn(async move {
-        responder.respond(serve(served, path).await);
+        responder.respond(serve(served, path, origin).await);
     });
 }

@@ -1,10 +1,3 @@
-import {
-  artSchema,
-  type Deck,
-  type DeckEntry,
-  deckSchema,
-  printSettingsSchema,
-} from "@deckpress/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -14,6 +7,13 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { api } from "./api.ts";
 import { App } from "./app.tsx";
 import { ArtPicker, filterArt } from "./art-picker.tsx";
+import {
+  artSchema,
+  type Deck,
+  type DeckEntry,
+  deckSchema,
+  printSettingsSchema,
+} from "./core/index.ts";
 import { PrintSetup } from "./print-setup.tsx";
 
 const id = "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240";

@@ -22,6 +22,22 @@ use crate::providers::USER_AGENT;
 use crate::store::Store;
 
 pub const UPLOAD_SCHEME: &str = "upload://";
+/// Art URL prefix the Node API wrote into decks; still present in migrated
+/// databases.
+pub const LEGACY_UPLOAD_PREFIX: &str = "/api/uploads/";
+
+/// The upload id named by an art URL, if it points at a local upload.
+pub fn upload_id(url: &str) -> Option<AppResult<String>> {
+    let raw = url
+        .strip_prefix(UPLOAD_SCHEME)
+        .or_else(|| url.strip_prefix(LEGACY_UPLOAD_PREFIX))?;
+    Some(
+        uuid::Uuid::parse_str(raw)
+            .map(|id| id.to_string())
+            .map_err(|_| AppError::not_found("Uploaded image not found")),
+    )
+}
+
 const MAX_DOWNLOAD: usize = 32 * 1024 * 1024;
 const MAX_UPLOAD: usize = 16 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
@@ -136,10 +152,8 @@ impl Images {
 
     /// Where the original for `url` lives once `read` has fetched it.
     pub fn local_path(&self, url: &str) -> AppResult<PathBuf> {
-        if let Some(id) = url.strip_prefix(UPLOAD_SCHEME) {
-            let id = uuid::Uuid::parse_str(id)
-                .map_err(|_| AppError::not_found("Uploaded image not found"))?;
-            return Ok(self.upload_path(&id.to_string()));
+        if let Some(id) = upload_id(url) {
+            return Ok(self.upload_path(&id?));
         }
         validate_image_url(url)?;
         Ok(self.root.join("images").join(image_key(url)))
@@ -148,10 +162,8 @@ impl Images {
     /// Returns the cached original bytes for an art URL, downloading on a miss.
     /// Concurrent readers of the same URL wait for the first download.
     pub async fn read(&self, url: &str) -> AppResult<Vec<u8>> {
-        if let Some(id) = url.strip_prefix(UPLOAD_SCHEME) {
-            let id = uuid::Uuid::parse_str(id)
-                .map_err(|_| AppError::not_found("Uploaded image not found"))?
-                .to_string();
+        if let Some(id) = upload_id(url) {
+            let id = id?;
             if self.store.get::<Upload>("upload", &id)?.is_none() {
                 return Err(AppError::not_found("Uploaded image not found"));
             }
@@ -351,49 +363,4 @@ pub struct UploadInput {
     pub name: String,
     pub artist: String,
     pub bleed_mm: f64,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_allows_known_https_image_hosts() {
-        assert!(validate_image_url("https://cards.scryfall.io/png/front/a.png").is_ok());
-        assert!(validate_image_url("https://lh3.googleusercontent.com/d/abc").is_ok());
-        assert!(validate_image_url("http://cards.scryfall.io/png/front/a.png").is_err());
-        assert!(validate_image_url("https://example.com/a.png").is_err());
-        assert!(validate_image_url("https://user@cards.scryfall.io/a.png").is_err());
-        assert!(validate_image_url("https://cards.scryfall.io:8443/a.png").is_err());
-    }
-
-    #[tokio::test]
-    async fn uploads_are_normalized_to_png_and_listed_by_oracle() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(Store::in_memory().unwrap());
-        let images = Images::new(dir.path(), store).unwrap();
-        let mut png = Vec::new();
-        image::RgbImage::from_pixel(40, 56, image::Rgb([200, 10, 10]))
-            .write_to(&mut std::io::Cursor::new(&mut png), ImageFormat::Png)
-            .unwrap();
-        let art = images
-            .upload(
-                &png,
-                UploadInput {
-                    oracle_id: "oracle".into(),
-                    name: "Custom".into(),
-                    artist: String::new(),
-                    bleed_mm: 0.0,
-                },
-            )
-            .unwrap();
-        assert_eq!(art.provider, Provider::Upload);
-        assert_eq!(art.artist, "My upload");
-        assert!(art.image_url.starts_with(UPLOAD_SCHEME));
-        assert_eq!(images.uploads_for("oracle").unwrap().len(), 1);
-        assert!(images.uploads_for("other").unwrap().is_empty());
-        let bytes = images.read(&art.image_url).await.unwrap();
-        assert_eq!(mime_for(&bytes), "image/png");
-        assert!(images.read("upload://not-a-uuid").await.is_err());
-    }
 }

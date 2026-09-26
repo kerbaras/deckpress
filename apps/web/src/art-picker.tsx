@@ -1,12 +1,4 @@
 import {
-  type Art,
-  artPreferenceSchema,
-  backArt,
-  type Deck,
-  type DeckEntry,
-  frontArt,
-} from "@deckpress/core";
-import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -23,6 +15,14 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { api, type Preferences } from "./api.ts";
+import {
+  type Art,
+  artPreferenceSchema,
+  backArt,
+  type Deck,
+  type DeckEntry,
+  frontArt,
+} from "./core/index.ts";
 import {
   CardImage,
   ErrorNotice,

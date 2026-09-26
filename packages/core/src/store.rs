@@ -10,7 +10,25 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{new_id, now_iso, Deck, NewDeck};
+use crate::models::{new_id, now_iso, Deck, DeckEntry, NewDeck, PrintSettings};
+use crate::validate::validate_entries;
+
+fn check_deck(
+    name: &str,
+    format: &str,
+    notes: &str,
+    entries: &[DeckEntry],
+    settings: &PrintSettings,
+) -> AppResult<()> {
+    if name.is_empty() || name.chars().count() > 100 {
+        return Err(AppError::user("Deck name must be 1-100 characters"));
+    }
+    if format.chars().count() > 40 || notes.chars().count() > 5000 {
+        return Err(AppError::user("Deck format or notes are too long"));
+    }
+    validate_entries(entries)?;
+    settings.validate()
+}
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -99,6 +117,18 @@ impl Store {
         })
     }
 
+    /// Rewrites a document's `updated_at`, which decides cache expiry and
+    /// list order.
+    pub fn touch(&self, kind: &str, id: &str, updated_at_ms: i64) -> AppResult<()> {
+        self.with(|conn| {
+            conn.execute(
+                "UPDATE documents SET updated_at = ?1 WHERE kind = ?2 AND id = ?3",
+                params![updated_at_ms, kind, id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn remove(&self, kind: &str, id: &str) -> AppResult<()> {
         self.with(|conn| {
             conn.execute(
@@ -127,9 +157,13 @@ impl Store {
 
     pub fn create_deck(&self, input: NewDeck) -> AppResult<Deck> {
         let name = input.name.trim();
-        if name.is_empty() || name.chars().count() > 100 {
-            return Err(AppError::user("Deck name must be 1-100 characters"));
-        }
+        check_deck(
+            name,
+            &input.format,
+            &input.notes,
+            &input.entries,
+            &input.print_settings,
+        )?;
         let now = now_iso();
         let deck = Deck {
             id: new_id(),
@@ -148,10 +182,19 @@ impl Store {
     }
 
     pub fn update_deck(&self, input: Deck) -> AppResult<Deck> {
+        let name = input.name.trim().to_string();
+        check_deck(
+            &name,
+            &input.format,
+            &input.notes,
+            &input.entries,
+            &input.print_settings,
+        )?;
         let old: Deck = self
             .get("deck", &input.id)?
             .ok_or_else(|| AppError::not_found("Deck not found"))?;
         let deck = Deck {
+            name,
             created_at: old.created_at,
             updated_at: now_iso(),
             revision: input.revision + 1,
@@ -170,64 +213,5 @@ impl Store {
             ));
         }
         Ok(deck)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::PrintSettings;
-
-    fn new_deck(name: &str) -> NewDeck {
-        NewDeck {
-            name: name.into(),
-            format: "Commander".into(),
-            notes: String::new(),
-            entries: vec![],
-            cover_entry_id: String::new(),
-            print_settings: PrintSettings::default(),
-        }
-    }
-
-    #[test]
-    fn creates_lists_and_updates_decks_with_revisions() {
-        let store = Store::in_memory().unwrap();
-        let deck = store.create_deck(new_deck("  Test  ")).unwrap();
-        assert_eq!(deck.name, "Test");
-        assert_eq!(deck.revision, 0);
-        let decks: Vec<Deck> = store.list("deck").unwrap();
-        assert_eq!(decks.len(), 1);
-        let updated = store
-            .update_deck(Deck {
-                notes: "hello".into(),
-                ..deck.clone()
-            })
-            .unwrap();
-        assert_eq!(updated.revision, 1);
-        assert_eq!(updated.created_at, deck.created_at);
-        let stale = store.update_deck(Deck {
-            notes: "stale".into(),
-            ..deck
-        });
-        assert!(matches!(stale, Err(AppError::Conflict(_))));
-    }
-
-    #[test]
-    fn cache_entries_expire() {
-        let store = Store::in_memory().unwrap();
-        store
-            .put("cache", "k", &serde_json::json!({"a": 1}))
-            .unwrap();
-        assert_eq!(
-            store.cached("k").unwrap(),
-            Some(serde_json::json!({"a": 1}))
-        );
-        store
-            .with(|conn| {
-                conn.execute("UPDATE documents SET updated_at = 0 WHERE id = 'k'", [])?;
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(store.cached("k").unwrap(), None);
     }
 }

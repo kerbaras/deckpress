@@ -1,12 +1,3 @@
-import {
-  type Deck,
-  type DeckEntry,
-  deckSchema,
-  formats,
-  frontArt,
-  mergeImport,
-  zones,
-} from "@deckpress/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -23,6 +14,15 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { api, confirmAction, downloadJson } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
+import {
+  type Deck,
+  type DeckEntry,
+  deckSchema,
+  formats,
+  frontArt,
+  mergeImport,
+  zones,
+} from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
 import { PrintSetup } from "./print-setup.tsx";
 import { PageToolbar } from "./titlebar.tsx";

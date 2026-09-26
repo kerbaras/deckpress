@@ -13,7 +13,7 @@ None for local decks, bundled inference, public Scryfall/MPC searches, or public
 
 - Use the pinned pnpm and Node 24. `pnpm dev` launches Tauri and starts Vite; visiting Vite in Chrome does not exercise native IPC or the dpimg protocol.
 - Check for an existing Deckpress process before starting another. Coordinate source edits with the recording operator because the Tauri watcher rebuilds and restarts the window.
-- The Cargo workspace builds the development executable under the repository-root `target/debug`, with the engine in `packages/core-rs`. After a workspace/export refactor, a long-lived Vite process may show a blank native window with a missing named-export error; restart both Tauri and Vite before classifying it as a clean-start failure.
+- The Cargo workspace builds the development executable under the repository-root `target/debug`, with the engine in `packages/core`. After a workspace/export refactor, a long-lived Vite process may show a blank native window with a missing named-export error; restart both Tauri and Vite before classifying it as a clean-start failure.
 - On Ubuntu 22.04 with the official dynamic ONNX Runtime installed, launch from the repo root:
 
 ```sh

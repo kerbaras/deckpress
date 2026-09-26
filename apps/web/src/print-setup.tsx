@@ -1,16 +1,3 @@
-import {
-  type Art,
-  backArt,
-  createLayout,
-  type Deck,
-  duplexSlot,
-  frontArt,
-  LABEL_SIZE_PT,
-  mmToPixels,
-  type PrintSettings,
-  printableEntries,
-  printSettingsSchema,
-} from "@deckpress/core";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -25,6 +12,19 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, previewSrc } from "./api.ts";
+import {
+  type Art,
+  backArt,
+  createLayout,
+  type Deck,
+  duplexSlot,
+  frontArt,
+  LABEL_SIZE_PT,
+  mmToPixels,
+  type PrintSettings,
+  printableEntries,
+  printSettingsSchema,
+} from "./core/index.ts";
 import { ErrorNotice, useTask } from "./ui.tsx";
 
 const paperNames = {

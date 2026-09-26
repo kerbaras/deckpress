@@ -1,4 +1,3 @@
-import { type Deck, deckSchema, formats, frontArt } from "@deckpress/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -17,6 +16,7 @@ import burnImage from "../../../docs/prototype/assets/48fcafcca79ea3dd7877c5b56f
 import cubeImage from "../../../docs/prototype/assets/87e0158039c89cf1bdd854a215188d1d.jpg";
 import atraxaImage from "../../../docs/prototype/assets/06140bf59bb49753e6e56092cfe63477.jpg";
 import { api, downloadJson } from "./api.ts";
+import { type Deck, deckSchema, formats, frontArt } from "./core/index.ts";
 import { PageToolbar } from "./titlebar.tsx";
 import {
   CardImage,

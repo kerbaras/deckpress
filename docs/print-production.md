@@ -17,7 +17,7 @@ board game guides; the numbers below are the values those guides agree on.
   short-edge). Nothing else changes; the trim geometry is identical on both
   sides so one set of marks serves front and back.
 
-Deckpress: `packages/core/src/layout.ts` and `packages/core-rs/src/layout.rs`
+Deckpress: `apps/web/src/core/layout.ts` and `packages/core/src/layout.rs`
 compute the same grid from the paper size, card size, bleed and gap. Backs are
 mirrored per the chosen flip axis.
 
