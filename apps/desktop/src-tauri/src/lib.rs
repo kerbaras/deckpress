@@ -62,6 +62,9 @@ pub fn run() {
             commands::save_pdf,
             commands::save_text,
             commands::open_data_dir,
+            commands::search_decks,
+            commands::deck_detail,
+            commands::import_external_deck,
             window::window_chrome,
         ])
         .run(tauri::generate_context!())

@@ -11,6 +11,7 @@ import {
   entrySchema,
   healthResponseSchema,
   type ImportIssue,
+  importLineSchema,
   jobSchema,
   type PrintSettings,
   parseDecklist,
@@ -147,6 +148,47 @@ const nothing = z
   .null()
   .or(z.undefined())
   .transform(() => undefined);
+export const deckSources = ["archidekt"] as const;
+export const deckSourceSchema = z.enum(deckSources);
+export type DeckSource = z.infer<typeof deckSourceSchema>;
+export const searchFields = ["name", "commander", "card"] as const;
+export type SearchField = (typeof searchFields)[number];
+export interface DeckQuery {
+  text: string;
+  field: SearchField;
+  format: string;
+  source: DeckSource | null;
+}
+export const deckSummarySchema = z.object({
+  source: deckSourceSchema,
+  id: z.string(),
+  name: z.string(),
+  format: z.string(),
+  deckpressFormat: z.string(),
+  author: z.string(),
+  colorIdentity: z.array(z.string()),
+  cardCount: z.number(),
+  updatedAt: z.string(),
+  url: z.string(),
+  coverUrl: z.string(),
+  views: z.number(),
+});
+export type DeckSummary = z.infer<typeof deckSummarySchema>;
+export const deckSearchPageSchema = z.object({
+  items: z.array(deckSummarySchema),
+  page: z.number(),
+  hasMore: z.boolean(),
+  total: z.number(),
+  matchedCard: z.string().nullable(),
+  cardMatches: z.array(z.string()),
+});
+export type DeckSearchPage = z.infer<typeof deckSearchPageSchema>;
+export const externalDeckSchema = z.object({
+  summary: deckSummarySchema,
+  description: z.string(),
+  lines: z.array(importLineSchema),
+});
+export type ExternalDeck = z.infer<typeof externalDeckSchema>;
 
 export const api = {
   windowChrome: () =>
@@ -252,6 +294,12 @@ export const api = {
   savePdf: (id: string, destination: string) =>
     command("save_pdf", z.number(), { id, destination }),
   openDataDir: () => command("open_data_dir", nothing),
+  searchDecks: (query: DeckQuery, page: number, _signal?: AbortSignal) =>
+    command("search_decks", deckSearchPageSchema, { query, page }),
+  deckDetail: (source: DeckSource, id: string, _signal?: AbortSignal) =>
+    command("deck_detail", externalDeckSchema, { source, id }),
+  importExternalDeck: (source: DeckSource, id: string) =>
+    command("import_external_deck", resolvedSchema, { source, id }),
 };
 
 export const fetchHealth = (_signal?: AbortSignal) =>

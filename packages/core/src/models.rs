@@ -344,7 +344,7 @@ pub struct PrintJob {
     pub pages: u32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportLine {
     pub quantity: u32,

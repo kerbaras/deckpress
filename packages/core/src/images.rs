@@ -47,8 +47,12 @@ pub fn validate_image_url(input: &str) -> AppResult<Url> {
     let host = url.host_str().unwrap_or_default();
     let allowed = matches!(
         host,
-        "cards.scryfall.io" | "drive.google.com" | "drive.usercontent.google.com"
-    ) || host.ends_with(".googleusercontent.com");
+        "cards.scryfall.io"
+            | "card-images.archidekt.com"
+            | "drive.google.com"
+            | "drive.usercontent.google.com"
+    ) || host.ends_with(".googleusercontent.com")
+        || (host == "storage.googleapis.com" && url.path().starts_with("/archidekt-card-images/"));
     if url.scheme() != "https"
         || !allowed
         || !url.username().is_empty()
@@ -56,7 +60,7 @@ pub fn validate_image_url(input: &str) -> AppResult<Url> {
         || url.port().is_some_and(|port| port != 443)
     {
         return Err(AppError::user(
-            "Only Scryfall and Google Drive image URLs are allowed",
+            "Only Scryfall, Archidekt and Google Drive image URLs are allowed",
         ));
     }
     Ok(url)
