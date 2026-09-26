@@ -19,7 +19,7 @@ type Phase =
 /** Every candidate printing for a card: what it uses now plus its Scryfall
  * editions. Community art is left out on purpose: its metadata is too thin
  * to rank fairly and every image would have to be fetched from Drive. */
-async function collectOptions(entry: DeckEntry): Promise<Art[]> {
+export async function collectOptions(entry: DeckEntry): Promise<Art[]> {
   const items = [entry.card.faces[0], entry.selectedArt].filter(
     (art): art is Art => !!art,
   );
@@ -40,6 +40,17 @@ async function collectOptions(entry: DeckEntry): Promise<Art[]> {
     0,
     MAX_OPTIONS,
   );
+}
+
+/** Cache key for a card's candidates. The chosen printing is one of the
+ * candidates, so swapping it must miss the cache. */
+export function optionsKey(entry: DeckEntry) {
+  return [
+    "style-options",
+    entry.card.oracleId,
+    entry.card.faces[0]?.id ?? "",
+    entry.selectedArt?.id ?? "",
+  ];
 }
 
 export function targetsFor(deck: Deck, entry: DeckEntry): DeckEntry[] {
@@ -101,35 +112,44 @@ export function StyleMatch({
 
   const run = () =>
     void task.run(async () => {
-      setPhase({ step: "collect", done: 0, total: targets.length });
-      const entries: { entryId: string; options: Art[] }[] = [];
-      for (const [index, target] of targets.entries()) {
-        const options = await client.fetchQuery({
-          queryKey: ["style-options", target.card.oracleId, target.id],
-          queryFn: () => collectOptions(target),
-          staleTime: 86_400_000,
-        });
-        entries.push({ entryId: target.id, options });
+      try {
+        setPhase({ step: "collect", done: 0, total: targets.length });
+        const entries: { entryId: string; options: Art[] }[] = [];
+        for (const [index, target] of targets.entries()) {
+          const options = await client.fetchQuery({
+            queryKey: optionsKey(target),
+            queryFn: () => collectOptions(target),
+            staleTime: 86_400_000,
+          });
+          entries.push({ entryId: target.id, options });
+          if (!open.current) return;
+          setPhase({
+            step: "collect",
+            done: index + 1,
+            total: targets.length,
+          });
+        }
+        setPhase({ step: "analyse", done: 0, total: 0 });
+        const report = await api.matchArtStyle(
+          { reference, entries, useModel: useModel && modelReady },
+          (progress) => {
+            if (open.current) setPhase({ step: "analyse", ...progress });
+          },
+        );
         if (!open.current) return;
-        setPhase({ step: "collect", done: index + 1, total: targets.length });
+        const next: Record<string, Art | undefined> = {};
+        for (const match of report.matches) {
+          const current = targets.find((item) => item.id === match.entryId);
+          const best = match.ranked[0]?.art;
+          if (current && best && best.id !== frontArt(current).id)
+            next[match.entryId] = best;
+        }
+        setPicks(next);
+        setPhase({ step: "review", report });
+      } catch (cause) {
+        if (open.current) setPhase({ step: "intro" });
+        throw cause;
       }
-      setPhase({ step: "analyse", done: 0, total: 0 });
-      const report = await api.matchArtStyle(
-        { reference, entries, useModel: useModel && modelReady },
-        (progress) => {
-          if (open.current) setPhase({ step: "analyse", ...progress });
-        },
-      );
-      if (!open.current) return;
-      const next: Record<string, Art | undefined> = {};
-      for (const match of report.matches) {
-        const current = targets.find((item) => item.id === match.entryId);
-        const best = match.ranked[0]?.art;
-        if (current && best && best.id !== frontArt(current).id)
-          next[match.entryId] = best;
-      }
-      setPicks(next);
-      setPhase({ step: "review", report });
     });
 
   const changes = Object.values(picks).filter(Boolean).length;
@@ -169,6 +189,7 @@ export function StyleMatch({
             <label className="check-label">
               <input
                 type="checkbox"
+                className="style-model-toggle"
                 checked={useModel && modelReady}
                 disabled={!modelReady}
                 onChange={(event) => setUseModel(event.target.checked)}
@@ -193,7 +214,7 @@ export function StyleMatch({
                 onClick={run}
               >
                 <Sparkles size={15} />
-                Find matches
+                {task.error ? "Try again" : "Find matches"}
               </button>
             </div>
           </>

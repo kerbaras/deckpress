@@ -1996,7 +1996,7 @@ progress::-webkit-progress-value {
   border-radius: 9px;
   background: var(--panel);
 }
-.style-match .check-label input {
+.style-model-toggle {
   margin-top: 3px;
 }
 .style-option-hint {

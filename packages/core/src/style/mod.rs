@@ -283,16 +283,22 @@ impl StyleMatcher {
                             })
                         });
                         let mut reasons = Vec::new();
-                        if let Some(visual) = visual {
-                            reasons.push(format!("Visual match {}%", (visual * 100.0).round()));
-                        }
-                        reasons.extend(metadata.reasons);
-                        let score = match visual {
-                            Some(visual) => {
+                        // Once the reference has a vector every candidate is
+                        // scored on the same scale; one whose image could not
+                        // be analysed gets a zero visual term rather than a
+                        // metadata-only score that would leapfrog scored art.
+                        let score = match (visual, &reference_vector) {
+                            (Some(visual), _) => {
+                                reasons.push(format!("Visual match {}%", (visual * 100.0).round()));
                                 VISUAL_WEIGHT * visual + (1.0 - VISUAL_WEIGHT) * metadata.score
                             }
-                            None => metadata.score,
+                            (None, Some(_)) => {
+                                reasons.push("Illustration could not be analysed".into());
+                                (1.0 - VISUAL_WEIGHT) * metadata.score
+                            }
+                            (None, None) => metadata.score,
                         };
+                        reasons.extend(metadata.reasons);
                         ScoredArt {
                             art: art.clone(),
                             score,

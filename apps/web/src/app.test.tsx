@@ -15,7 +15,13 @@ import {
   printSettingsSchema,
 } from "./core/index.ts";
 import { PrintSetup } from "./print-setup.tsx";
-import { applyPicks, targetsFor } from "./style-match.tsx";
+import {
+  applyPicks,
+  collectOptions,
+  optionsKey,
+  StyleMatch,
+  targetsFor,
+} from "./style-match.tsx";
 
 const id = "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240";
 const original = artSchema.parse({
@@ -426,6 +432,75 @@ it("ranks the other cards against a reference art and only applies the picks the
   expect(
     applyPicks(full, { [boltId]: bolt }).entries[1]?.selectedArt,
   ).toBeNull();
+});
+
+it("keys candidate collection on the chosen printing and includes it", async () => {
+  vi.spyOn(api, "art").mockResolvedValue({
+    items: [original],
+    page: 1,
+    hasMore: false,
+    total: 1,
+  });
+  const swapped: DeckEntry = { ...entry, selectedArt: community };
+  expect(optionsKey(swapped)).not.toEqual(optionsKey(entry));
+  expect(optionsKey({ ...entry, id: "other-entry" })).toEqual(
+    optionsKey(entry),
+  );
+  expect((await collectOptions(entry)).map((art) => art.id)).toEqual([
+    original.id,
+  ]);
+  expect((await collectOptions(swapped)).map((art) => art.id)).toEqual([
+    original.id,
+    community.id,
+  ]);
+});
+
+it("returns to the start with the error when collecting printings fails", async () => {
+  const user = userEvent.setup();
+  const other: DeckEntry = {
+    ...entry,
+    id: "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241",
+    card: {
+      ...entry.card,
+      id: "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241",
+      oracleId: "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241",
+      name: "Fireblast",
+    },
+  };
+  const art = vi
+    .spyOn(api, "art")
+    .mockRejectedValueOnce(new Error("Scryfall is unreachable"))
+    .mockResolvedValue({
+      items: [alternate],
+      page: 1,
+      hasMore: false,
+      total: 1,
+    });
+  const match = vi.spyOn(api, "matchArtStyle").mockResolvedValue({
+    method: "heuristic",
+    model: null,
+    warnings: [],
+    embedded: 0,
+    skipped: 0,
+    matches: [{ entryId: other.id, ranked: [] }],
+  });
+  renderWithClient(
+    <StyleMatch
+      deck={{ ...deck, entries: [entry, other] }}
+      entry={entry}
+      reference={original}
+      onClose={vi.fn()}
+      onApply={vi.fn(async (value: Deck) => value)}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Find matches" }));
+  expect(await screen.findByText(/Scryfall is unreachable/)).toBeVisible();
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(match).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(match).toHaveBeenCalledOnce());
+  expect(art).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText(/Scryfall is unreachable/)).toBeNull();
 });
 
 it("intersects official provenance, labels and source resolution without inventing popularity", () => {

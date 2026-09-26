@@ -192,3 +192,42 @@ fn bundled_style_model_embeds_prepared_images() {
     assert!(self_similarity > 0.999);
     assert!(cross < self_similarity - 0.05, "{cross}");
 }
+
+/// A candidate whose image cannot be read must not beat one the model
+/// actually scored, even when its metadata is identical.
+#[tokio::test]
+async fn unreadable_candidates_rank_below_scored_ones() {
+    let fixture = fixture();
+    let reference = upload(&fixture.images, "Reference", [200, 90, 40]);
+    let scored = upload(&fixture.images, "Scored", [20, 60, 140]);
+    let mut broken = scored.clone();
+    broken.id = "upload:missing".into();
+    broken.image_url = "upload://6b6d5a31-b4b4-4f53-8c6b-7f1a4f3d9f01".into();
+    broken.thumbnail_url = String::new();
+    assert_eq!(
+        score(&reference, &scored).score,
+        score(&reference, &broken).score
+    );
+
+    let request = StyleRequest {
+        reference,
+        entries: vec![StyleEntry {
+            entry_id: "e1".into(),
+            options: vec![broken, scored],
+        }],
+        use_model: true,
+    };
+    let report = fixture.matcher.rank(request, |_, _| {}).await.unwrap();
+    assert_eq!(report.method, StyleMethod::Model);
+    assert_eq!(report.embedded, 2);
+    assert_eq!(report.skipped, 1);
+    let ranked = &report.matches[0].ranked;
+    assert_eq!(ranked[0].art.name, "Scored");
+    assert!(ranked[0].visual.is_some());
+    assert!(ranked[1].visual.is_none());
+    assert!(ranked[0].score > ranked[1].score, "{ranked:?}");
+    assert!(ranked[1]
+        .reasons
+        .iter()
+        .any(|r| r == "Illustration could not be analysed"));
+}
