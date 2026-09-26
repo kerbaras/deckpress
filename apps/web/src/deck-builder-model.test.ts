@@ -126,6 +126,10 @@ describe("wizard steps", () => {
       theme: "typal",
     };
     expect(blocker(styled, "style", themes)).toMatch(/creature type/i);
+    const drafted = { ...emptyState, format: limited, set: "blb" };
+    expect(blocker(drafted, "colors", themes)).toMatch(/colours you drafted/i);
+    expect(blocker({ ...drafted, colors: ["R"] }, "colors", themes)).toBeNull();
+    expect(blocker(styled, "colors", themes)).toBeNull();
     expect(blocker({ ...styled, tribe: "Elf" }, "style", themes)).toBeNull();
   });
 
@@ -199,7 +203,7 @@ describe("deck entries", () => {
     });
     expect(swapped.map((e) => e.card.name)).toEqual(["Llanowar Elves"]);
 
-    const drafted = { ...rg, format: limited, set: "blb", colors: [] };
+    const drafted = { ...rg, format: limited, set: "blb", colors: ["G"] };
     const inSet: Card = {
       ...green,
       faces: green.faces.map((face) => ({ ...face, set: "blb" })),

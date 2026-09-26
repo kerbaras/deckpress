@@ -254,11 +254,13 @@ export function ColorsStep({ options, state, update }: StepProps) {
         ? state.colors.filter((color) => color !== id)
         : [...state.colors, id],
     });
+  const drafted = Boolean(state.format?.needsSet);
   return (
     <section className="builder-step">
       <StepIntro title="Which colours?">
-        Cards outside this colour identity are left out. Leave everything off
-        for a colourless deck; two colours is the sweet spot for 60-card decks.
+        {drafted
+          ? "Pick the colours you drafted; only cards from the set in those colours are suggested. Two colours is the norm for a 40-card deck."
+          : "Cards outside this colour identity are left out. Leave everything off for a colourless deck; two colours is the sweet spot for 60-card decks."}
       </StepIntro>
       <fieldset className="builder-colors">
         <legend className="sr-only">Colour identity</legend>
@@ -280,7 +282,9 @@ export function ColorsStep({ options, state, update }: StepProps) {
       </fieldset>
       <p className="hint">
         {state.colors.length === 0
-          ? "Colourless: artifacts and lands only."
+          ? drafted
+            ? "Pick at least one colour to continue."
+            : "Colourless: artifacts and lands only."
           : `Identity: ${state.colors.join("")} · basics will be ${state.colors
               .map(
                 (id) =>

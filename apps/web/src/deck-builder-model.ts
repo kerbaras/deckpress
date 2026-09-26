@@ -59,7 +59,9 @@ export function blocker(
     case "commander":
       return state.commander ? null : "Search for and pick a commander";
     case "colors":
-      return null;
+      return state.format?.needsSet && state.colors.length === 0
+        ? "Pick the colours you drafted"
+        : null;
     case "style": {
       if (!state.style) return "Pick a play style";
       if (!state.theme) return "Pick a theme";
@@ -101,14 +103,11 @@ export function fitEntries(
   if (!spec) return [];
   const set = next.format?.needsSet ? spec.set.toLowerCase() : "";
   const colors = spec.colors;
-  const anyColor = Boolean(set) && colors.length === 0;
   return entries.filter((entry) => {
     if (entry.zone === "commander") return entry.card.id === spec.commander?.id;
     const printed = entry.card.faces[0]?.set.toLowerCase() ?? "";
     if (set && printed !== set && !isBasic(entry.card)) return false;
-    return (
-      anyColor || entry.card.colors.every((color) => colors.includes(color))
-    );
+    return entry.card.colors.every((color) => colors.includes(color));
   });
 }
 

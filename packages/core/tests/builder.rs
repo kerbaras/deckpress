@@ -387,9 +387,10 @@ fn queries_follow_the_spec() {
         ..spec.clone()
     };
     assert_eq!(
-        base_query(format_rules("limited").unwrap(), &limited, &[]).unwrap(),
-        "game:paper -t:basic set:blb"
+        base_query(format_rules("limited").unwrap(), &limited, &["R".into()]).unwrap(),
+        "game:paper -t:basic set:blb id<=R"
     );
+    assert!(base_query(format_rules("limited").unwrap(), &limited, &[]).is_err());
     let missing = BuilderSpec {
         set: String::new(),
         ..limited

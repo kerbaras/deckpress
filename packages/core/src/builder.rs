@@ -1175,15 +1175,21 @@ pub fn base_query(rules: &FormatRules, spec: &BuilderSpec, colors: &[String]) ->
                 "Pick the set you drafted before asking for suggestions",
             ));
         }
+        if colors.is_empty() {
+            return Err(AppError::user(
+                "Pick the colours you drafted before asking for suggestions",
+            ));
+        }
         parts.push(format!("set:{}", spec.set.trim().to_lowercase()));
     } else {
         parts.push(rules.query.to_string());
     }
-    if !colors.is_empty() {
-        parts.push(format!("id<={}", colors.join("")));
-    } else if !rules.needs_set {
-        parts.push("id<=c".to_string());
-    }
+    let identity = if colors.is_empty() {
+        "c".to_string()
+    } else {
+        colors.join("")
+    };
+    parts.push(format!("id<={identity}"));
     Ok(parts.join(" "))
 }
 
