@@ -1,6 +1,6 @@
 import type { Art, DeckEntry } from "@deckpress/core";
 import { AlertCircle, ImageOff, LoaderCircle, Search, X } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { ZodError } from "zod";
 import { imageSrc } from "./api.ts";
 
@@ -68,15 +68,18 @@ export function SearchField({
   value,
   onChange,
   label,
+  ref,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
+  ref?: Ref<HTMLInputElement>;
 }) {
   return (
     <div className="search">
-      <Search size={16} />
+      <Search size={16} aria-hidden="true" />
       <input
+        ref={ref}
         type="search"
         aria-label={label}
         placeholder={label}

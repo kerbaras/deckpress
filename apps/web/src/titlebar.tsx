@@ -1,158 +1,184 @@
-import { useQuery } from "@tanstack/react-query";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import {
-  ChevronRight,
   Copy,
   Minus,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
-  Printer,
-  Settings2,
   Square,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { api, defaultWindowChrome, type WindowChrome } from "./api.ts";
 
-export interface Crumb {
-  name: string;
-  route?: string;
+/** Null outside Tauri (Vite in a browser, Vitest). */
+function currentWindow(): Window | null {
+  try {
+    return getCurrentWindow();
+  } catch {
+    return null;
+  }
 }
 
-/**
- * The window's own title bar. It doubles as the drag region, hosts the
- * sidebar toggle and a few quick actions, and on Linux/Windows draws the
- * window controls because the system frame is turned off. On macOS the
- * native traffic lights overlay the left edge, so content starts after them.
- */
-export function TitleBar({
-  crumbs,
-  sidebarOpen,
-  onToggleSidebar,
-  onNavigate,
-  onNewDeck,
-  route,
-}: {
-  crumbs: Crumb[];
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
-  onNavigate: (route: string) => void;
-  onNewDeck: () => void;
-  route: string;
-}) {
+export interface WindowState extends WindowChrome {
+  focused: boolean;
+  fullscreen: boolean;
+}
+
+/** Platform chrome plus the live window state the shell styles react to. */
+export function useWindowState(): WindowState {
   const [chrome, setChrome] = useState<WindowChrome>(defaultWindowChrome);
+  const [focused, setFocused] = useState(true);
+  const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
     let live = true;
     void api.windowChrome().then((value) => {
       if (live) setChrome(value);
     });
+    const current = currentWindow();
+    if (!current) {
+      return () => {
+        live = false;
+      };
+    }
+    const stops: Array<() => void> = [];
+    const track = (promise: Promise<() => void>) =>
+      promise
+        .then((stop) => {
+          if (live) stops.push(stop);
+          else stop();
+        })
+        .catch(() => {});
+    const syncFullscreen = () =>
+      current
+        .isFullscreen()
+        .then((value) => {
+          if (live) setFullscreen(value);
+        })
+        .catch(() => {});
+    void syncFullscreen();
+    track(current.onFocusChanged(({ payload }) => setFocused(payload)));
+    track(current.onResized(() => void syncFullscreen()));
     return () => {
       live = false;
+      for (const stop of stops) stop();
     };
   }, []);
-  const jobs = useQuery({
-    queryKey: ["jobs"],
-    queryFn: ({ signal }) => api.jobs(signal),
-    refetchInterval: 4000,
-    retry: false,
-  });
-  const active =
-    jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
-      .length ?? 0;
-  const ToggleIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
+  return { ...chrome, focused, fullscreen };
+}
+
+const ToolbarSlot = createContext<HTMLElement | null>(null);
+
+export const ToolbarSlotProvider = ToolbarSlot.Provider;
+
+/**
+ * A page's contribution to the window toolbar. Pages render this wherever
+ * their state lives; the contents are portalled into the bar so the title,
+ * search field and actions change with the route while the shell stays put.
+ */
+export function PageToolbar({
+  title,
+  subtitle,
+  leading,
+  center,
+  children,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  /** Navigation controls before the title, such as a back button. */
+  leading?: ReactNode;
+  /** View-level controls, such as a segmented switcher. */
+  center?: ReactNode;
+  /** Actions and search, trailing edge. */
+  children?: ReactNode;
+}) {
+  const slot = useContext(ToolbarSlot);
+  if (!slot) return null;
+  return createPortal(
+    <>
+      <div className="toolbar-lead" data-tauri-drag-region>
+        {leading}
+        <h1 className="toolbar-title" data-tauri-drag-region>
+          {title}
+        </h1>
+        {subtitle && (
+          <span className="toolbar-subtitle" data-tauri-drag-region>
+            {subtitle}
+          </span>
+        )}
+      </div>
+      <div className="toolbar-center" data-tauri-drag-region>
+        {center}
+      </div>
+      <div className="toolbar-trail" data-tauri-drag-region>
+        {children}
+      </div>
+    </>,
+    slot,
+  );
+}
+
+export function SidebarToggle({
+  open,
+  platform,
+  onToggle,
+}: {
+  open: boolean;
+  platform: WindowChrome["platform"];
+  onToggle: () => void;
+}) {
+  const Icon = open ? PanelLeftClose : PanelLeftOpen;
+  const key = platform === "macos" ? "⌘B" : "Ctrl+B";
   return (
-    <header
-      className="titlebar"
-      data-platform={chrome.platform}
-      data-tauri-drag-region
+    <button
+      type="button"
+      className="icon-button quiet"
+      aria-label={open ? "Hide sidebar" : "Show sidebar"}
+      aria-pressed={open}
+      aria-keyshortcuts="Control+B Meta+B"
+      title={`${open ? "Hide" : "Show"} sidebar (${key})`}
+      onClick={onToggle}
     >
-      <div
-        className="titlebar-group"
-        style={{ paddingLeft: chrome.insetLeft || undefined }}
-        data-tauri-drag-region
-      >
-        <button
-          type="button"
-          className="icon-button quiet"
-          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
-          aria-pressed={sidebarOpen}
-          aria-keyshortcuts="Control+B Meta+B"
-          title={`${sidebarOpen ? "Hide" : "Show"} sidebar (${chrome.platform === "macos" ? "⌘" : "Ctrl+"}B)`}
-          onClick={onToggleSidebar}
-        >
-          <ToggleIcon size={16} />
-        </button>
-      </div>
-      <nav
-        className="titlebar-crumbs"
-        aria-label="Location"
-        data-tauri-drag-region
-      >
-        {crumbs.map((crumb, index) => {
-          const last = index === crumbs.length - 1;
-          return (
-            <span
-              key={crumb.route ?? `page:${crumb.name}`}
-              className="crumb"
-              data-tauri-drag-region
-            >
-              {index > 0 && <ChevronRight size={12} aria-hidden="true" />}
-              {crumb.route && !last ? (
-                <button
-                  type="button"
-                  className="crumb-link"
-                  onClick={() => onNavigate(crumb.route as string)}
-                >
-                  {crumb.name}
-                </button>
-              ) : (
-                <span
-                  aria-current={last ? "page" : undefined}
-                  data-tauri-drag-region
-                >
-                  {crumb.name}
-                </span>
-              )}
-            </span>
-          );
-        })}
-      </nav>
-      <div className="titlebar-group titlebar-actions" data-tauri-drag-region>
-        <button
-          type="button"
-          className="icon-button quiet"
-          aria-label="New deck"
-          title="New deck"
-          onClick={onNewDeck}
-        >
-          <Plus size={16} />
-        </button>
-        <button
-          type="button"
-          className="icon-button quiet"
-          aria-label={
-            active ? `Print jobs, ${active} in progress` : "Print jobs"
-          }
-          title="Print jobs"
-          aria-current={route.startsWith("jobs") ? "page" : undefined}
-          onClick={() => onNavigate("jobs")}
-        >
-          <Printer size={16} />
-          {active > 0 && <span className="activity-dot" aria-hidden="true" />}
-        </button>
-        <button
-          type="button"
-          className="icon-button quiet"
-          aria-label="Settings"
-          title="Settings"
-          aria-current={route.startsWith("settings") ? "page" : undefined}
-          onClick={() => onNavigate("settings")}
-        >
-          <Settings2 size={16} />
-        </button>
-      </div>
-      {chrome.customControls && <WindowControls />}
+      <Icon size={16} />
+    </button>
+  );
+}
+
+/**
+ * The content column's segment of the window frame. Pages fill it through
+ * `PageToolbar`; on Linux/Windows it also draws the window controls because
+ * the system frame is turned off.
+ */
+export function TitleBar({
+  state,
+  sidebarOpen,
+  onToggleSidebar,
+  onSlot,
+}: {
+  state: WindowState;
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+  onSlot: (node: HTMLElement | null) => void;
+}) {
+  return (
+    <header className="titlebar" data-tauri-drag-region>
+      {!sidebarOpen && (
+        <div className="titlebar-group" data-tauri-drag-region>
+          <SidebarToggle
+            open={false}
+            platform={state.platform}
+            onToggle={onToggleSidebar}
+          />
+        </div>
+      )}
+      <div className="toolbar-slot" ref={onSlot} data-tauri-drag-region />
+      {state.customControls && <WindowControls />}
     </header>
   );
 }
@@ -160,35 +186,41 @@ export function TitleBar({
 function WindowControls() {
   const [maximized, setMaximized] = useState(false);
   useEffect(() => {
-    const current = getCurrentWindow();
+    const current = currentWindow();
+    if (!current) return;
     let unlisten = () => {};
     let live = true;
-    void current.isMaximized().then((value) => {
-      if (live) setMaximized(value);
-    });
-    void current
-      .onResized(() => {
-        void current.isMaximized().then((value) => {
+    const sync = () =>
+      current
+        .isMaximized()
+        .then((value) => {
           if (live) setMaximized(value);
-        });
-      })
+        })
+        .catch(() => {});
+    void sync();
+    void current
+      .onResized(() => void sync())
       .then((stop) => {
         if (live) unlisten = stop;
         else stop();
-      });
+      })
+      .catch(() => {});
     return () => {
       live = false;
       unlisten();
     };
   }, []);
-  const run = (action: () => Promise<void>) => () => void action();
+  const run = (action: (window: Window) => Promise<void>) => () => {
+    const current = currentWindow();
+    if (current) void action(current);
+  };
   return (
     <div className="window-controls">
       <button
         type="button"
         aria-label="Minimize"
         title="Minimize"
-        onClick={run(() => getCurrentWindow().minimize())}
+        onClick={run((window) => window.minimize())}
       >
         <Minus size={14} />
       </button>
@@ -196,7 +228,7 @@ function WindowControls() {
         type="button"
         aria-label={maximized ? "Restore" : "Maximize"}
         title={maximized ? "Restore" : "Maximize"}
-        onClick={run(() => getCurrentWindow().toggleMaximize())}
+        onClick={run((window) => window.toggleMaximize())}
       >
         {maximized ? <Copy size={12} /> : <Square size={12} />}
       </button>
@@ -205,7 +237,7 @@ function WindowControls() {
         className="close"
         aria-label="Close window"
         title="Close"
-        onClick={run(() => getCurrentWindow().close())}
+        onClick={run((window) => window.close())}
       >
         <X size={15} />
       </button>

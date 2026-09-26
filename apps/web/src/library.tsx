@@ -12,11 +12,12 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import burnImage from "../../../docs/prototype/assets/48fcafcca79ea3dd7877c5b56f9fecb3.jpg";
 import cubeImage from "../../../docs/prototype/assets/87e0158039c89cf1bdd854a215188d1d.jpg";
 import atraxaImage from "../../../docs/prototype/assets/06140bf59bb49753e6e56092cfe63477.jpg";
 import { api, downloadJson } from "./api.ts";
+import { PageToolbar } from "./titlebar.tsx";
 import {
   CardImage,
   countCards,
@@ -75,12 +76,24 @@ export function Library({
   const [list, setList] = useState(false);
   const [create, setCreate] = useState(false);
   const [remove, setRemove] = useState<Deck | null>(null);
+  const searchField = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (createRequest > 0) {
       setCreate(true);
       onCreateHandled?.();
     }
   }, [createRequest, onCreateHandled]);
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        searchField.current?.focus();
+        searchField.current?.select();
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, []);
   const decks = query.data ?? [];
   const shown = decks
     .filter(
@@ -115,21 +128,22 @@ export function Library({
     });
   return (
     <>
-      <header className="page-header">
-        <div className="heading-group">
-          <h1>Decks</h1>
-          <span className="muted">
-            {decks.length} {decks.length === 1 ? "deck" : "decks"}
-          </span>
-        </div>
-        <div className="spacer" />
+      <PageToolbar
+        title="Decks"
+        subtitle={
+          decks.length
+            ? `${decks.length} ${decks.length === 1 ? "deck" : "decks"}`
+            : undefined
+        }
+      >
         <SearchField
+          ref={searchField}
           label="Search decks, formats, cards"
           value={search}
           onChange={setSearch}
         />
         <label
-          className="button icon-button"
+          className="button icon-button quiet"
           title="Restore a deck from a JSON backup"
         >
           <Upload size={16} />
@@ -161,10 +175,10 @@ export function Library({
           className="primary"
           onClick={() => setCreate(true)}
         >
-          <Plus size={17} />
-          New deck
+          <Plus size={16} />
+          <span>New deck</span>
         </button>
-      </header>
+      </PageToolbar>
       <div className="page-content library-content">
         <ErrorNotice
           error={query.error ?? task.error}
@@ -368,12 +382,11 @@ export function Library({
         )}
         {!query.isPending && decks.length > 0 && shown.length === 0 && (
           <div className="empty-state">
-            <SearchField
-              value={search}
-              onChange={setSearch}
-              label="Search your library"
-            />
             <h2>No matching decks</h2>
+            <p>
+              Nothing matches “{search}”
+              {format === "All" ? "" : ` in ${format}`}.
+            </p>
             <button
               type="button"
               onClick={() => {

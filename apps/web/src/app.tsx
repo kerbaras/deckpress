@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
-  ArrowRight,
+  AlertTriangle,
   Download,
   FolderOpen,
   HardDrive,
   Images,
   Layers3,
   ExternalLink as LinkIcon,
+  Plus,
   Printer,
   RefreshCw,
   Settings2,
@@ -17,7 +18,13 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, fetchHealth, type ModelStatus } from "./api.ts";
 import { Library } from "./library.tsx";
-import { type Crumb, TitleBar } from "./titlebar.tsx";
+import {
+  PageToolbar,
+  SidebarToggle,
+  TitleBar,
+  ToolbarSlotProvider,
+  useWindowState,
+} from "./titlebar.tsx";
 import {
   ErrorNotice,
   ExternalLink,
@@ -30,14 +37,14 @@ import { Workspace } from "./workspace.tsx";
 const routeFromHash = () =>
   window.location.hash.replace(/^#\/?/, "") || "decks";
 
-const sections = [
+const library = [
   { id: "decks", name: "Decks", icon: Layers3 },
-  { id: "sources", name: "Art sources", icon: Images },
   { id: "jobs", name: "Print jobs", icon: Printer },
-  { id: "settings", name: "Settings", icon: Settings2 },
+  { id: "sources", name: "Art sources", icon: Images },
 ];
-
+const RECENT_DECKS = 6;
 const SIDEBAR_KEY = "deckpress.sidebar";
+const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
 
 function readSidebar(): boolean {
   try {
@@ -51,6 +58,8 @@ export function App() {
   const [route, setRoute] = useState(routeFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(readSidebar);
   const [newDeckRequest, setNewDeckRequest] = useState(0);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const window_ = useWindowState();
   const routeRef = useRef(route);
   const dirty = useRef(false);
   const onDirty = useCallback((value: boolean) => {
@@ -61,6 +70,19 @@ export function App() {
     queryFn: ({ signal }) => fetchHealth(signal),
     refetchInterval: 30_000,
   });
+  const decks = useQuery({
+    queryKey: ["decks"],
+    queryFn: ({ signal }) => api.decks(signal),
+  });
+  const jobs = useQuery({
+    queryKey: ["jobs"],
+    queryFn: ({ signal }) => api.jobs(signal),
+    refetchInterval: 4000,
+    retry: false,
+  });
+  const activeJobs =
+    jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
+      .length ?? 0;
   const navigate = (next: string, saved = false) => {
     if (
       !saved &&
@@ -109,42 +131,39 @@ export function App() {
       return !open;
     });
   }, []);
-  useEffect(() => {
-    const shortcut = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
-        event.preventDefault();
-        toggleSidebar();
-      }
-    };
-    window.addEventListener("keydown", shortcut);
-    return () => window.removeEventListener("keydown", shortcut);
-  }, [toggleSidebar]);
-  const deckId = /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
-  const openDeck = useQuery({
-    queryKey: ["deck", deckId],
-    queryFn: ({ signal }) => api.deck(deckId as string, signal),
-    enabled: !!deckId,
-  });
-  const section =
-    sections.find((item) => route.startsWith(item.id)) ?? sections[0];
-  const crumbs: Crumb[] = deckId
-    ? [
-        { name: "Decks", route: "decks" },
-        { name: openDeck.data?.name ?? "Deck" },
-      ]
-    : section && section.id !== "decks"
-      ? [{ name: "Decks", route: "decks" }, { name: section.name }]
-      : [{ name: "Decks" }];
   const newDeck = () => {
     if (navigate("decks")) setNewDeckRequest((count) => count + 1);
   };
-  const engine = health.isPending
-    ? "Starting the local engine"
-    : health.isError
-      ? "Local engine unavailable. Click to retry."
-      : "Local engine running. Everything is saved on this machine.";
+  useEffect(() => {
+    const shortcut = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey)
+        return;
+      const key = event.key.toLowerCase();
+      if (key === "b") toggleSidebar();
+      else if (key === "n") newDeck();
+      else if (key === ",") navigate("settings");
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  });
+  const deckId = deckRoute(route);
+  const recent = (decks.data ?? [])
+    .slice()
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, RECENT_DECKS);
+  const modifier = window_.platform === "macos" ? "⌘" : "Ctrl+";
   return (
-    <div className="app-shell" data-sidebar={sidebarOpen ? "open" : "closed"}>
+    <div
+      className="app-shell"
+      data-sidebar={sidebarOpen ? "open" : "closed"}
+      data-platform={window_.platform}
+      data-focused={window_.focused}
+      style={{
+        ["--inset-left" as string]: `${window_.fullscreen ? 0 : window_.insetLeft}px`,
+      }}
+    >
       <button
         type="button"
         className="skip-link"
@@ -152,82 +171,140 @@ export function App() {
       >
         Skip to content
       </button>
-      <TitleBar
-        crumbs={crumbs}
-        route={route}
-        sidebarOpen={sidebarOpen}
-        onToggleSidebar={toggleSidebar}
-        onNavigate={navigate}
-        onNewDeck={newDeck}
-      />
-      <div className="app-body">
-        <aside className="sidebar" aria-hidden={!sidebarOpen}>
-          <nav aria-label="Main navigation">
-            {sections.map(({ id, name, icon: Icon }) => (
+      <aside className="sidebar" aria-hidden={!sidebarOpen}>
+        <div className="sidebar-head" data-tauri-drag-region>
+          <SidebarToggle
+            open
+            platform={window_.platform}
+            onToggle={toggleSidebar}
+          />
+        </div>
+        <nav className="sidebar-nav" aria-label="Main navigation">
+          <button
+            type="button"
+            className="sidebar-row sidebar-action"
+            aria-keyshortcuts="Control+N Meta+N"
+            title={`New deck (${modifier}N)`}
+            onClick={newDeck}
+          >
+            <Plus size={16} aria-hidden="true" />
+            <span className="sidebar-label">New deck</span>
+          </button>
+          <h2 className="sidebar-heading" id="sidebar-library">
+            Library
+          </h2>
+          <section className="sidebar-group" aria-labelledby="sidebar-library">
+            {library.map(({ id, name, icon: Icon }) => (
               <button
                 type="button"
                 key={id}
-                aria-label={name}
+                className="sidebar-row"
                 title={name}
-                aria-current={route.startsWith(id) ? "page" : undefined}
+                aria-current={
+                  !deckId && route.startsWith(id) ? "page" : undefined
+                }
+                data-ancestor={deckId && id === "decks" ? "true" : undefined}
                 onClick={() => navigate(id)}
               >
-                <Icon size={17} />
-                <span>{name}</span>
+                <Icon size={16} aria-hidden="true" />
+                <span className="sidebar-label">{name}</span>
+                {id === "jobs" && activeJobs > 0 && (
+                  <span className="sidebar-count">
+                    {activeJobs}
+                    <span className="sr-only"> in progress</span>
+                  </span>
+                )}
               </button>
             ))}
-          </nav>
-          <div className="sidebar-bottom">
+          </section>
+          {recent.length > 0 && (
+            <>
+              <h2 className="sidebar-heading" id="sidebar-recent">
+                Recent decks
+              </h2>
+              <section
+                className="sidebar-group"
+                aria-labelledby="sidebar-recent"
+              >
+                {recent.map((deck) => (
+                  <button
+                    type="button"
+                    key={deck.id}
+                    className="sidebar-row sidebar-nested"
+                    title={`${deck.name} · ${deck.format}`}
+                    aria-current={deck.id === deckId ? "page" : undefined}
+                    onClick={() => navigate(`decks/${deck.id}`)}
+                  >
+                    <span className="sidebar-label">{deck.name}</span>
+                  </button>
+                ))}
+              </section>
+            </>
+          )}
+        </nav>
+        <div className="sidebar-foot">
+          {health.isError && (
             <button
               type="button"
-              className="connection"
-              title={engine}
-              aria-label={engine}
+              className="sidebar-row sidebar-alert"
+              title="The print engine did not start. Click to retry."
               onClick={() => void health.refetch()}
             >
-              <span
-                className={`status-dot ${health.isError ? "offline" : ""}`}
-              />
-              <HardDrive size={13} aria-hidden="true" />
-              <span>
-                {health.isPending
-                  ? "Starting…"
-                  : health.isError
-                    ? "Engine unavailable"
-                    : "Local, no cloud"}
-              </span>
+              <AlertTriangle size={16} aria-hidden="true" />
+              <span className="sidebar-label">Engine not running</span>
             </button>
-          </div>
-        </aside>
-        <main id="main" className="main-content" tabIndex={-1}>
-          {deckId ? (
-            <Workspace
-              key={deckId}
-              id={deckId}
-              onDirty={onDirty}
-              onBack={() => navigate("decks")}
-              onJobs={() => navigate("jobs", true)}
-            />
-          ) : route === "jobs" ? (
-            <PrintJobs />
-          ) : route === "settings" ? (
-            <LocalSettings />
-          ) : route === "sources" ? (
-            <Sources onDecks={() => navigate("decks")} />
-          ) : (
-            <Library
-              open={(id) => navigate(`decks/${id}`)}
-              createRequest={newDeckRequest}
-              onCreateHandled={() => setNewDeckRequest(0)}
-            />
           )}
+          <button
+            type="button"
+            className="sidebar-row"
+            title={`Settings (${modifier},)`}
+            aria-keyshortcuts="Control+, Meta+,"
+            aria-current={route.startsWith("settings") ? "page" : undefined}
+            onClick={() => navigate("settings")}
+          >
+            <Settings2 size={16} aria-hidden="true" />
+            <span className="sidebar-label">Settings</span>
+          </button>
+        </div>
+      </aside>
+      <div className="app-content">
+        <TitleBar
+          state={window_}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={toggleSidebar}
+          onSlot={setSlot}
+        />
+        <main id="main" className="main-content" tabIndex={-1}>
+          <ToolbarSlotProvider value={slot}>
+            {deckId ? (
+              <Workspace
+                key={deckId}
+                id={deckId}
+                onDirty={onDirty}
+                onBack={() => navigate("decks")}
+                onJobs={() => navigate("jobs", true)}
+              />
+            ) : route === "jobs" ? (
+              <PrintJobs active={activeJobs} />
+            ) : route === "settings" ? (
+              <LocalSettings />
+            ) : route === "sources" ? (
+              <Sources />
+            ) : (
+              <Library
+                open={(id) => navigate(`decks/${id}`)}
+                createRequest={newDeckRequest}
+                onCreateHandled={() => setNewDeckRequest(0)}
+              />
+            )}
+          </ToolbarSlotProvider>
         </main>
       </div>
     </div>
   );
 }
 
-function PrintJobs() {
+function PrintJobs({ active }: { active: number }) {
   const query = useQuery({
     queryKey: ["jobs"],
     queryFn: ({ signal }) => api.jobs(signal),
@@ -240,22 +317,29 @@ function PrintJobs() {
         : false,
   });
   const task = useTask();
+  const total = query.data?.length ?? 0;
   return (
     <>
-      <header className="page-header">
-        <h1>Print jobs</h1>
-        <div className="spacer" />
-        <span className="muted">Processed on this machine</span>
+      <PageToolbar
+        title="Print jobs"
+        subtitle={
+          active
+            ? `${active} in progress`
+            : total
+              ? `${total} ${total === 1 ? "export" : "exports"}`
+              : undefined
+        }
+      >
         <button
           type="button"
-          className="icon-button"
+          className="icon-button quiet"
           aria-label="Refresh print jobs"
           title="Refresh"
           onClick={() => void query.refetch()}
         >
-          <RefreshCw size={15} />
+          <RefreshCw size={16} />
         </button>
-      </header>
+      </PageToolbar>
       <div className="page-content">
         <ErrorNotice
           error={query.error ?? task.error}
@@ -393,11 +477,18 @@ function LocalSettings() {
   const loaded = query.data?.loaded;
   return (
     <>
-      <header className="page-header">
-        <h1>Settings</h1>
-        <div className="spacer" />
-        <span className="muted">Stored on this machine</span>
-      </header>
+      <PageToolbar title="Settings">
+        <button
+          type="button"
+          className="icon-button quiet"
+          aria-label="Open data folder"
+          title="Open data folder"
+          disabled={task.busy}
+          onClick={() => void task.run(() => api.openDataDir())}
+        >
+          <FolderOpen size={16} />
+        </button>
+      </PageToolbar>
       <div className="page-content settings-page">
         <ErrorNotice
           error={query.error ?? task.error}
@@ -561,17 +652,10 @@ function ModelRow({
   );
 }
 
-function Sources({ onDecks }: { onDecks: () => void }) {
+function Sources() {
   return (
     <>
-      <header className="page-header">
-        <h1>Art sources</h1>
-        <div className="spacer" />
-        <button type="button" onClick={onDecks}>
-          Open your decks
-          <ArrowRight size={16} />
-        </button>
-      </header>
+      <PageToolbar title="Art sources" />
       <div className="page-content sources-page">
         <div className="source-intro">
           <h2>Where card images come from</h2>
