@@ -2525,7 +2525,7 @@ progress::-webkit-progress-value {
   background: #292c33;
   color: #ececee;
 }
-.bleed-fill label:has(input:focus-visible) {
+.bleed-fill label:has(input:focus) {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }

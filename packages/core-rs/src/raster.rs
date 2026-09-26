@@ -1,7 +1,9 @@
 //! Card face rasterization: strip provider bleed, upscale (optional), resize
 //! to the physical card size at the target DPI, add bleed, then fill the
-//! corners of the trim area. Bleed is extended before the corners are painted
-//! so mirrored and edge bleed reflect the card, not the corner fill.
+//! corners of the trim area. Mirror and edge bleed sample the face with its
+//! corner zones squared off from the border, before the corners are painted,
+//! so the bleed carries border pixels rather than the scan's rounded corners
+//! or the corner fill colour.
 
 use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
 use image::{Rgb, RgbImage};
@@ -163,6 +165,48 @@ pub fn fill_corners_within(
     }
 }
 
+/// Replaces the pixels outside each corner arc of `radius` with the pixel on
+/// the arc along the ray from the arc's centre, so the rounded (transparent or
+/// white) corners of a scan become an extension of the border. Used before
+/// mirror/edge bleed sampling; the real corners are painted afterwards.
+pub fn square_corners(image: &mut RgbImage, radius: u32) {
+    let (w, h) = (i64::from(image.width()), i64::from(image.height()));
+    let r = i64::from(radius);
+    if r == 0 || w == 0 || h == 0 {
+        return;
+    }
+    let source = image.clone();
+    for corner in 0..4 {
+        let (cx, cy) = match corner {
+            0 => (r, r),
+            1 => (w - 1 - r, r),
+            2 => (r, h - 1 - r),
+            _ => (w - 1 - r, h - 1 - r),
+        };
+        let (x0, x1) = if corner % 2 == 0 {
+            (0, r)
+        } else {
+            (w - 1 - r, w)
+        };
+        let (y0, y1) = if corner < 2 { (0, r) } else { (h - 1 - r, h) };
+        for y in y0.max(0)..y1.min(h) {
+            for x in x0.max(0)..x1.min(w) {
+                let (dx, dy) = (x - cx, y - cy);
+                let d2 = dx * dx + dy * dy;
+                if d2 <= r * r {
+                    continue;
+                }
+                // One pixel inside the arc so rounding never lands back outside it.
+                let scale = ((r - 1) as f64) / (d2 as f64).sqrt();
+                let sx = (cx as f64 + dx as f64 * scale).round() as i64;
+                let sy = (cy as f64 + dy as f64 * scale).round() as i64;
+                let pixel = source.get_pixel(sx.clamp(0, w - 1) as u32, sy.clamp(0, h - 1) as u32);
+                image.put_pixel(x as u32, y as u32, *pixel);
+            }
+        }
+    }
+}
+
 /// Maps a coordinate outside `0..len` back inside by reflecting about the
 /// outermost pixels: `-1 -> 1`, `-2 -> 2`, `len -> len - 2`. The outermost
 /// pixel is the axis and is not repeated, and the reflection keeps folding
@@ -216,18 +260,26 @@ pub fn extend(image: &RgbImage, bleed: u32, mode: BleedMode, color: Rgb<u8>) -> 
 }
 
 /// Adds bleed to a bare card face and then paints the rounded corners of the
-/// trim area. The order matters: mirrored and edge bleed sample the face
-/// before the corner fill so the fill colour never leaks into the bleed.
+/// trim area. Mirror and edge bleed sample a copy of the face whose corner
+/// zones were squared off from the border, so neither the scan's own rounded
+/// corners nor the corner fill colour end up in the bleed.
 pub fn finish_face(face: &RgbImage, settings: &PrintSettings, background: Rgb<u8>) -> RgbImage {
     let bleed = mm_to_pixels(settings.bleed_mm, settings.dpi);
-    let mut out = extend(face, bleed, settings.bleed_mode, background);
+    let radius = mm_to_pixels(CORNER_RADIUS_MM, settings.dpi);
+    let mut out = if settings.bleed_mode == BleedMode::Solid {
+        extend(face, bleed, settings.bleed_mode, background)
+    } else {
+        let mut squared = face.clone();
+        square_corners(&mut squared, radius);
+        extend(&squared, bleed, settings.bleed_mode, background)
+    };
     fill_corners_within(
         &mut out,
         bleed,
         bleed,
         face.width(),
         face.height(),
-        mm_to_pixels(CORNER_RADIUS_MM, settings.dpi),
+        radius,
         background,
     );
     out
@@ -499,6 +551,67 @@ mod tests {
             *out.get_pixel(bleed + radius, bleed + radius),
             Rgb([250, 250, 250])
         );
+    }
+
+    #[test]
+    fn scan_corners_are_squared_from_the_border_before_mirroring() {
+        let settings = PrintSettings {
+            dpi: 300,
+            bleed_mm: 1.0,
+            bleed_mode: BleedMode::Mirror,
+            ..PrintSettings::default()
+        };
+        let border = Rgb([12, 12, 12]);
+        let art = Rgb([200, 180, 90]);
+        let (w, h) = (300u32, 420u32);
+        let radius = mm_to_pixels(CORNER_RADIUS_MM, 300);
+        let mut face = RgbImage::from_pixel(w, h, art);
+        for (x, y, p) in face.enumerate_pixels_mut() {
+            if x < 20 || y < 20 || x >= w - 20 || y >= h - 20 {
+                *p = border;
+            }
+        }
+        // Transparent scan corners arrive flattened to the bleed colour.
+        fill_corners(&mut face, radius, BACKGROUND);
+        assert_eq!(*face.get_pixel(0, 0), BACKGROUND);
+
+        let mut squared = face.clone();
+        square_corners(&mut squared, radius);
+        assert!(squared.pixels().all(|p| *p != BACKGROUND));
+        assert_eq!(*squared.get_pixel(0, 0), border);
+        assert_eq!(*squared.get_pixel(w - 1, h - 1), border);
+        assert_eq!(
+            squared.get_pixel(radius, radius),
+            face.get_pixel(radius, radius)
+        );
+        assert_eq!(
+            squared.get_pixel(w / 2, h / 2),
+            face.get_pixel(w / 2, h / 2)
+        );
+
+        let out = finish_face(&face, &settings, BACKGROUND);
+        let bleed = mm_to_pixels(1.0, 300);
+        let magenta_outside_trim = out
+            .enumerate_pixels()
+            .filter(|(x, y, p)| {
+                **p == BACKGROUND
+                    && !(*x >= bleed && *y >= bleed && *x < bleed + w && *y < bleed + h)
+            })
+            .count();
+        assert_eq!(magenta_outside_trim, 0);
+        assert_eq!(*out.get_pixel(0, 0), border);
+        assert_eq!(*out.get_pixel(bleed, bleed), BACKGROUND);
+
+        let edge = finish_face(
+            &face,
+            &PrintSettings {
+                bleed_mode: BleedMode::Edge,
+                ..settings
+            },
+            BACKGROUND,
+        );
+        assert_eq!(*edge.get_pixel(0, 0), border);
+        assert_eq!(*edge.get_pixel(0, bleed), border);
     }
 
     #[test]

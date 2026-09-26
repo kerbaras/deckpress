@@ -42,8 +42,11 @@ The bleed strip is filled in one of three ways (Print setup › Bleed › Fill):
 - Edge: the outermost row and column are stretched outward.
 - Solid: a flat colour, the only mode that uses the colour picker.
 
-In every mode the bleed is sampled from the face before the rounded corners are
-painted, so the corner fill never leaks into the bleed. The corner fill (3 mm
+Mirror and Edge sample a copy of the face whose 3 mm corner zones have been
+squared off from the border (each pixel outside the corner arc takes the pixel
+on the arc), and they do so before the rounded corners are painted. Scans with
+transparent or white corners, such as Scryfall PNGs, therefore mirror border
+pixels into the bleed rather than the corner colour. The corner fill (3 mm
 radius) uses the same colour as solid bleed and only touches the trim area.
 Decks saved with an explicit mode keep it; only new or unspecified settings
 pick up the default.
