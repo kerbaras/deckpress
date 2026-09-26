@@ -78,7 +78,7 @@ and ≥ 50–100 ms between requests; the existing 550 ms limiter covers this.
 
 Archidekt publishes no rate limit. `DeckSearch` spaces requests to
 `archidekt.com` at least 1 s apart (one limiter per host, same shape as the
-Scryfall limiter in `providers.rs`) and backs off 30 s after an HTTP 429,
+Scryfall limiter in `providers.rs`) and backs off 30 s after an HTTP 429 (waiters sleep outside the lock and re-check, so a backoff recorded mid-wait holds every unsent request; a later 429 never shortens an earlier deadline),
 surfacing "Archidekt is rate limiting requests. Wait 30 seconds and retry." to
 the user. Search text is debounced for 450 ms in the UI before a request is
 made.

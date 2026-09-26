@@ -459,6 +459,24 @@ impl DeckSearch {
         })
     }
 
+    /// Sleeps without holding the limiter lock and re-checks the deadline
+    /// afterwards, so a 429 backoff recorded while a request was waiting is
+    /// honoured by every request that has not been sent yet.
+    async fn wait_for_archidekt_slot(&self) {
+        loop {
+            let deadline = {
+                let mut next = self.archidekt_next.lock().await;
+                let now = Instant::now();
+                if *next <= now {
+                    *next = now + ARCHIDEKT_INTERVAL;
+                    return;
+                }
+                *next
+            };
+            tokio::time::sleep_until(deadline.into()).await;
+        }
+    }
+
     /// GET with the SQLite cache and the Archidekt limiter, mirroring
     /// `Providers::json` for the Scryfall host.
     async fn archidekt_json(&self, url: &str) -> AppResult<Value> {
@@ -466,14 +484,7 @@ impl DeckSearch {
         if let Some(cached) = self.store.cached(&key)? {
             return Ok(cached);
         }
-        {
-            let mut next = self.archidekt_next.lock().await;
-            let now = Instant::now();
-            if *next > now {
-                tokio::time::sleep(*next - now).await;
-            }
-            *next = Instant::now() + ARCHIDEKT_INTERVAL;
-        }
+        self.wait_for_archidekt_slot().await;
         let response = self
             .client
             .get(url)
@@ -492,7 +503,8 @@ impl DeckSearch {
             })?;
         match response.status() {
             StatusCode::TOO_MANY_REQUESTS => {
-                *self.archidekt_next.lock().await = Instant::now() + ARCHIDEKT_BACKOFF;
+                let mut next = self.archidekt_next.lock().await;
+                *next = (*next).max(Instant::now() + ARCHIDEKT_BACKOFF);
                 return Err(AppError::user(
                     "Archidekt is rate limiting requests. Wait 30 seconds and retry.",
                 ));
