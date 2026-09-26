@@ -70,6 +70,7 @@ export function TitleBar({
       <div
         className="titlebar-group"
         style={{ paddingLeft: chrome.insetLeft || undefined }}
+        data-tauri-drag-region
       >
         <button
           type="button"
@@ -83,11 +84,19 @@ export function TitleBar({
           <ToggleIcon size={16} />
         </button>
       </div>
-      <nav className="titlebar-crumbs" aria-label="Location">
+      <nav
+        className="titlebar-crumbs"
+        aria-label="Location"
+        data-tauri-drag-region
+      >
         {crumbs.map((crumb, index) => {
           const last = index === crumbs.length - 1;
           return (
-            <span key={crumb.route ?? `page:${crumb.name}`} className="crumb">
+            <span
+              key={crumb.route ?? `page:${crumb.name}`}
+              className="crumb"
+              data-tauri-drag-region
+            >
               {index > 0 && <ChevronRight size={12} aria-hidden="true" />}
               {crumb.route && !last ? (
                 <button
@@ -98,7 +107,10 @@ export function TitleBar({
                   {crumb.name}
                 </button>
               ) : (
-                <span aria-current={last ? "page" : undefined}>
+                <span
+                  aria-current={last ? "page" : undefined}
+                  data-tauri-drag-region
+                >
                   {crumb.name}
                 </span>
               )}
@@ -106,7 +118,7 @@ export function TitleBar({
           );
         })}
       </nav>
-      <div className="titlebar-group titlebar-actions">
+      <div className="titlebar-group titlebar-actions" data-tauri-drag-region>
         <button
           type="button"
           className="icon-button quiet"

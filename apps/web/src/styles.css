@@ -148,7 +148,8 @@ input[type="color"] {
   padding: 3px;
   cursor: pointer;
 }
-:focus-visible {
+:focus-visible,
+label.button:has(> input.sr-only:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
@@ -300,6 +301,9 @@ pre {
   color: #d3d5db;
   overflow: hidden;
   white-space: nowrap;
+}
+.titlebar-crumbs svg {
+  pointer-events: none;
 }
 .titlebar-crumbs .crumb {
   display: inline-flex;
