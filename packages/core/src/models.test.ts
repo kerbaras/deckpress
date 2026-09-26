@@ -1,5 +1,10 @@
 import { expect, it } from "vitest";
-import { artSchema, type DeckEntry, mergeImport } from "./models.ts";
+import {
+  artSchema,
+  type DeckEntry,
+  mergeImport,
+  printSettingsSchema,
+} from "./models.ts";
 
 const id = "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240";
 const art = artSchema.parse({
@@ -65,4 +70,11 @@ it("retains per-copy art allocations on re-import, including a changed printing,
       0,
     ),
   ).toBe(8);
+});
+
+it("defaults new print settings to mirrored bleed and keeps stored modes", () => {
+  expect(printSettingsSchema.parse({}).bleedMode).toBe("mirror");
+  expect(printSettingsSchema.parse({ bleedMode: "solid" }).bleedMode).toBe(
+    "solid",
+  );
 });

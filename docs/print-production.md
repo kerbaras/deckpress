@@ -33,6 +33,24 @@ Deckpress: default 1 mm bleed, configurable. MPC-style images that already
 carry bleed are recognised and their bleed is trimmed before ours is applied so
 the physical card stays 63 × 88 mm (63.5 × 88.9 mm for MPC's 2.5 × 3.5 in).
 
+The bleed strip is filled in one of three ways (Print setup › Bleed › Fill):
+
+- Mirror (default): the card face is reflected about its outermost row and
+  column of pixels, so a cut that drifts outward lands on border-coloured
+  pixels instead of a flat colour. The outermost pixel is the axis and is not
+  repeated; the reflection keeps folding when the bleed is wider than the face.
+- Edge: the outermost row and column are stretched outward.
+- Solid: a flat colour, the only mode that uses the colour picker.
+
+Mirror and Edge sample a copy of the face whose 3 mm corner zones have been
+squared off from the border (each pixel outside the corner arc takes the pixel
+on the arc), and they do so before the rounded corners are painted. Scans with
+transparent or white corners, such as Scryfall PNGs, therefore mirror border
+pixels into the bleed rather than the corner colour. The corner fill (3 mm
+radius) uses the same colour as solid bleed and only touches the trim area.
+Decks saved with an explicit mode keep it; only new or unspecified settings
+pick up the default.
+
 ## Marks
 
 - Crop (trim) marks: short hairlines aligned with each trim edge, drawn in the

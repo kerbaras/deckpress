@@ -236,7 +236,7 @@ impl Default for PrintSettings {
             margin_mm: 4.0,
             gap_mm: 0.0,
             bleed_mm: 1.0,
-            bleed_mode: BleedMode::Solid,
+            bleed_mode: BleedMode::Mirror,
             bleed_color: "#111111".into(),
             columns: 0,
             rows: 0,
@@ -403,7 +403,10 @@ mod tests {
         assert_eq!(settings.dpi, 800);
         assert_eq!(settings.paper, Paper::A4);
         assert_eq!(settings.bleed_color, "#111111");
+        assert_eq!(settings.bleed_mode, BleedMode::Mirror);
         assert!(settings.calibration_page);
+        let stored: PrintSettings = serde_json::from_str(r#"{"bleedMode":"solid"}"#).unwrap();
+        assert_eq!(stored.bleed_mode, BleedMode::Solid);
     }
 
     #[test]

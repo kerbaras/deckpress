@@ -215,6 +215,7 @@ fn raster_key(source: &[u8], art: &Art, settings: &PrintSettings, model: &str) -
     let mut hasher = Sha256::new();
     hasher.update(source);
     let params = serde_json::json!([
+        crate::raster::PIPELINE_VERSION,
         art.bleed_mm,
         art.provider,
         settings.card_width_mm,

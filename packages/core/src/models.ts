@@ -80,7 +80,7 @@ export const printSettingsSchema = z.object({
   marginMm: z.number().min(0).max(50).default(4),
   gapMm: z.number().min(0).max(20).default(0),
   bleedMm: z.number().min(0).max(5).default(1),
-  bleedMode: z.enum(["solid", "mirror", "edge"]).default("solid"),
+  bleedMode: z.enum(["solid", "mirror", "edge"]).default("mirror"),
   bleedColor: z
     .string()
     .regex(/^#[\da-fA-F]{6}$/)
