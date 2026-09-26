@@ -65,11 +65,14 @@ impl Core {
             Arc::clone(&images),
             Arc::clone(&models),
         ));
-        let builder = Arc::new(builder::Builder::new(Arc::clone(&providers)));
         let decksearch = Arc::new(decksearch::DeckSearch::new(
             Arc::clone(&store),
             Arc::clone(&providers),
         )?);
+        let builder = Arc::new(builder::Builder::with_deck_search(
+            Arc::clone(&providers),
+            Arc::clone(&decksearch),
+        ));
         Ok(Self {
             data_dir: data_dir.to_path_buf(),
             store,

@@ -211,8 +211,18 @@ export const suggestionSchema = z.object({
   role: z.string(),
   oracleText: z.string(),
   popularityRank: z.number().nullable(),
+  metaDecks: z.number(),
 });
 export type Suggestion = z.infer<typeof suggestionSchema>;
+export const deckSources = ["archidekt"] as const;
+export const deckSourceSchema = z.enum(deckSources);
+export type DeckSource = z.infer<typeof deckSourceSchema>;
+export const metaSampleSchema = z.object({
+  source: deckSourceSchema,
+  decks: z.number(),
+  label: z.string(),
+});
+export type MetaSample = z.infer<typeof metaSampleSchema>;
 const suggestionPageSchema = z.object({
   items: z.array(suggestionSchema),
   page: z.number(),
@@ -220,6 +230,7 @@ const suggestionPageSchema = z.object({
   total: z.number(),
   queries: z.array(z.string()),
   colors: z.array(z.string()),
+  meta: metaSampleSchema.nullable(),
 });
 export type SuggestionPage = z.infer<typeof suggestionPageSchema>;
 export const builderSummarySchema = z.object({
@@ -244,9 +255,6 @@ const nothing = z
   .null()
   .or(z.undefined())
   .transform(() => undefined);
-export const deckSources = ["archidekt"] as const;
-export const deckSourceSchema = z.enum(deckSources);
-export type DeckSource = z.infer<typeof deckSourceSchema>;
 export const searchFields = ["name", "commander", "card"] as const;
 export type SearchField = (typeof searchFields)[number];
 export interface DeckQuery {
