@@ -1,0 +1,147 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths: ['.github/workflows/build.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+          # ONNX Runtime stopped shipping x86_64 macOS binaries after 1.23, and
+          # `ort` pins a newer release, so there is no Intel macOS build.
+          - name: macos-aarch64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - name: windows-x86_64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            bundles: msi,nsis
+          - name: windows-aarch64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            bundles: msi,nsis
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl file libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libwebkit2gtk-4.1-dev libxdo-dev patchelf xdg-utils
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+
+      - run: pnpm install --frozen-lockfile
+
+      # Tauri signs and notarizes the .app when these are set, but treats an
+      # empty variable as a value, so only export the secrets that exist.
+      - name: Configure macOS signing
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -n "${!name}" ]; then
+              printf '%s<<__EOF__\n%s\n__EOF__\n' "$name" "${!name}" >> "$GITHUB_ENV"
+            else
+              echo "::notice::$name is not set; macOS build will not be signed/notarized"
+            fi
+          done
+
+      - name: Build and package
+        run: >
+          pnpm --filter @deckpress/desktop exec tauri build
+          --target ${{ matrix.target }}
+          --bundles ${{ matrix.bundles }}
+
+      - name: Collect installers
+        run: |
+          shopt -s nullglob
+          mkdir dist
+          cp target/${{ matrix.target }}/release/bundle/{deb/*.deb,rpm/*.rpm,appimage/*.AppImage,dmg/*.dmg,msi/*.msi,nsis/*.exe} dist/
+          ls -l dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deckpress-${{ matrix.name }}
+          if-no-files-found: error
+          path: dist/*
+
+  nightly:
+    name: Publish nightly prerelease
+    if: github.event_name != 'pull_request'
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: deckpress-*
+          merge-multiple: true
+          path: dist
+
+      - name: Recreate the nightly release
+        run: |
+          ls -l dist
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly dist/* \
+            --prerelease --latest=false \
+            --target "$GITHUB_SHA" \
+            --title "Nightly (${GITHUB_SHA::7})" \
+            --notes "Development build of \`${GITHUB_SHA}\` from \`${GITHUB_REF_NAME}\`. Replaced on every push to main."
