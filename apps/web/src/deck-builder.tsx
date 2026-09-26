@@ -133,7 +133,7 @@ function Wizard({
     setEntries(fitEntries(entries, state, next));
     setState(next);
   };
-  const picked = entries.some((entry) => entry.zone !== "commander");
+  const picked = entries.length > 0 || name.trim() !== "";
   useEffect(() => {
     onDirty(picked);
     return () => onDirty(false);
