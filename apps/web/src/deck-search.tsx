@@ -231,12 +231,6 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
           </div>
         ) : results.isPending ? (
           <Loading>Searching {sourceNames[source]}…</Loading>
-        ) : results.data && !items.length ? (
-          <div className="empty-state">
-            <Compass size={44} />
-            <h2>No decks found</h2>
-            <p>{emptyMessage(query)}</p>
-          </div>
         ) : results.data ? (
           <>
             {results.data.matchedCard && (
@@ -263,68 +257,78 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
                 )}
               </p>
             )}
-            <div className="deck-grid discover-grid">
-              {items.map((deck) => (
-                <article className="deck-tile discover-tile" key={deck.id}>
-                  {deck.coverUrl ? (
-                    <CardImage
-                      className="deck-cover"
-                      url={deck.coverUrl}
-                      name=""
+            {items.length ? (
+              <div className="deck-grid discover-grid">
+                {items.map((deck) => (
+                  <article className="deck-tile discover-tile" key={deck.id}>
+                    {deck.coverUrl ? (
+                      <CardImage
+                        className="deck-cover"
+                        url={deck.coverUrl}
+                        name=""
+                      />
+                    ) : (
+                      <div className="empty-cover">
+                        <Compass size={52} />
+                      </div>
+                    )}
+                    <div className="deck-shade" />
+                    <button
+                      type="button"
+                      className="deck-open"
+                      onClick={() => setSelected(deck)}
+                      aria-label={`Preview ${deck.name}`}
                     />
-                  ) : (
-                    <div className="empty-cover">
-                      <Compass size={52} />
+                    <div className="deck-top">
+                      <span className="deck-format">{deck.format}</span>
+                      <ManaPips colors={deck.colorIdentity} />
                     </div>
-                  )}
-                  <div className="deck-shade" />
-                  <button
-                    type="button"
-                    className="deck-open"
-                    onClick={() => setSelected(deck)}
-                    aria-label={`Preview ${deck.name}`}
-                  />
-                  <div className="deck-top">
-                    <span className="deck-format">{deck.format}</span>
-                    <ManaPips colors={deck.colorIdentity} />
-                  </div>
-                  <div className="deck-caption">
-                    <h2>{deck.name}</h2>
-                    <p>
-                      {deck.author && <>{deck.author} · </>}
-                      {deck.cardCount} cards
-                      {deck.updatedAt && (
-                        <> · updated {prettyDate(deck.updatedAt)}</>
-                      )}
-                    </p>
-                    <span className="discover-source">
-                      {sourceNames[deck.source]}
-                    </span>
-                  </div>
-                </article>
-              ))}
-            </div>
-            <nav className="toolbar discover-pager" aria-label="Result pages">
-              <button
-                type="button"
-                className="icon-button"
-                disabled={page <= 1 || results.isFetching}
-                aria-label="Previous page"
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span>Page {page}</span>
-              <button
-                type="button"
-                className="icon-button"
-                disabled={!results.data.hasMore || results.isFetching}
-                aria-label="Next page"
-                onClick={() => setPage((current) => current + 1)}
-              >
-                <ChevronRight size={16} />
-              </button>
-            </nav>
+                    <div className="deck-caption">
+                      <h2>{deck.name}</h2>
+                      <p>
+                        {deck.author && <>{deck.author} · </>}
+                        {deck.cardCount} cards
+                        {deck.updatedAt && (
+                          <> · updated {prettyDate(deck.updatedAt)}</>
+                        )}
+                      </p>
+                      <span className="discover-source">
+                        {sourceNames[deck.source]}
+                      </span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <Compass size={44} />
+                <h2>No decks found</h2>
+                <p>{emptyMessage(query)}</p>
+              </div>
+            )}
+            {(items.length > 0 || page > 1 || results.data.hasMore) && (
+              <nav className="toolbar discover-pager" aria-label="Result pages">
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={page <= 1 || results.isFetching}
+                  aria-label="Previous page"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span>Page {page}</span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  disabled={!results.data.hasMore || results.isFetching}
+                  aria-label="Next page"
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </nav>
+            )}
           </>
         ) : null}
       </div>

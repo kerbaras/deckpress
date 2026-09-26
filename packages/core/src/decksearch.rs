@@ -21,6 +21,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{ImportLine, ResolvedCards, Zone};
 use crate::providers::{Providers, USER_AGENT};
 use crate::store::Store;
+use crate::validate::{MAX_CARDS, MAX_ENTRIES, MAX_QUANTITY};
 
 const ARCHIDEKT_INTERVAL: Duration = Duration::from_millis(1000);
 const ARCHIDEKT_BACKOFF: Duration = Duration::from_secs(30);
@@ -238,22 +239,18 @@ fn archidekt_summary(deck: &Value, colors: Vec<String>, card_count: u32) -> Opti
 
 /// Normalises an Archidekt `/api/decks/v3/` response. A `count` of -1 is how
 /// Archidekt reports a card filter that matched no card.
+fn is_public(deck: &Value) -> bool {
+    let flag = |key| deck.get(key).and_then(Value::as_bool).unwrap_or(false);
+    !flag("private") && !flag("unlisted")
+}
+
 pub fn parse_archidekt_search(value: &Value, page: u32) -> DeckSearchPage {
     let items: Vec<DeckSummary> = value
         .get("results")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter(|deck| {
-            !deck
-                .get("private")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-                && !deck
-                    .get("unlisted")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false)
-        })
+        .filter(|deck| is_public(deck))
         .filter_map(|deck| {
             let colors = wubrg(|letter| {
                 deck.pointer(&format!("/colors/{letter}"))
@@ -271,7 +268,7 @@ pub fn parse_archidekt_search(value: &Value, page: u32) -> DeckSearchPage {
         .unwrap_or(items.len() as i64)
         .max(0) as u64;
     DeckSearchPage {
-        has_more: value.get("next").is_some_and(Value::is_string) && !items.is_empty(),
+        has_more: value.get("next").is_some_and(Value::is_string),
         total: total.max(items.len() as u64),
         items,
         page,
@@ -282,7 +279,13 @@ pub fn parse_archidekt_search(value: &Value, page: u32) -> DeckSearchPage {
 /// Normalises an Archidekt `/api/decks/<id>/` response into import lines.
 /// Categories flagged `includedInDeck: false` land in the maybeboard, a
 /// "Commander" category in the commander zone and "Sideboard" in the side.
+/// Private and unlisted decks are rejected like they are in search results.
 pub fn parse_archidekt_deck(value: &Value) -> AppResult<ExternalDeck> {
+    if !is_public(value) {
+        return Err(AppError::not_found(
+            "This Archidekt deck is private or unlisted, so Deckpress will not import it.",
+        ));
+    }
     let excluded: Vec<String> = value
         .get("categories")
         .and_then(Value::as_array)
@@ -318,12 +321,12 @@ pub fn parse_archidekt_deck(value: &Value) -> AppResult<ExternalDeck> {
             .filter_map(Value::as_str)
             .map(str::to_lowercase)
             .collect();
-        let zone = if categories.iter().any(|c| c == "commander") {
+        let zone = if categories.iter().any(|c| excluded.contains(c)) {
+            Zone::Maybe
+        } else if categories.iter().any(|c| c == "commander") {
             Zone::Commander
         } else if categories.iter().any(|c| c == "sideboard") {
             Zone::Side
-        } else if categories.iter().any(|c| excluded.contains(c)) {
-            Zone::Maybe
         } else {
             Zone::Main
         };
@@ -411,6 +414,34 @@ fn cache_key(url: &str) -> String {
 
 pub fn valid_archidekt_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 12 && id.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// The same bounds `validate.rs` enforces on decks, applied before Scryfall
+/// resolution so oversized external lists fail with a message naming the line.
+pub fn check_import_limits(lines: &[ImportLine]) -> AppResult<()> {
+    if lines.is_empty() {
+        return Err(AppError::user(
+            "This deck has no cards to import. Pick another deck.",
+        ));
+    }
+    if lines.len() > MAX_ENTRIES {
+        return Err(AppError::user(format!(
+            "Decklists are limited to {MAX_ENTRIES} lines"
+        )));
+    }
+    if let Some(line) = lines.iter().find(|line| line.quantity > MAX_QUANTITY) {
+        return Err(AppError::user(format!(
+            "{} appears {} times; Deckpress allows at most {MAX_QUANTITY} copies per line",
+            line.name, line.quantity
+        )));
+    }
+    let total: u64 = lines.iter().map(|line| u64::from(line.quantity)).sum();
+    if total > u64::from(MAX_CARDS) {
+        return Err(AppError::user(format!(
+            "This deck lists {total} cards; Deckpress decks are limited to {MAX_CARDS}"
+        )));
+    }
+    Ok(())
 }
 
 impl DeckSearch {
@@ -573,14 +604,7 @@ impl DeckSearch {
     /// cannot match come back as issues, never silently dropped.
     pub async fn import(&self, source: DeckSource, id: &str) -> AppResult<ResolvedCards> {
         let deck = self.detail(source, id).await?;
-        if deck.lines.is_empty() {
-            return Err(AppError::user(
-                "This deck has no cards to import. Pick another deck.",
-            ));
-        }
-        if deck.lines.len() > 1000 {
-            return Err(AppError::user("Decklists are limited to 1000 lines"));
-        }
+        check_import_limits(&deck.lines)?;
         self.providers.resolve(deck.lines).await
     }
 }

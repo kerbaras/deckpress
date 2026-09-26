@@ -1,9 +1,10 @@
 use deckpress_core::decksearch::{
-    archidekt_format, archidekt_format_id, archidekt_search_url, parse_archidekt_deck,
-    parse_archidekt_search, pick_card_name, plain_description, valid_archidekt_id, DeckSearchPage,
-    DeckSource, SearchField, MAX_DESCRIPTION,
+    archidekt_format, archidekt_format_id, archidekt_search_url, check_import_limits,
+    parse_archidekt_deck, parse_archidekt_search, pick_card_name, plain_description,
+    valid_archidekt_id, DeckSearchPage, DeckSource, SearchField, MAX_DESCRIPTION,
 };
-use deckpress_core::models::Zone;
+use deckpress_core::models::{ImportLine, Zone};
+use deckpress_core::validate::{MAX_ENTRIES, MAX_QUANTITY};
 use serde_json::Value;
 
 fn search_fixture() -> Value {
@@ -63,6 +64,13 @@ fn hides_private_decks_and_reads_missing_card_filters_as_empty() {
     value["results"][1]["private"] = Value::Bool(true);
     value["results"][2]["unlisted"] = Value::Bool(true);
     assert_eq!(parse_archidekt_search(&value, 1).items.len(), 1);
+
+    for deck in value["results"].as_array_mut().unwrap() {
+        deck["private"] = Value::Bool(true);
+    }
+    let hidden = parse_archidekt_search(&value, 1);
+    assert!(hidden.items.is_empty());
+    assert!(hidden.has_more);
 
     let none: Value = serde_json::json!({ "count": -1, "next": null, "results": [] });
     let page = parse_archidekt_search(&none, 1);
@@ -146,8 +154,40 @@ fn sideboard_categories_and_empty_quantities() {
 }
 
 #[test]
-fn rejects_decks_without_ids() {
+fn excluded_categories_win_over_commander_and_sideboard() {
+    let mut value = deck_fixture();
+    value["cards"][0]["categories"] = serde_json::json!(["Maybeboard", "Commander"]);
+    value["cards"][1]["categories"] = serde_json::json!(["Sideboard", "Maybeboard"]);
+    let deck = parse_archidekt_deck(&value).unwrap();
+    assert_eq!(deck.lines[0].zone, Zone::Maybe);
+    assert_eq!(deck.lines[1].zone, Zone::Maybe);
+    assert_eq!(deck.summary.card_count, 3);
+}
+
+#[test]
+fn rejects_decks_without_ids_or_that_are_not_public() {
     assert!(parse_archidekt_deck(&serde_json::json!({ "name": "x", "cards": [] })).is_err());
+    for flag in ["private", "unlisted"] {
+        let mut value = deck_fixture();
+        value[flag] = Value::Bool(true);
+        assert!(parse_archidekt_deck(&value).is_err(), "{flag}");
+    }
+}
+
+#[test]
+fn import_limits_mirror_deck_validation() {
+    let line = |quantity: u32| ImportLine {
+        quantity,
+        name: "Plains".into(),
+        zone: Zone::Main,
+        set: String::new(),
+        collector_number: String::new(),
+    };
+    assert!(check_import_limits(&[]).is_err());
+    assert!(check_import_limits(&[line(4)]).is_ok());
+    assert!(check_import_limits(&[line(MAX_QUANTITY + 1)]).is_err());
+    assert!(check_import_limits(&vec![line(1); MAX_ENTRIES + 1]).is_err());
+    assert!(check_import_limits(&vec![line(MAX_QUANTITY); 7]).is_err());
 }
 
 #[test]

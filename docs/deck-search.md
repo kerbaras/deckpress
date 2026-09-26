@@ -38,10 +38,15 @@ documentation, so shapes are de facto and may change.
 - Detail: `GET https://archidekt.com/api/decks/<id>/`
   - `cards[].card.oracleCard.name`, `card.edition.editioncode`,
     `card.collectorNumber`, `quantity`, `categories[]`.
-  - `categories[]` with `includedInDeck: false` become the maybeboard; a
-    category named `Commander` becomes the commander zone; `Sideboard` the
-    sideboard; everything else is the main deck.
-- Private and unlisted decks are dropped from results even when returned.
+  - Cards in any category with `includedInDeck: false` become the maybeboard
+    (even if also tagged `Commander`); otherwise a category named `Commander`
+    becomes the commander zone, `Sideboard` the sideboard and everything else
+    the main deck.
+- Private and unlisted decks are dropped from results even when returned, and
+  `detail`/`import` refuse them by id; a page that ends up empty still exposes
+  `hasMore` so the next public page stays reachable.
+- Imports are bounded like every other deck (`validate.rs`: 1000 lines, 250
+  copies per line, 1500 cards) before any Scryfall lookup.
 - Cover art comes from `https://storage.googleapis.com/archidekt-card-images/…`
   (older decks) or `https://card-images.archidekt.com/…` (`.webp`);
   `images::validate_image_url` allows that bucket path and that host.

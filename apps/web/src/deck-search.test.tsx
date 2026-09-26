@@ -232,3 +232,47 @@ it("creates the deck and opens it when every line resolves", async () => {
     notes: attribution(summary),
   });
 });
+
+it("offers the other card matches and the next page when a page is empty", async () => {
+  const user = userEvent.setup();
+  const search = vi.spyOn(api, "searchDecks").mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: true,
+    total: 0,
+    matchedCard: "Atraxa's Fall",
+    cardMatches: ["Atraxa, Praetors' Voice"],
+  });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  const slot = document.createElement("div");
+  document.body.append(slot);
+  render(
+    <QueryClientProvider client={client}>
+      <ToolbarSlotProvider value={slot}>
+        <DeckSearch open={vi.fn()} />
+      </ToolbarSlotProvider>
+    </QueryClientProvider>,
+  );
+  await user.selectOptions(screen.getByLabelText("Search by"), "commander");
+  await user.type(
+    screen.getByRole("searchbox", { name: /Search public decks/ }),
+    "Atraxa",
+  );
+  expect(await screen.findByText("No decks found")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled();
+  await user.click(
+    screen.getByRole("button", { name: "Atraxa, Praetors' Voice" }),
+  );
+  await waitFor(() =>
+    expect(search).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        text: "Atraxa, Praetors' Voice",
+        field: "commander",
+      }),
+      1,
+      expect.anything(),
+    ),
+  );
+});
