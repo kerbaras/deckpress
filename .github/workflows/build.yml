@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, devin/1790438503-build-workflow]
+    branches: [main]
   pull_request:
     paths: ['.github/workflows/build.yml']
   workflow_dispatch:
