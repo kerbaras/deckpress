@@ -311,6 +311,14 @@ fn basics_follow_pip_proportions() {
     assert_eq!(split, vec![("Mountain", 15), ("Forest", 5)]);
     let even = basic_split(&["W".into(), "U".into()], &HashMap::new(), 17);
     assert_eq!(even.iter().map(|(_, count)| count).sum::<u32>(), 17);
+    let mut lopsided = HashMap::new();
+    lopsided.insert("G".to_string(), 20);
+    let floored = basic_split(&["W".into(), "G".into()], &lopsided, 17);
+    assert_eq!(floored, vec![("Plains", 1), ("Forest", 16)]);
+    assert_eq!(
+        basic_split(&["W".into(), "G".into()], &lopsided, 1),
+        vec![("Forest", 1)]
+    );
     assert_eq!(basic_split(&[], &HashMap::new(), 3), vec![("Wastes", 3)]);
     assert!(basic_split(&["W".into()], &HashMap::new(), 0).is_empty());
 }

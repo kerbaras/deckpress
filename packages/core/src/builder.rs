@@ -19,6 +19,7 @@ use url::Url;
 use crate::error::{AppError, AppResult};
 use crate::models::{new_id, Card, DeckEntry, ImportLine, Zone};
 use crate::providers::{normalize_scryfall, Providers};
+use crate::validate::validate_entries;
 
 const SCRYFALL_SEARCH: &str = "https://api.scryfall.com/cards/search";
 const SCRYFALL_CARD: &str = "https://api.scryfall.com/cards";
@@ -1075,12 +1076,16 @@ pub fn basic_split(
         weights
     };
     let sum: f64 = weights.iter().sum();
+    // Every chosen colour gets at least one basic when there is room, so
+    // activated abilities in a colour with no mana-cost pips stay castable.
+    let floor = u32::from(total >= palette.len() as u32);
+    let spread = total - floor * palette.len() as u32;
     let mut shares: Vec<(usize, u32, f64)> = weights
         .iter()
         .enumerate()
         .map(|(index, weight)| {
-            let exact = weight / sum * total as f64;
-            (index, exact.floor() as u32, exact - exact.floor())
+            let exact = weight / sum * spread as f64;
+            (index, floor + exact.floor() as u32, exact - exact.floor())
         })
         .collect();
     let assigned: u32 = shares.iter().map(|(_, whole, _)| whole).sum();
@@ -1438,6 +1443,7 @@ impl Builder {
     }
 
     pub fn summary(&self, spec: &BuilderSpec, entries: &[DeckEntry]) -> AppResult<Summary> {
+        validate_entries(entries)?;
         let (rules, style, _, colors) = self.resolve_context(spec)?;
         Ok(summarize(rules, style, &colors, entries))
     }
@@ -1449,6 +1455,7 @@ impl Builder {
         spec: &BuilderSpec,
         entries: &[DeckEntry],
     ) -> AppResult<Vec<DeckEntry>> {
+        validate_entries(entries)?;
         let (rules, style, _, colors) = self.resolve_context(spec)?;
         let (ranked, _, _) = self.pool(spec).await?;
         let plan = plan_fill(rules, style, &colors, entries, &ranked);
