@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { api, type Preferences } from "./api.ts";
+import { formatCount } from "./core/format-count.ts";
 import {
   type Art,
   artPreferenceSchema,
@@ -54,7 +55,7 @@ export function ArtPicker(props: {
     face: 0,
     restoreFocus: false,
   });
-  const [matchCount, setMatchCount] = useState<number | null>(null);
+  const [announcedMatches, setAnnouncedMatches] = useState("");
   const [applied, setApplied] = useState({ sequence: 0, printing: "" });
   const face = activeFace.entryId === entry.id ? activeFace.face : 0;
   const activeFaceControl = useRef<HTMLButtonElement>(null);
@@ -71,9 +72,7 @@ export function ArtPicker(props: {
   }, [entry.id]);
   return (
     <>
-      <StatusRegion label="Art match count">
-        {matchCount !== null && matchSummary(matchCount)}
-      </StatusRegion>
+      <StatusRegion label="Art match count">{announcedMatches}</StatusRegion>
       <StatusRegion label="Art apply status" announcementId={applied.sequence}>
         {applied.sequence > 0 && `Applied: ${applied.printing}`}
       </StatusRegion>
@@ -90,7 +89,7 @@ export function ArtPicker(props: {
           onSelect(id);
         }}
         heading={heading}
-        onMatchCount={setMatchCount}
+        onMatchSummary={setAnnouncedMatches}
         onApplied={(printing) =>
           setApplied(({ sequence }) => ({ sequence: sequence + 1, printing }))
         }
@@ -99,8 +98,22 @@ export function ArtPicker(props: {
   );
 }
 
-const matchSummary = (count: number) =>
-  `${formatCount(count, "match", "matches")} in loaded results`;
+function pageProgress(
+  pages: readonly { items: Art[]; hasMore: boolean; total: number }[],
+  singular: string,
+) {
+  const lastPage = pages.at(-1);
+  if (!lastPage) return [];
+  const loaded = pages.reduce((count, page) => count + page.items.length, 0);
+  const { total, hasMore } = lastPage;
+  if (total > loaded)
+    return [
+      `${loaded.toLocaleString()} of ${formatCount(total, singular)} loaded`,
+    ];
+  return hasMore || pages.length > 1
+    ? [`${formatCount(loaded, singular)} loaded`]
+    : [];
+}
 
 const normalizeTag = (tag: string) =>
   tag
@@ -175,7 +188,7 @@ function ArtSession({
   activeFaceControl,
   setFace,
   heading,
-  onMatchCount,
+  onMatchSummary,
   onApplied,
 }: {
   deck: Deck;
@@ -186,7 +199,7 @@ function ArtSession({
   activeFaceControl: React.Ref<HTMLButtonElement>;
   setFace: (face: number, restoreFocus: boolean) => void;
   heading: React.Ref<HTMLHeadingElement>;
-  onMatchCount: (count: number) => void;
+  onMatchSummary: (summary: string) => void;
   onApplied: (printing: string) => void;
 }) {
   const client = useQueryClient();
@@ -371,21 +384,24 @@ function ArtSession({
   };
   const showPrints = official || provider === "all" || provider === "scryfall";
   const showCommunity = !official && (provider === "all" || provider === "mpc");
-  const loadedPrints =
-    prints.data?.pages.reduce((count, page) => count + page.items.length, 0) ??
-    0;
-  const totalPrints = prints.data?.pages[0]?.total ?? 0;
-  const totalCommunity = community.data?.pages[0]?.total ?? 0;
   const fetchingArt =
     (showPrints && prints.isFetching) ||
     (showCommunity && community.isFetching) ||
     uploads.isFetching;
-  const matchCount = shown.length;
+  const matchSummary = [
+    `${formatCount(shown.length, "match", "matches")} in loaded results`,
+    ...(showPrints
+      ? pageProgress(prints.data?.pages ?? [], "Scryfall print")
+      : []),
+    ...(showCommunity
+      ? pageProgress(community.data?.pages ?? [], "MPC result")
+      : []),
+  ].join(" · ");
   useEffect(() => {
     if (fetchingArt) return;
-    const timer = window.setTimeout(() => onMatchCount(matchCount), 300);
+    const timer = window.setTimeout(() => onMatchSummary(matchSummary), 300);
     return () => window.clearTimeout(timer);
-  }, [fetchingArt, matchCount, onMatchCount]);
+  }, [fetchingArt, matchSummary, onMatchSummary]);
   return (
     <div className="art-studio">
       <div className="art-studio-scroll">
@@ -743,16 +759,7 @@ function ArtSession({
               Favorites
             </button>
             <div className="spacer" />
-            <span className="hint">
-              {matchSummary(matchCount)}
-              {showPrints && loadedPrints < totalPrints && (
-                <>
-                  {" "}
-                  · {loadedPrints} of{" "}
-                  {formatCount(totalPrints, "Scryfall print")} loaded
-                </>
-              )}
-            </span>
+            <span className="hint">{matchSummary}</span>
           </div>
           <ErrorNotice error={prefs.error} retry={() => void prefs.refetch()} />
           {showPrints && (
@@ -863,7 +870,6 @@ function ArtSession({
                 onClick={() => void prints.fetchNextPage()}
               >
                 Load more Scryfall prints
-                {totalPrints > 0 && ` · ${totalPrints} total`}
               </button>
             )}
             {showCommunity && community.hasNextPage && (
@@ -873,7 +879,6 @@ function ArtSession({
                 onClick={() => void community.fetchNextPage()}
               >
                 Load more MPC art
-                {totalCommunity > 0 && ` · ${totalCommunity} total`}
               </button>
             )}
             <span className="hint">
