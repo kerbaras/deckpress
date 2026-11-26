@@ -81,8 +81,7 @@ export function Loading({
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
-    const timer = setTimeout(() => setMounted(true), 16);
-    return () => clearTimeout(timer);
+    setMounted(true);
   }, []);
   return (
     <>

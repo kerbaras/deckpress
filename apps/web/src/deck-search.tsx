@@ -423,7 +423,9 @@ function DeckPreview({
         ) : (
           <ErrorNotice error={task.error} />
         )}
-        <Loading active={detail.isPending}>Loading decklist…</Loading>
+        <Loading active={detail.isPending} label="Discover decklist loading">
+          Loading decklist…
+        </Loading>
         {detail.data && (
           <>
             {detail.data.description && (

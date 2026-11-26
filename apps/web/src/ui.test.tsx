@@ -3,29 +3,51 @@ import { expect, it, vi } from "vitest";
 import { Loading, StatusRegion, zoneLabel } from "./ui.tsx";
 
 it("adds a keyed loading message to an already mounted region", () => {
+  const { rerender } = render(<Loading active={false} />);
+  const status = screen.getByRole("status");
+  expect(status).toBeEmptyDOMElement();
+  rerender(<Loading />);
+  expect(
+    screen.getAllByText(/^Loading…$/).find((node) => node.closest(".loading")),
+  ).toBeVisible();
+  const first = screen.getByRole("group");
+  expect(first).toHaveTextContent(/^Loading…$/);
+  rerender(<Loading />);
+  expect(screen.getByRole("group")).toBe(first);
+  rerender(<Loading>Searching…</Loading>);
+  expect(screen.getByRole("status")).toBe(status);
+  const next = screen.getByRole("group");
+  expect(next).not.toBe(first);
+  expect(next).toHaveTextContent(/^Searching…$/);
+  rerender(<Loading active={false}>Searching…</Loading>);
+  expect(screen.getByRole("status")).toBe(status);
+  expect(status).toBeEmptyDOMElement();
+  expect(screen.queryByText(/^Searching…$/)).not.toBeInTheDocument();
+});
+
+it("inserts the loading message even if a preview rerenders before its timer can run", () => {
   vi.useFakeTimers();
   try {
-    const { rerender } = render(<Loading />);
+    const preview = (active: boolean, label: string) => (
+      <>
+        <h2>{label}</h2>
+        <Loading active={active}>Loading decklist…</Loading>
+      </>
+    );
+    const { rerender } = render(preview(true, "Deck preview"));
     const status = screen.getByRole("status");
-    expect(status).toBeEmptyDOMElement();
-    expect(screen.getByText(/^Loading…$/)).toBeVisible();
-    const settle = () => act(() => vi.advanceTimersByTime(16));
-    settle();
-    const first = screen.getByRole("group");
-    expect(first).toHaveTextContent(/^Loading…$/);
-    rerender(<Loading />);
-    settle();
-    expect(screen.getByRole("group")).toBe(first);
-    rerender(<Loading>Searching…</Loading>);
-    settle();
-    expect(screen.getByRole("status")).toBe(status);
-    const next = screen.getByRole("group");
-    expect(next).not.toBe(first);
-    expect(next).toHaveTextContent(/^Searching…$/);
-    rerender(<Loading active={false}>Searching…</Loading>);
+    vi.setSystemTime(Date.now() + 10);
+    rerender(preview(true, "Updated deck preview"));
+    vi.setSystemTime(Date.now() + 45);
+    expect(status.firstElementChild).toHaveTextContent("Loading decklist…");
+    rerender(preview(false, "Decklist ready"));
+    expect(
+      screen.getByRole("heading", { name: "Decklist ready" }),
+    ).toBeVisible();
     expect(screen.getByRole("status")).toBe(status);
     expect(status).toBeEmptyDOMElement();
-    expect(screen.queryByText(/^Searching…$/)).not.toBeInTheDocument();
+    act(() => vi.runOnlyPendingTimers());
+    expect(status).toBeEmptyDOMElement();
   } finally {
     vi.useRealTimers();
   }
