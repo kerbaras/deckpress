@@ -2,7 +2,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, LoaderCircle, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, type ScoredArt, type StyleReport } from "./api.ts";
-import { type Art, type Deck, type DeckEntry, frontArt } from "./core/index.ts";
+import {
+  type Art,
+  type Deck,
+  type DeckEntry,
+  formatCount,
+  frontArt,
+} from "./core/index.ts";
 import { CardImage, ErrorNotice, Modal, StatusRegion, useTask } from "./ui.tsx";
 
 /** Printings compared per card; matches the limit enforced in Rust. */
@@ -93,7 +99,7 @@ function phaseAnnouncement(phase: Phase): string {
   if (phase.step === "analyse") return "Comparing illustrations…";
   if (phase.step === "review") {
     const count = phase.report.matches.length;
-    return `Matches ready for ${count} ${count === 1 ? "card" : "cards"}.`;
+    return `Matches ready for ${formatCount(count, "card")}.`;
   }
   return "";
 }
@@ -197,7 +203,10 @@ export function StyleMatch({
               {reference.source ? ` · ${reference.source}` : ""}
             </p>
             <p className="hint">
-              Ranks every Scryfall printing of the other {targets.length} cards
+              Ranks every Scryfall printing of the other{" "}
+              {targets.length === 1
+                ? "card"
+                : formatCount(targets.length, "card")}{" "}
               by how closely its illustration resembles this one, then lets you
               review each pick before anything changes.
             </p>
@@ -278,7 +287,7 @@ export function StyleMatch({
           <div className="modal-actions">
             <span className="muted">
               {changes
-                ? `${changes} of ${targets.length} cards will change`
+                ? `${changes} of ${formatCount(targets.length, "card")} will change`
                 : "No changes selected"}
             </span>
             <div className="spacer" />

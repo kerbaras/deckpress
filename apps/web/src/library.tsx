@@ -12,7 +12,13 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, downloadJson } from "./api.ts";
-import { type Deck, deckSchema, formats, frontArt } from "./core/index.ts";
+import {
+  type Deck,
+  deckSchema,
+  formatCount,
+  formats,
+  frontArt,
+} from "./core/index.ts";
 import { FirstRun } from "./first-run.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
@@ -93,11 +99,7 @@ export function Library({
     <>
       <PageToolbar
         title="Decks"
-        subtitle={
-          decks.length
-            ? `${decks.length} ${decks.length === 1 ? "deck" : "decks"}`
-            : undefined
-        }
+        subtitle={decks.length ? formatCount(decks.length, "deck") : undefined}
       >
         <SearchField
           compact
@@ -258,7 +260,7 @@ export function Library({
                   <div className="deck-caption">
                     <h2>{deck.name}</h2>
                     <p>
-                      {countCards(deck.entries)} cards · edited{" "}
+                      {formatCount(countCards(deck.entries), "card")} · edited{" "}
                       {prettyDate(deck.updatedAt)}
                     </p>
                     <div className="coverage">

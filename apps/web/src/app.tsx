@@ -469,7 +469,7 @@ function PrintJobs({ active }: { active: number }) {
           active
             ? `${active} in progress`
             : total
-              ? `${total} ${total === 1 ? "export" : "exports"}`
+              ? formatCount(total, "export")
               : undefined
         }
       >
@@ -527,13 +527,14 @@ function PrintJobs({ active }: { active: number }) {
                     <span>
                       {job.format === "png"
                         ? formatCount(job.pages, "PNG file")
-                        : `${job.pages} PDF pages`}
+                        : formatCount(job.pages, "PDF page")}
                     </span>
                     {job.bytes > 0 && (
                       <span>{(job.bytes / 1024 / 1024).toFixed(1)} MB</span>
                     )}
                     <span>
-                      {job.completed} / {job.total} faces
+                      {job.completed.toLocaleString()} /{" "}
+                      {formatCount(job.total, "face")}
                     </span>
                   </div>
                   {job.status === "completed" && job.calibrationPage && (

@@ -122,6 +122,25 @@ it("offers the paste fallback and a retry when a deck URL is refused", async () 
   expect(screen.getByLabelText("Public deck URL")).toHaveValue(url);
 });
 
+it("announces resolving and saving one card", async () => {
+  const user = userEvent.setup();
+  mockResolver();
+  render(
+    <ImportPanel existing={0} onApply={vi.fn().mockResolvedValue(undefined)} />,
+  );
+  await user.type(screen.getByLabelText("Decklist"), "1 Shock");
+  await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  const add = await screen.findByRole("button", { name: "Add 1 card to deck" });
+  expect(screen.getByRole("status")).toHaveTextContent("1 card resolved.");
+  expect(screen.getByText("Add saves 1 card to this deck.")).toBeVisible();
+  await user.click(add);
+  await waitFor(() =>
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Saved 1 card to this deck.",
+    ),
+  );
+});
+
 it("reviews a partial list by line and board, then saves without moving focus", async () => {
   const user = userEvent.setup();
   const resolution = Promise.withResolvers<void>();
