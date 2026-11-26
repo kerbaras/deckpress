@@ -142,6 +142,7 @@ async function openPolicy() {
           onBack={vi.fn()}
           onDirty={vi.fn()}
           onPreviewChange={vi.fn()}
+          registerPolicyPreview={vi.fn()}
           confirmArtExit={() => true}
           onJobs={vi.fn()}
         />

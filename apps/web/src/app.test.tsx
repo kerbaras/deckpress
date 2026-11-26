@@ -2344,6 +2344,150 @@ it("separates MPC DPI from measured source DPI and reports the selected AI model
   );
 });
 
+
+async function openGuardedPolicy(user: ReturnType<typeof userEvent.setup>) {
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  vi.spyOn(api, "deck").mockResolvedValue(deck);
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  const preview = vi.spyOn(api, "previewArtPolicy").mockResolvedValue({
+    previewId: crypto.randomUUID(),
+    canApply: true,
+    changes: [],
+  });
+  const apply = vi.spyOn(api, "applyArtPreview");
+  const save = vi.spyOn(api, "saveDeck");
+  renderWithClient(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: "Deck settings" }),
+  );
+  const opener = screen.getByRole("button", { name: "Preview art policy" });
+  await user.click(opener);
+  const review = screen.getByRole("dialog", { name: "Preview art changes" });
+  await waitFor(() =>
+    expect(
+      within(review).getByRole("button", { name: "Apply art changes" }),
+    ).toBeEnabled(),
+  );
+  return { review, preview, apply, save, opener };
+}
+
+it("traps policy exit focus and keeps the same review on Keep and Escape", async () => {
+  const user = userEvent.setup();
+  const { review, preview, apply, save } = await openGuardedPolicy(user);
+  const reviewKeep = within(review).getByRole("button", {
+    name: "Keep current choices",
+  });
+  reviewKeep.focus();
+  await user.keyboard("{Control>}b{/Control}");
+  expect(screen.getByRole("button", { name: "Show sidebar" })).toBeVisible();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.keyboard("{Control>}b{/Control}");
+
+  const unload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+
+  const leave = async () => {
+    await user.keyboard("{Control>},{/Control}");
+    return screen.getByRole("dialog", promptName);
+  };
+  let prompt = await leave();
+  const keep = within(prompt).getByRole("button", { name: "Keep preview" });
+  const discard = within(prompt).getByRole("button", { name: "Discard" });
+  discard.focus();
+  await user.tab();
+  expect(keep).toHaveFocus();
+  await user.tab({ shift: true });
+  expect(discard).toHaveFocus();
+  await user.click(keep);
+  expect(reviewKeep).toHaveFocus();
+
+  prompt = await leave();
+  fireEvent(prompt, new Event("cancel", { cancelable: true }));
+  expect(reviewKeep).toHaveFocus();
+  expect(preview).toHaveBeenCalledOnce();
+  expect(review).toBeVisible();
+
+  prompt = await leave();
+  await user.click(within(prompt).getByRole("button", { name: "Discard" }));
+  expect(
+    await screen.findByRole("heading", { name: "Settings", level: 1 }),
+  ).toBeVisible();
+  expect(review).not.toBeInTheDocument();
+  expect(screen.getByRole("main")).toHaveFocus();
+  expect(apply).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
+
+it.each(["hash", "new deck shortcut", "sidebar", "workspace tab"])(
+  "guards a policy-only preview from %s navigation",
+  async (exit) => {
+    const user = userEvent.setup();
+    const { review, apply, opener } = await openGuardedPolicy(user);
+    if (exit === "hash") {
+      act(() => {
+        window.history.replaceState(null, "", "#/jobs");
+        window.dispatchEvent(new Event("hashchange"));
+      });
+    } else if (exit === "new deck shortcut") {
+      await user.keyboard("{Control>}n{/Control}");
+    } else {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: exit === "sidebar" ? "Settings" : "Print setup",
+        }),
+      );
+    }
+    const prompt = screen.getByRole("dialog", promptName);
+    expect(window.location.hash).toBe(`#/decks/${id}`);
+    await user.click(within(prompt).getByRole("button", { name: "Discard" }));
+    expect(review).not.toBeInTheDocument();
+    expect(apply).not.toHaveBeenCalled();
+    if (exit === "workspace tab") {
+      expect(
+        screen.getByRole("button", { name: "Print setup" }),
+      ).toHaveAttribute("aria-current", "page");
+      expect(opener).toHaveFocus();
+    }
+  },
+);
+
+it("guards a policy-only preview when Tauri requests window close", async () => {
+  const user = userEvent.setup();
+  const commands = vi.fn((command: string) =>
+    command === "plugin:window|is_fullscreen" ? false : [],
+  );
+  mockWindows("main");
+  mockIPC(commands, { shouldMockEvents: true });
+  const { review, apply, save } = await openGuardedPolicy(user);
+  const keep = within(review).getByRole("button", {
+    name: "Keep current choices",
+  });
+  keep.focus();
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  fireEvent(
+    screen.getByRole("dialog", promptName),
+    new Event("cancel", { cancelable: true }),
+  );
+  expect(keep).toHaveFocus();
+  expect(commands).not.toHaveBeenCalledWith("plugin:window|destroy", {
+    label: "main",
+  });
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  await waitFor(() =>
+    expect(commands).toHaveBeenCalledWith("plugin:window|destroy", {
+      label: "main",
+    }),
+  );
+  expect(review).not.toBeInTheDocument();
+  expect(apply).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
 it("shows original, saved and preview art separately, even when saved art is outside the results", async () => {
   const user = userEvent.setup();
   mockPickerArt([original, alternate]);

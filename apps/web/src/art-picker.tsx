@@ -1196,6 +1196,7 @@ const previewExit = {
   card: "move to another card",
   face: "switch faces",
   studio: "leave Art studio",
+  workspace: "leave this view",
 };
 
 export function DiscardPreview({

@@ -14,7 +14,7 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type ArtPreview,
   api,
@@ -63,6 +63,10 @@ type PrintSetupRequest = {
   failure: Pick<PrintJob, "failureTarget" | "message"> | undefined;
 };
 
+
+type RegisterPolicyPreview = (
+  preview: { discard: () => void; canDiscard: () => boolean } | null,
+) => void;
 export function Workspace({
   id,
   printSetup,
@@ -71,6 +75,7 @@ export function Workspace({
   onBack,
   onDirty,
   onPreviewChange,
+  registerPolicyPreview,
   confirmArtExit,
   onJobs,
 }: {
@@ -81,6 +86,7 @@ export function Workspace({
   onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
+  registerPolicyPreview: RegisterPolicyPreview;
   confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
@@ -108,6 +114,7 @@ export function Workspace({
       onBack={onBack}
       onDirty={onDirty}
       onPreviewChange={onPreviewChange}
+      registerPolicyPreview={registerPolicyPreview}
       confirmArtExit={confirmArtExit}
       onJobs={onJobs}
     />
@@ -167,6 +174,7 @@ function DeckWorkspace({
   onBack,
   onDirty,
   onPreviewChange,
+  registerPolicyPreview,
   confirmArtExit,
   onJobs,
 }: {
@@ -177,6 +185,7 @@ function DeckWorkspace({
   onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
+  registerPolicyPreview: RegisterPolicyPreview;
   confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
@@ -279,13 +288,15 @@ function DeckWorkspace({
   useEffect(
     () => () => {
       previewRequest.current = null;
+      registerPolicyPreview(null);
     },
-    [],
+    [registerPolicyPreview],
   );
-  const keepArt = () => {
+  const keepArt = useCallback(() => {
     previewRequest.current = null;
+    registerPolicyPreview(null);
     setArtPreview(null);
-  };
+  }, [registerPolicyPreview]);
   const previewArt = async (
     request: () => Promise<ArtPreview>,
     opener: () => HTMLButtonElement | null,
@@ -293,6 +304,10 @@ function DeckWorkspace({
     if (dirty || saving.current || previewRequest.current) return;
     const id = Symbol();
     previewRequest.current = id;
+    registerPolicyPreview({
+      discard: keepArt,
+      canDiscard: () => !saving.current,
+    });
     restorePreviewFocus.current = opener;
     setArtStatus("");
     setArtPreview({});
@@ -403,7 +418,7 @@ function DeckWorkspace({
                 aria-current={view === id ? "page" : undefined}
                 title={name}
                 onClick={async (event) => {
-                  if (view === "art" && id !== "art") {
+                  if (id !== view) {
                     const exit = confirmArtExit(event.currentTarget);
                     if (exit === false || (exit !== true && !(await exit)))
                       return;
