@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
@@ -34,6 +34,7 @@ import { importStatus } from "./import-review.tsx";
 import { Library } from "./library.tsx";
 import { PrintLanguageSettings } from "./print-language.tsx";
 import {
+  ModalChromeProvider,
   PageToolbar,
   SidebarToggle,
   TitleBar,
@@ -43,6 +44,7 @@ import {
 import {
   ErrorNotice,
   ExternalLink,
+  Modal,
   prettyDate,
   STATUS_COALESCE_MS,
   StatusRegion,
@@ -82,6 +84,15 @@ const deckRoute = (route: string) =>
   /^decks\/([\da-f-]{36})(?:\/print\/([\da-f-]{36}))?$/.exec(route);
 const focusMain = () => document.getElementById("main")?.focus();
 type ImportAnnouncement = { id: string; text: string; restoreKey?: number };
+type WindowExit = {
+  dirty: boolean;
+  art: boolean;
+  jobs: number;
+  resolve: (close: boolean) => void;
+};
+const countActiveJobs = (jobs: PrintJob[] = []) =>
+  jobs.filter((job) => job.status === "queued" || job.status === "running")
+    .length;
 
 function readSidebar(): boolean {
   try {
@@ -146,9 +157,41 @@ export function App() {
     setArtExitOpen(false);
     resolve?.(discard);
   };
-  const window_ = useWindowState(confirmArtExit);
   const routeRef = useRef(route);
   const dirty = useRef(false);
+  const closingWindow = useRef(false);
+  const [windowExit, setWindowExit] = useState<WindowExit | null>(null);
+  const client = useQueryClient();
+  const confirmWindowExit = useCallback(async () => {
+    if (closingWindow.current || artExit.current) return false;
+    closingWindow.current = true;
+    const jobs = countActiveJobs(
+      await api.jobs().catch(() => client.getQueryData<PrintJob[]>(["jobs"])),
+    );
+    if (artExit.current || policyPreview.current?.canDiscard() === false) {
+      closingWindow.current = false;
+      return false;
+    }
+    if (!dirty.current && !jobs) {
+      closingWindow.current = false;
+      return confirmArtExit();
+    }
+    return new Promise<boolean>((resolve) => {
+      setWindowExit({
+        dirty: dirty.current,
+        art: hasArtPreview(),
+        jobs,
+        resolve,
+      });
+    });
+  }, [client, confirmArtExit, hasArtPreview]);
+  const finishWindowExit = (close: boolean) => {
+    if (close) policyPreview.current?.discard();
+    closingWindow.current = false;
+    setWindowExit(null);
+    windowExit?.resolve(close);
+  };
+  const window_ = useWindowState(confirmWindowExit);
   const onDirty = useCallback((value: boolean) => {
     dirty.current = value;
   }, []);
@@ -167,9 +210,7 @@ export function App() {
     refetchInterval: 4000,
     retry: false,
   });
-  const activeJobs =
-    jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
-      .length ?? 0;
+  const activeJobs = countActiveJobs(jobs.data);
   const { status, alert, announceJobs, announceStatus } =
     usePrintJobAnnouncements(jobs.data);
   const applyRoute = useCallback((next: string) => {
@@ -282,7 +323,7 @@ export function App() {
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, RECENT_DECKS);
   const modifier = window_.platform === "macos" ? "⌘" : "Ctrl+";
-  return (
+  const shell = (
     <div
       className="app-shell"
       data-sidebar={sidebarOpen ? "open" : "closed"}
@@ -510,7 +551,44 @@ export function App() {
           focusFallback={focusMain}
         />
       )}
+      {windowExit && (
+        <Modal
+          title="Close Deckpress?"
+          description={[
+            windowExit.dirty && "Unsaved changes will be lost.",
+            windowExit.art && "Your unapplied art preview will be discarded.",
+            windowExit.jobs === 1
+              ? "A print job will be interrupted."
+              : windowExit.jobs > 1 &&
+                `${windowExit.jobs} print jobs will be interrupted.`,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClose={() => finishWindowExit(false)}
+          showClose={false}
+          focusFallback={focusMain}
+        >
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="primary"
+              ref={(button) => button?.setAttribute("autofocus", "")}
+              onClick={() => finishWindowExit(false)}
+            >
+              Cancel
+            </button>
+            <button type="button" onClick={() => finishWindowExit(true)}>
+              Close Deckpress
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
+  );
+  return (
+    <ModalChromeProvider value={window_.customControls}>
+      {shell}
+    </ModalChromeProvider>
   );
 }
 
