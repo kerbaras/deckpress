@@ -164,6 +164,10 @@ label.button:has(> input.sr-only:focus-visible) {
   outline: var(--focus-width) solid var(--focus);
   outline-offset: var(--focus-offset);
 }
+:is(button.primary, .button.primary, .skip-link):focus-visible {
+  --control-focus-color: var(--focus-on-accent);
+  box-shadow: inset 0 0 0 var(--focus-width) var(--focus-on-accent);
+}
 fieldset {
   border: 0;
   padding: 0;
@@ -524,6 +528,7 @@ pre {
 }
 .window-controls button:focus-visible,
 :is(.titlebar, .sidebar-head) :is(button, input, select):focus-visible {
+  outline-color: var(--control-focus-color, var(--focus));
   outline-offset: calc(-1 * var(--focus-width));
 }
 .main-content {
@@ -1096,64 +1101,68 @@ pre {
   padding: 20px 24px;
 }
 .import-panel {
-  padding: 16px;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
   align-self: start;
 }
 .import-panel fieldset {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .import-panel .segmented {
   align-self: flex-start;
 }
 .decklist-input {
   font-family: var(--numeric-font);
-  font-size: 10.5px;
+  font-size: var(--type-meta);
   min-height: 310px;
-  line-height: 1.9;
+  line-height: var(--leading-meta);
+  font-variant-numeric: tabular-nums;
 }
 .file-drop {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 16px 10px;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-2);
   align-items: center;
   border: 1px dashed var(--line-control);
-  border-radius: 7px;
+  border-radius: var(--control-radius);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--type-meta);
+  line-height: var(--leading-meta);
 }
 .file-drop input {
   max-width: 100%;
-  font-size: 10px;
+  min-height: var(--control-size);
 }
 .import-result {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .import-result > .import-summary {
-  font: inherit;
+  font-size: var(--type-section);
+  line-height: var(--leading-section);
   margin: 0;
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
   align-items: center;
 }
 .import-issues {
   color: var(--warning-text);
-  font-size: 11px;
+  font-size: var(--type-meta);
+  line-height: var(--leading-meta);
   background: var(--warning-bg);
   border: 1px solid
     color-mix(in srgb, var(--warning-text) 30%, var(--warning-bg));
-  padding: 11px;
-  border-radius: 6px;
+  padding: var(--space-3);
+  border-radius: var(--control-radius);
 }
 .import-issues p {
-  margin-top: 10px;
+  margin-top: var(--space-2);
 }
 .import-issues ul {
   list-style: none;
@@ -1163,11 +1172,11 @@ pre {
 .import-issues li {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   border-top: 1px solid
     color-mix(in srgb, var(--warning-text) 30%, var(--warning-bg));
-  margin-top: 9px;
-  padding-top: 9px;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
 }
 .import-line {
   font-weight: 600;
@@ -1178,24 +1187,23 @@ pre {
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  font-size: 11.5px;
+  gap: var(--space-2);
+  font-size: var(--type-meta);
+  line-height: var(--leading-meta);
 }
 .import-boards li {
   display: flex;
-  gap: 6px;
-  border: 1px solid #3d4049;
-  border-radius: 6px;
-  padding: 4px 8px;
-  color: var(--muted);
+  gap: var(--space-2);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--control-radius);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-muted);
 }
 .import-boards strong {
-  color: #ececee;
+  color: var(--text);
 }
 .import-status {
   margin: 0;
-  font-size: 11.5px;
-  color: var(--muted);
 }
 .import-url-error {
   flex-wrap: wrap;
@@ -1203,14 +1211,9 @@ pre {
 .import-url-error .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
-  padding-left: 26px;
-}
-.import-url-error button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  padding-left: calc(var(--icon-size) + var(--space-2));
 }
 .deck-cards {
   min-width: 0;
@@ -1430,8 +1433,23 @@ pre {
 .entry-row input[type="checkbox"] {
   width: 15px;
 }
+.main-content:has(> .workspace-art),
+.workspace-art,
 .art-studio {
-  padding: 19px 25px 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.workspace-art,
+.art-studio,
+.art-studio-scroll {
+  flex: 1;
+}
+.art-studio-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4) var(--space-6) 0;
+  scroll-padding-block: var(--space-3);
 }
 .studio-toolbar {
   display: flex;
@@ -1751,16 +1769,15 @@ dd {
   flex-basis: 100%;
 }
 .filmstrip {
-  position: sticky;
-  bottom: 0;
   display: flex;
-  gap: 6px;
-  padding: 10px 0;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-6);
   background: var(--canvas);
   border-top: 1px solid var(--line-subtle);
   overflow-x: auto;
-  z-index: 12;
   scrollbar-width: thin;
+  scroll-padding-inline: var(--space-6);
 }
 .filmstrip button {
   padding: var(--space-1);
@@ -2821,7 +2838,7 @@ progress::-webkit-progress-value {
   overflow: auto;
   padding: 12px;
   border: 1px solid var(--line-subtle);
-  border-radius: 8px;
+  border-radius: var(--control-radius);
   background: var(--canvas);
 }
 .discover-zones section {

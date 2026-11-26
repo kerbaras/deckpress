@@ -833,9 +833,25 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   for (const button of screen.getAllByRole("button", { name: "Generate PDF" }))
     expect(button).toBeDisabled();
   await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
-  expect(
-    screen.getByRole("img", { name: /Print preview, A4, 3 columns by 3 rows/ }),
-  ).toBeVisible();
+  const proof = screen.getByRole("img", {
+    name: /Print preview, A4, 3 columns by 3 rows/,
+  });
+  expect(proof).toBeVisible();
+  const loading = within(proof).getAllByText("Preparing preview…")[0];
+  expect(loading).toHaveAttribute("fill", "var(--preview-loading-text)");
+  expect(loading?.previousElementSibling).toHaveAttribute(
+    "fill",
+    "var(--paper)",
+  );
+  const image = proof.querySelector("image");
+  expect(image).not.toBeNull();
+  if (image) fireEvent.error(image);
+  const error = within(proof).getByText("Image failed to load");
+  expect(error).toHaveAttribute("fill", "var(--preview-error-text)");
+  expect(error.previousElementSibling).toHaveAttribute(
+    "fill",
+    "var(--preview-error-bg)",
+  );
   await user.click(
     screen.getAllByRole("button", { name: "Generate PDF" })[0] as HTMLElement,
   );

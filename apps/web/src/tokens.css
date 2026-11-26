@@ -11,6 +11,7 @@
   --accent: #e2b25a;
   --on-accent: #191610;
   --focus: #8dc1ee;
+  --focus-on-accent: #191610;
   --danger-text: #f2b0a4;
   --danger-bg: #301e1c;
   --warning-text: #f2cd89;
@@ -18,6 +19,9 @@
   --success-text: #a8d9b6;
   --success-bg: #1b2d24;
   --paper: #ffffff;
+  --preview-loading-text: #525b68;
+  --preview-error-text: #8c2323;
+  --preview-error-bg: #f4dedb;
   --info: #8dc1ee;
   --caption-close: #b8322c;
   --on-caption-close: #ffffff;
@@ -70,6 +74,7 @@
   --color-accent: var(--accent);
   --color-on-accent: var(--on-accent);
   --color-focus: var(--focus);
+  --color-focus-on-accent: var(--focus-on-accent);
   --color-danger-ink: var(--danger-text);
   --color-danger-bg: var(--danger-bg);
   --color-warning-ink: var(--warning-text);

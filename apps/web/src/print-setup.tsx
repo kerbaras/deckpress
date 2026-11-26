@@ -1259,8 +1259,19 @@ function ProofImage({
   const [loaded, setLoaded] = useState(false);
   return failed ? (
     <g>
-      <rect x={x} y={y} width={width} height={height} fill="#f4dedb" />
-      <text x={x + 8} y={y + height / 2} fill="#8c2323" fontSize={10}>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill="var(--preview-error-bg)"
+      />
+      <text
+        x={x + 8}
+        y={y + height / 2}
+        fill="var(--preview-error-text)"
+        fontSize={10}
+      >
         Image failed to load
       </text>
     </g>
@@ -1278,9 +1289,17 @@ function ProofImage({
         onError={() => setFailed(true)}
       />
       {!loaded && (
-        <text x={x + 8} y={y + height / 2} fill="#cccccc" fontSize={9}>
-          Preparing preview…
-        </text>
+        <>
+          <rect x={x} y={y} width={width} height={height} fill="var(--paper)" />
+          <text
+            x={x + 8}
+            y={y + height / 2}
+            fill="var(--preview-loading-text)"
+            fontSize={9}
+          >
+            Preparing preview…
+          </text>
+        </>
       )}
     </g>
   );

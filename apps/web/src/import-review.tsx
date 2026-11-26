@@ -83,7 +83,7 @@ export function ImportReview({
     <div className="import-result">
       <span className="badge official">{result.format}</span>
       <h4 ref={heading} className="import-summary" tabIndex={-1}>
-        <Check size={16} />
+        <Check className="size-icon stroke-icon" />
         {plural(total)} resolved
       </h4>
       {boards.length > 0 && (
