@@ -3115,6 +3115,64 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
   ).toBeVisible();
 });
 
+it("mounts the print preset status before saving", async () => {
+  const user = userEvent.setup();
+  const store = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation(() => {});
+  renderWithClient(
+    <PrintSetup
+      deck={deck}
+      onChange={vi.fn()}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+    />,
+  );
+  const status = screen.getByRole("status", {
+    name: "Print preset save status",
+  });
+  expect(status).toBeEmptyDOMElement();
+  await user.click(screen.getByRole("button", { name: "Save preset" }));
+  expect(store).toHaveBeenCalledWith(
+    "deckpress.print-preset",
+    JSON.stringify(deck.printSettings),
+  );
+  expect(status).toHaveTextContent(/^Preset saved on this browser$/);
+  const firstMessage = status.firstElementChild;
+  expect(firstMessage).toHaveTextContent("Preset saved on this browser");
+  await user.click(screen.getByRole("button", { name: "Save preset" }));
+  expect(status.firstElementChild).toHaveTextContent(
+    "Preset saved on this browser",
+  );
+  expect(status.firstElementChild).not.toBe(firstMessage);
+});
+
+it("loading an older preset does not retain the previous selection's profile id", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation((key) =>
+    key === "deckpress.print-preset" ? '{"backOffsetXmm":2}' : null,
+  );
+  const change = vi.fn();
+  renderWithClient(
+    <PrintSetup
+      deck={{
+        ...deck,
+        printSettings: { ...deck.printSettings, printerProfileId: id },
+      }}
+      onChange={change}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+    />,
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Print preset" }),
+    "saved",
+  );
+  const loaded = change.mock.lastCall?.[0].printSettings;
+  expect(loaded.backOffsetXmm).toBe(2);
+  expect(loaded.printerProfileId).toBeUndefined();
+});
+
 it("shows the selected trim and warns when bleed exceeds half the gap", async () => {
   const user = userEvent.setup();
   function PrintHarness() {

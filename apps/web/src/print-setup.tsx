@@ -146,7 +146,7 @@ export function PrintSetup({
   });
   const [page, setPage] = useState(0);
   const [trim, setTrim] = useState(false);
-  const [presetMessage, setPresetMessage] = useState("");
+  const [presetSaveId, setPresetSaveId] = useState(0);
   const [previewSettings, setPreviewSettings] = useState(settings);
   const controlPrefix = useId();
   const [jump, setJump] = useState<{ key: string } | null>(null);
@@ -187,6 +187,10 @@ export function PrintSetup({
   }, [settings]);
   const change = (patch: Partial<PrintSettings>) => {
     onChange({ ...deck, printSettings: { ...settings, ...patch } });
+    setPage(0);
+  };
+  const applyPreset = (settings: PrintSettings) => {
+    onChange({ ...deck, printSettings: settings });
     setPage(0);
   };
   let layout: ReturnType<typeof createLayout> | null = null;
@@ -418,10 +422,12 @@ export function PrintSetup({
                         "deckpress.print-preset",
                       );
                       if (!stored) throw new Error("Save a print preset first");
-                      change(printSettingsSchema.parse(JSON.parse(stored)));
+                      applyPreset(
+                        printSettingsSchema.parse(JSON.parse(stored)),
+                      );
                     });
                   else
-                    change(
+                    applyPreset(
                       printSettingsSchema.parse(
                         value === "proof"
                           ? { dpi: 300 }
@@ -458,18 +464,20 @@ export function PrintSetup({
                     "deckpress.print-preset",
                     JSON.stringify(settings),
                   );
-                  setPresetMessage("Preset saved on this browser");
+                  setPresetSaveId((id) => id + 1);
                 })
               }
             >
               <Save size={14} />
               Save preset
             </button>
-            {presetMessage && (
-              <span className="hint" role="status">
-                {presetMessage}
-              </span>
-            )}
+            <StatusRegion
+              className={presetSaveId ? "hint" : "sr-only"}
+              label="Print preset save status"
+              announcementId={presetSaveId}
+            >
+              {presetSaveId ? "Preset saved on this browser" : ""}
+            </StatusRegion>
           </div>
           <section className="panel settings-panel">
             <h3>Layout mode</h3>
