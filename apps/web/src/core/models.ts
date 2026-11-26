@@ -180,6 +180,12 @@ export const artPreferenceSchema = z.object({
 });
 export type ArtPreference = z.infer<typeof artPreferenceSchema>;
 
+const printFailureTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("card"), entryId: z.string(), back: z.boolean() }),
+  z.object({ kind: z.literal("upscaleModel") }),
+]);
+export type PrintFailureTarget = z.infer<typeof printFailureTargetSchema>;
+
 export const jobSchema = z.object({
   id: z.uuid(),
   deckId: z.uuid(),
@@ -194,6 +200,8 @@ export const jobSchema = z.object({
   pages: z.number(),
   calibrationPage: z.boolean().default(false),
   format: z.enum(["pdf", "png"]).default("pdf"),
+  settings: printSettingsSchema.optional(),
+  failureTarget: printFailureTargetSchema.optional(),
 });
 export type PrintJob = z.infer<typeof jobSchema>;
 

@@ -21,7 +21,7 @@ use crate::layout::{
     create_layout, duplex_mirrors_x, duplex_offset, duplex_rotation, duplex_slot, fit_sheet_label,
     free_page_size, mm_to_pt, sheet_label, PrintLayout, Registration, Slot,
 };
-use crate::models::{Art, Backs, Deck, DeckEntry, LayoutMode, PrintSettings};
+use crate::models::{Art, Backs, Deck, DeckEntry, LayoutMode, PrintFailureTarget, PrintSettings};
 use crate::raster::{encode_jpeg, parse_hex_color, rasterize};
 use crate::scm;
 use crate::upscaler::{CancelToken, Upscaler};
@@ -776,7 +776,13 @@ pub fn build_pdf(
             }
             match art {
                 Some(art) => {
-                    let source = read_source(&art.image_url)?;
+                    let card_error = |error: AppError| {
+                        error.at_print_target(PrintFailureTarget::Card {
+                            entry_id: entry.id.clone(),
+                            back: side.back,
+                        })
+                    };
+                    let source = read_source(&art.image_url).map_err(card_error)?;
                     let key = raster_key(&source, &art, settings, &model);
                     let image = match embedded.get(&key) {
                         Some(image) => image.clone(),
@@ -804,7 +810,8 @@ pub fn build_pdf(
                                         services.upscaler,
                                         cancel,
                                         &mut tile_progress,
-                                    )?;
+                                    )
+                                    .map_err(card_error)?;
                                     let bytes = encode_jpeg(&output.image, settings.quality)?;
                                     let tmp = path.with_extension("part");
                                     std::fs::write(&tmp, &bytes)?;

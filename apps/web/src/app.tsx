@@ -78,7 +78,8 @@ const confirmDiscard = () =>
     "Leave this deck and discard unsaved changes?",
     "Discard changes",
   );
-const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
+const deckRoute = (route: string) =>
+  /^decks\/([\da-f-]{36})(?:\/print\/([\da-f-]{36}))?$/.exec(route);
 const focusMain = () => document.getElementById("main")?.focus();
 type ImportAnnouncement = { id: string; text: string; restoreKey?: number };
 
@@ -148,10 +149,11 @@ export function App() {
   const activeJobs =
     jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
       .length ?? 0;
-  const { status, alert, announceJobs } = usePrintJobAnnouncements(jobs.data);
+  const { status, alert, announceJobs, announceStatus } =
+    usePrintJobAnnouncements(jobs.data);
   const applyRoute = useCallback((next: string) => {
     routeRef.current = next;
-    setImportedDeckId((id) => (deckRoute(next) === id ? id : undefined));
+    setImportedDeckId((id) => (deckRoute(next)?.[1] === id ? id : undefined));
     setRoute(next);
     const main = document.getElementById("main");
     if (main) main.scrollTop = 0;
@@ -245,7 +247,10 @@ export function App() {
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   });
-  const deckId = deckRoute(route);
+  const [, deckId, printJobId] = deckRoute(route) ?? [];
+  const printJob = jobs.data?.find(
+    (job) => job.id === printJobId && job.deckId === deckId,
+  );
   useEffect(() => {
     if (!pendingImport || pendingImport.id !== deckId) return;
     setImportAnnouncement(pendingImport);
@@ -413,9 +418,13 @@ export function App() {
           <ToolbarSlotProvider value={slot}>
             {deckId ? (
               <Workspace
-                key={deckId}
+                key={route}
                 id={deckId}
-                focusHeading={importedDeckId === deckId}
+                printSetup={printJobId ? { failure: printJob } : undefined}
+                focusHeading={
+                  !printJob?.failureTarget &&
+                  (!!printJobId || importedDeckId === deckId)
+                }
                 restoreMessage={
                   importAnnouncement?.id === deckId &&
                   importAnnouncement.restoreKey !== undefined
@@ -432,7 +441,17 @@ export function App() {
                 }}
               />
             ) : route === "jobs" ? (
-              <PrintJobs active={activeJobs} />
+              <PrintJobs
+                active={activeJobs}
+                deckIds={decks.data?.map((deck) => deck.id)}
+                deckCheckFailed={decks.isError}
+                onRetry={announceJobs}
+                onOpenSetup={async (job) => {
+                  if (await navigate(`decks/${job.deckId}/print/${job.id}`)) {
+                    announceStatus(`Opening Print setup for ${job.deckName}.`);
+                  }
+                }}
+              />
             ) : route === "settings" || route === "settings/models" ? (
               <LocalSettings focusModels={route === "settings/models"} />
             ) : route === "sources" ? (
@@ -517,6 +536,7 @@ function usePrintJobAnnouncementChannel() {
 function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
   const seen = useRef(new Map<string, Set<PrintJob["status"]>>());
   const initialized = useRef(false);
+  const actionId = useRef(0);
   const pending = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const {
     message: status,
@@ -599,10 +619,26 @@ function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
     announceJobs(jobs, !initialized.current);
     initialized.current = true;
   }, [jobs, announceJobs]);
-  return { status, alert, announceJobs };
+  const announceStatus = (text: string) => {
+    const key = `recovery:${++actionId.current}`;
+    notify({ id: key, terminal: true, key, text });
+  };
+  return { status, alert, announceJobs, announceStatus };
 }
 
-function PrintJobs({ active }: { active: number }) {
+function PrintJobs({
+  active,
+  deckIds,
+  deckCheckFailed,
+  onRetry,
+  onOpenSetup,
+}: {
+  active: number;
+  deckIds: string[] | undefined;
+  deckCheckFailed: boolean;
+  onRetry: (jobs: PrintJob[]) => void;
+  onOpenSetup: (job: PrintJob) => Promise<void>;
+}) {
   const query = useQuery({
     queryKey: ["jobs"],
     queryFn: ({ signal }) => api.jobs(signal),
@@ -645,7 +681,7 @@ function PrintJobs({ active }: { active: number }) {
         </StatusRegion>
         <ErrorNotice
           error={query.error ?? task.error}
-          retry={() => void query.refetch()}
+          {...(query.error ? { retry: () => void query.refetch() } : {})}
         />
         {query.isPending ? (
           <Loading>Loading print jobs…</Loading>
@@ -780,7 +816,49 @@ function PrintJobs({ active }: { active: number }) {
                     >
                       <X size={15} />
                     </button>
-                  ) : null}
+                  ) : deckIds?.includes(job.deckId) ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void onOpenSetup(job)}
+                      >
+                        Back to print setup
+                      </button>
+                      {job.settings ? (
+                        <button
+                          type="button"
+                          disabled={task.busy}
+                          onClick={() =>
+                            void task.run(async () => {
+                              if (!job.settings) return;
+                              onRetry([
+                                await api.createJob(
+                                  job.deckId,
+                                  job.settings,
+                                  job.format,
+                                ),
+                              ]);
+                              await query.refetch();
+                            })
+                          }
+                        >
+                          Retry
+                        </button>
+                      ) : (
+                        <p className="hint">
+                          Original print settings unavailable for Retry.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="hint">
+                      {deckIds
+                        ? "This deck no longer exists."
+                        : deckCheckFailed
+                          ? "Could not check whether this deck still exists."
+                          : "Checking for the original deck…"}
+                    </p>
+                  )}
                 </div>
               </article>
             ))}

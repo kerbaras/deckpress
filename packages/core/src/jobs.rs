@@ -11,7 +11,9 @@ use tokio::sync::mpsc;
 use crate::error::{AppError, AppResult};
 use crate::format_count;
 use crate::images::Images;
-use crate::models::{new_id, now_iso, Deck, ExportFormat, JobStatus, PrintJob, PrintSettings};
+use crate::models::{
+    new_id, now_iso, Deck, ExportFormat, JobStatus, PrintFailureTarget, PrintJob, PrintSettings,
+};
 use crate::pdf::{build_pdf, print_plan, PdfServices};
 use crate::png_export::{build_png_zip, truncate_utf8};
 use crate::store::Store;
@@ -237,6 +239,8 @@ impl Jobs {
             pages: 0,
             calibration_page: settings.calibration_page && format == ExportFormat::Pdf,
             format,
+            settings: Some(settings.clone()),
+            failure_target: None,
         };
         self.store.put(KIND, &job.id, &job)?;
         self.prune()?;
@@ -346,6 +350,9 @@ impl Jobs {
             }
             Err(error) => {
                 log::error!("Print job {} failed: {error:?}", job.id);
+                if let AppError::PrintTarget { target, .. } = &error {
+                    job.failure_target = Some(target.clone());
+                }
                 self.finish(job, JobStatus::Failed, error.to_string());
             }
         }
@@ -359,7 +366,7 @@ impl Jobs {
         cancel: &CancelToken,
     ) -> AppResult<(u64, usize, String)> {
         let plan = print_plan(deck, settings)?;
-        let mut urls: Vec<String> = Vec::new();
+        let mut urls = Vec::new();
         for side in &plan.sides {
             for entry in &side.entries {
                 let art = if side.back {
@@ -368,19 +375,28 @@ impl Jobs {
                     Some(entry.front_art().clone())
                 };
                 if let Some(art) = art {
-                    if !urls.contains(&art.image_url) {
-                        urls.push(art.image_url);
+                    if !urls.iter().any(|(url, _)| url == &art.image_url) {
+                        urls.push((
+                            art.image_url,
+                            PrintFailureTarget::Card {
+                                entry_id: entry.id.clone(),
+                                back: side.back,
+                            },
+                        ));
                     }
                 }
             }
         }
         let fetch_total = urls.len();
-        for (index, url) in urls.iter().enumerate() {
+        for (index, (url, target)) in urls.into_iter().enumerate() {
             cancel.check()?;
             let mut progress = job.clone();
             progress.message = format!("Fetching card scans · {}/{fetch_total}", index + 1);
             self.publish(&progress, false);
-            self.images.read(url).await?;
+            self.images
+                .read(&url)
+                .await
+                .map_err(|error| error.at_print_target(target))?;
         }
 
         let upscaler = if settings.upscale {
@@ -390,7 +406,11 @@ impl Jobs {
                 settings.upscale_model.clone()
             };
             let models = Arc::clone(&self.models);
-            Some(tokio::task::spawn_blocking(move || models.upscaler(&id)).await??)
+            Some(
+                tokio::task::spawn_blocking(move || models.upscaler(&id))
+                    .await?
+                    .map_err(|error| error.at_print_target(PrintFailureTarget::UpscaleModel))?,
+            )
         } else {
             None
         };

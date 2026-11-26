@@ -1005,6 +1005,176 @@ it("keeps fast print-job finals and discards only superseded phases for the same
   }
 });
 
+const failedExport: PrintJob = {
+  id: "138aacf8-01a2-4e63-a43a-e42eb1abc32c",
+  deckId: id,
+  deckName: deck.name,
+  status: "failed",
+  completed: 0,
+  total: 1,
+  message: "Uploaded image not found",
+  createdAt: deck.createdAt,
+  fileName: "burn-150dpi.pdf",
+  bytes: 0,
+  pages: 0,
+  calibrationPage: false,
+  format: "pdf",
+  settings: printSettingsSchema.parse({ dpi: 150, calibrationPage: false }),
+  failureTarget: { kind: "card", entryId: entry.id, back: false },
+};
+
+it.each([
+  failedExport,
+  {
+    ...failedExport,
+    message: "Cancelled",
+    status: "cancelled",
+    failureTarget: undefined,
+  },
+  {
+    ...failedExport,
+    message: "Could not load model",
+    failureTarget: { kind: "upscaleModel" },
+  },
+] satisfies PrintJob[])(
+  "opens Print setup for a job with message $message without queuing",
+  async (job) => {
+    const user = userEvent.setup();
+    const create = vi.fn();
+    mockIPC((cmd) => {
+      if (cmd === "list_jobs") return [job];
+      if (cmd === "list_decks") return [deck];
+      if (cmd === "get_deck")
+        return job.failureTarget?.kind === "upscaleModel"
+          ? { ...deck, printSettings: { ...deck.printSettings, upscale: true } }
+          : deck;
+      if (cmd === "create_job") return create();
+      return [];
+    });
+    window.history.replaceState(null, "", "#/jobs");
+    renderWithClient(<App />);
+    const back = await screen.findByRole("button", {
+      name: "Back to print setup",
+    });
+    expect(screen.getByRole("heading", { name: deck.name })).toBeVisible();
+    expect(screen.getByText(job.message)).toBeVisible();
+    back.focus();
+    await user.keyboard("{Enter}");
+    expect(
+      await screen.findByRole("heading", { name: "Print setup" }),
+    ).toBeVisible();
+    const status = screen.getByRole("status", {
+      name: "Print job announcements",
+    });
+    expect(status).toHaveTextContent(`Opening Print setup for ${deck.name}.`);
+    const announcement = status.firstElementChild;
+    expect(announcement).toHaveTextContent(
+      `Opening Print setup for ${deck.name}.`,
+    );
+    if (job.failureTarget?.kind === "card") {
+      const preview = screen.getByRole("img", { name: /^Print preview,/ });
+      expect(screen.getByText("Lightning Bolt:")).toBeVisible();
+      const highlightedCard = preview.querySelector(".print-failed-card");
+      expect(highlightedCard).toBeInTheDocument();
+      expect(highlightedCard).toHaveFocus();
+    } else if (job.failureTarget?.kind === "upscaleModel") {
+      expect(
+        screen.getByRole("combobox", { name: "Model" }),
+      ).toHaveAccessibleDescription("AI upscaling model: Could not load model");
+      await waitFor(() =>
+        expect(screen.getByRole("combobox", { name: "Model" })).toHaveFocus(),
+      );
+    } else {
+      expect(document.getElementById("print-failure")).not.toBeInTheDocument();
+    }
+    await user.click(screen.getByRole("button", { name: "Print jobs" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Back to print setup" }),
+    );
+    expect(status.firstElementChild).not.toBe(announcement);
+    expect(status.firstElementChild).toHaveTextContent(
+      `Opening Print setup for ${deck.name}.`,
+    );
+    expect(create).not.toHaveBeenCalled();
+  },
+);
+
+it("does not offer setup or Retry when the original deck has been deleted", async () => {
+  mockIPC((cmd) => (cmd === "list_jobs" ? [failedExport] : []));
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  expect(await screen.findByText("This deck no longer exists.")).toBeVisible();
+  expect(screen.getByRole("heading", { name: deck.name })).toBeVisible();
+  expect(screen.getByText(failedExport.message)).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Back to print setup" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Retry" }),
+  ).not.toBeInTheDocument();
+});
+
+it.each(["pdf", "png"] as const)(
+  "retries a %s export with the same deck and original settings and announces the new job",
+  async (format) => {
+    const failed = { ...failedExport, format };
+    const queued: PrintJob = {
+      ...failed,
+      id,
+      status: "queued",
+      message: "Queued",
+      failureTarget: undefined,
+    };
+    let jobs = [failed];
+    const create = vi.fn(() => {
+      jobs = [queued, failed];
+      return queued;
+    });
+    mockIPC((cmd, args) => {
+      if (cmd === "list_jobs") return jobs;
+      if (cmd === "list_decks") return [deck];
+      if (cmd === "create_job") {
+        expect(args).toEqual({
+          deckId: deck.id,
+          settings: failedExport.settings,
+          format,
+        });
+        return create();
+      }
+      return [];
+    });
+    window.history.replaceState(null, "", "#/jobs");
+    renderWithClient(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("progressbar")).toBeVisible();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("status", { name: "Print job announcements" }),
+    ).toHaveTextContent(
+      `${format === "png" ? "PNG export" : "Print job"} for ${deck.name} queued.`,
+    );
+  },
+);
+
+it("offers setup but not Retry when a legacy job has no original settings", async () => {
+  const legacy = { ...failedExport, settings: undefined, format: undefined };
+  mockIPC((cmd) => {
+    if (cmd === "list_jobs") return [legacy];
+    if (cmd === "list_decks") return [deck];
+    return [];
+  });
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  expect(
+    await screen.findByRole("button", { name: "Back to print setup" }),
+  ).toBeVisible();
+  expect(
+    screen.getByText("Original print settings unavailable for Retry."),
+  ).toBeVisible();
+  expect(
+    screen.queryByRole("button", { name: "Retry" }),
+  ).not.toBeInTheDocument();
+});
 it("announces print job phases once, leaving polling ticks in the progress control", async () => {
   const user = userEvent.setup();
   const queued: PrintJob = {

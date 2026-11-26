@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use deckpress_core::images::{Images, UploadInput};
 use deckpress_core::jobs::{export_file_name, file_name, Jobs};
-use deckpress_core::models::{Backs, Deck, ExportFormat, JobStatus, PrintJob, PrintSettings};
+use deckpress_core::models::{
+    Backs, Deck, ExportFormat, JobStatus, PrintFailureTarget, PrintJob, PrintSettings,
+};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::manifest::ModelManager;
 use tokio::runtime::Handle;
@@ -100,18 +102,24 @@ async fn jobs_persist_the_export_calibration_setting_and_read_legacy_records() {
             ..PrintSettings::default()
         };
         let job = jobs
-            .create(common::deck(1), settings, ExportFormat::Pdf)
+            .create(common::deck(1), settings.clone(), ExportFormat::Pdf)
             .unwrap();
         let saved = store.get::<PrintJob>("job", &job.id).unwrap().unwrap();
         assert_eq!(job.calibration_page, calibration_page);
         assert_eq!(saved.calibration_page, calibration_page);
+        assert_eq!(saved.settings.as_ref(), Some(&settings));
         let mut legacy = serde_json::to_value(saved).unwrap();
         assert_eq!(
             legacy.as_object_mut().unwrap().remove("calibrationPage"),
             Some(calibration_page.into())
         );
+        legacy.as_object_mut().unwrap().remove("settings");
+        legacy.as_object_mut().unwrap().remove("format");
         let legacy: PrintJob = serde_json::from_value(legacy).unwrap();
+        assert_eq!(legacy.format, ExportFormat::Pdf);
         assert!(!legacy.calibration_page);
+        assert!(legacy.settings.is_none());
+        assert!(legacy.failure_target.is_none());
     }
 }
 
@@ -121,16 +129,19 @@ async fn png_jobs_do_not_claim_a_calibration_page() {
     let store = Arc::new(Store::in_memory().unwrap());
     let images = Arc::new(Images::new(dir.path(), store.clone()).unwrap());
     let models = Arc::new(ModelManager::new(dir.path(), dir.path()).unwrap());
-    let jobs = Jobs::new(store, images, models, dir.path(), Handle::current()).unwrap();
+    let jobs = Jobs::new(store.clone(), images, models, dir.path(), Handle::current()).unwrap();
     let settings = PrintSettings {
         calibration_page: true,
         upscale: false,
         ..PrintSettings::default()
     };
     let job = jobs
-        .create(common::deck(1), settings, ExportFormat::Png)
+        .create(common::deck(1), settings.clone(), ExportFormat::Png)
         .unwrap();
     assert!(!job.calibration_page);
+    let saved = store.get::<PrintJob>("job", &job.id).unwrap().unwrap();
+    assert_eq!(saved.format, ExportFormat::Png);
+    assert_eq!(saved.settings, Some(settings));
 }
 
 #[test]
@@ -236,5 +247,42 @@ fn every_deck_export_shares_the_capped_stem() {
     assert_eq!(
         file_name(&deck, &PrintSettings::default(), ExportFormat::Pdf),
         export_file_name(&long, "-800dpi.pdf")
+    );
+}
+
+#[tokio::test]
+async fn a_failed_card_scan_persists_its_entry_and_face() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::in_memory().unwrap());
+    let images = Arc::new(Images::new(dir.path(), store.clone()).unwrap());
+    let models = Arc::new(ModelManager::new(dir.path(), dir.path()).unwrap());
+    let mut deck = common::deck(1);
+    let entry_id = deck.entries[0].id.clone();
+    deck.entries[0].card.faces[0].image_url =
+        "upload://789b1ee3-5b42-4094-aa98-17a4bee2369e".into();
+    let jobs =
+        Arc::new(Jobs::new(store.clone(), images, models, dir.path(), Handle::current()).unwrap());
+    jobs.start();
+    let queued = jobs
+        .create(deck, PrintSettings::default(), ExportFormat::Pdf)
+        .unwrap();
+    let failed = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let job = store.get::<PrintJob>("job", &queued.id).unwrap().unwrap();
+            if job.status == JobStatus::Failed {
+                break job;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("print job did not fail");
+    assert_eq!(failed.message, "Uploaded image not found");
+    assert_eq!(
+        failed.failure_target,
+        Some(PrintFailureTarget::Card {
+            entry_id,
+            back: false,
+        })
     );
 }

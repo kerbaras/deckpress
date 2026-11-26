@@ -18,6 +18,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useRef,
   useState,
 } from "react";
 import { api, downloadCutTemplate, previewSrc } from "./api.ts";
@@ -125,12 +126,14 @@ const freeLayoutControls = new Set([
 
 export function PrintSetup({
   deck,
+  failure,
   onChange,
   onSave,
   onJobs,
   mpcExport,
 }: {
   deck: Deck;
+  failure?: Pick<PrintJob, "failureTarget" | "message"> | undefined;
   onChange: (deck: Deck) => void;
   onSave: (deck: Deck) => Promise<Deck>;
   onJobs: (job: PrintJob) => void;
@@ -149,11 +152,12 @@ export function PrintSetup({
     path: "",
     id: 0,
   });
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState<number>();
   const [trim, setTrim] = useState(false);
   const [preset, setPreset] = useState({ id: 0, saved: false });
   const [previewSettings, setPreviewSettings] = useState(settings);
   const controlPrefix = useId();
+  const modelControl = useRef<HTMLSelectElement>(null);
   const [jump, setJump] = useState<{ key: string } | null>(null);
   const revealed = jump?.key;
   const controlId = (key: string) => `${controlPrefix}-${key}`;
@@ -166,7 +170,10 @@ export function PrintSetup({
   });
   useLayoutEffect(() => {
     if (!jump) return;
-    const target = document.getElementById(`${controlPrefix}-${jump.key}`);
+    const target =
+      jump.key === "upscaleModel"
+        ? modelControl.current
+        : document.getElementById(`${controlPrefix}-${jump.key}`);
     if (!target) return;
     for (
       let parent = target.parentElement;
@@ -279,11 +286,58 @@ export function PrintSetup({
     revealed === "customWidthMm" ||
     revealed === "customHeightMm";
   const valid = !!layout && !noCards && !emptyRange && !blockedModel;
-  const previewPage = Math.max(0, Math.min(page, pdfPages - 1));
-  const calibration = previewPage < calibrationPages;
-  const side = previewPage - calibrationPages;
   const duplex =
     effective.backs === "long-edge" || effective.backs === "short-edge";
+  const selectedCards = layout
+    ? cards.slice(first * layout.slots.length, last * layout.slots.length)
+    : [];
+  const target = failure?.failureTarget;
+  const recoveryHeading = useRef<HTMLHeadingElement>(null);
+  const recoveryCard = useRef<SVGRectElement>(null);
+  const recoveryModelLabel = useRef<HTMLLabelElement>(null);
+  const focusedTarget = useRef<typeof target>(undefined);
+  const failedCard =
+    target?.kind === "card"
+      ? deck.entries.find((entry) => entry.id === target.entryId)
+      : undefined;
+  const failedModel = target?.kind === "upscaleModel";
+  const modelDisabled = !settings.upscale || models.length === 0;
+  useEffect(() => {
+    if (!target) return;
+    if (focusedTarget.current === target) {
+      if (
+        failedModel &&
+        !modelDisabled &&
+        document.activeElement === recoveryModelLabel.current
+      )
+        modelControl.current?.focus();
+      return;
+    }
+    focusedTarget.current = target;
+    const element = failedModel
+      ? modelDisabled
+        ? recoveryModelLabel.current
+        : modelControl.current
+      : recoveryCard.current;
+    (element ?? recoveryHeading.current)?.focus();
+  }, [target, failedModel, modelDisabled]);
+  const failedCardIndex = selectedCards.findIndex(
+    (entry) => entry.id === failedCard?.id,
+  );
+  const failedBack =
+    target?.kind === "card" && target.back && effective.backs !== "none";
+  let initialPage = 0;
+  if (layout && failedCardIndex >= 0) {
+    const sheet = Math.floor(failedCardIndex / layout.slots.length);
+    initialPage =
+      calibrationPages +
+      (duplex
+        ? sheet * 2 + Number(failedBack)
+        : sheet + (failedBack ? selectedSheets : 0));
+  }
+  const previewPage = Math.max(0, Math.min(page ?? initialPage, pdfPages - 1));
+  const calibration = previewPage < calibrationPages;
+  const side = previewPage - calibrationPages;
   const back =
     effective.backs === "separate"
       ? side >= selectedSheets
@@ -314,9 +368,10 @@ export function PrintSetup({
         .map(({ entry }) => entry.card.name),
     ),
   ];
-  const selectedCards = layout
-    ? cards.slice(first * layout.slots.length, last * layout.slots.length)
-    : [];
+  const recoveryCardIndex =
+    back === failedBack
+      ? pageCards.findIndex((entry) => entry.id === failedCard?.id)
+      : -1;
   const arts = [
     ...new Map(
       selectedCards
@@ -398,12 +453,23 @@ export function PrintSetup({
     <div className="print-workspace px-6 py-4">
       <div className="print-title toolbar">
         <div>
-          <h2>Print setup</h2>
+          <h2 ref={recoveryHeading} tabIndex={target ? -1 : undefined}>
+            Print setup
+          </h2>
           <p className="text-meta text-muted">
             Physical dimensions first. No hidden scaling.
           </p>
         </div>
       </div>
+      {(failedCard || failedModel) && (
+        <div id="print-failure" className="notice error">
+          <AlertTriangle size={17} aria-hidden="true" />
+          <span>
+            <strong>{failedCard?.card.name ?? "AI upscaling model"}:</strong>{" "}
+            {failure?.message}
+          </span>
+        </div>
+      )}
       <ErrorNotice error={cutTemplateTask.error} />
       <StatusRegion
         className={cutTemplateStatus.path ? "notice success" : "sr-only"}
@@ -1014,12 +1080,22 @@ export function PrintSetup({
               />
               Use local AI upscaling
             </label>
-            <label className="setting-row">
+            <label
+              className="setting-row"
+              ref={recoveryModelLabel}
+              tabIndex={failedModel && modelDisabled ? -1 : undefined}
+              aria-describedby={
+                failedModel && modelDisabled ? "print-failure" : undefined
+              }
+            >
               Model
               <select
                 id={controlId("upscaleModel")}
+                ref={modelControl}
+                className={failedModel ? "print-failed-setting" : undefined}
+                aria-describedby={failedModel ? "print-failure" : undefined}
                 value={selectedModel?.id ?? ""}
-                disabled={!settings.upscale || models.length === 0}
+                disabled={modelDisabled}
                 onChange={(event) =>
                   change({ upscaleModel: event.target.value })
                 }
@@ -1514,6 +1590,36 @@ export function PrintSetup({
                               English fallback
                             </text>
                           </g>
+                        )}
+                        {entry.id === failedCard?.id && back === failedBack && (
+                          <rect
+                            className="print-failed-card"
+                            ref={
+                              index === recoveryCardIndex
+                                ? recoveryCard
+                                : undefined
+                            }
+                            tabIndex={
+                              index === recoveryCardIndex ? -1 : undefined
+                            }
+                            role={
+                              index === recoveryCardIndex ? "img" : undefined
+                            }
+                            aria-label={
+                              index === recoveryCardIndex
+                                ? entry.card.name
+                                : undefined
+                            }
+                            aria-describedby={
+                              index === recoveryCardIndex
+                                ? "print-failure"
+                                : undefined
+                            }
+                            {...slot.trim}
+                            fill="none"
+                            stroke="var(--danger-line)"
+                            strokeWidth={1.5}
+                          />
                         )}
                       </g>
                     );

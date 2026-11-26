@@ -413,6 +413,17 @@ impl ExportFormat {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum PrintFailureTarget {
+    Card { entry_id: String, back: bool },
+    UpscaleModel,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PrintJob {
@@ -432,6 +443,10 @@ pub struct PrintJob {
     pub calibration_page: bool,
     #[serde(default)]
     pub format: ExportFormat,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<PrintSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_target: Option<PrintFailureTarget>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
