@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { mockIPC } from "@tauri-apps/api/mocks";
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import {
   act,
   fireEvent,
@@ -28,6 +28,7 @@ import {
 } from "./core/index.ts";
 import { ImportReview } from "./import-review.tsx";
 import { PrintSetup } from "./print-setup.tsx";
+import { showThemedWindow } from "./startup-window.ts";
 import {
   applyPicks,
   collectOptions,
@@ -378,6 +379,27 @@ it("asks for an MPC back instead of opening the save dialog for a front-only dec
   ).toHaveTextContent("Choose an MPC Autofill back");
   expect(saveDialog).not.toHaveBeenCalled();
   expect(saveMpcXml).not.toHaveBeenCalled();
+});
+
+it("sets the window and webview canvas colors before showing the window", async () => {
+  const invoke = vi.fn();
+  mockIPC(invoke);
+  mockWindows("main");
+  document.documentElement.style.setProperty("--canvas", "#111317");
+  try {
+    await showThemedWindow();
+  } finally {
+    document.documentElement.style.removeProperty("--canvas");
+  }
+  expect(invoke.mock.calls.map(([command]) => command)).toEqual([
+    "plugin:window|set_background_color",
+    "plugin:webview|set_webview_background_color",
+    "plugin:window|show",
+  ]);
+  expect(invoke.mock.calls.slice(0, 2).map(([, args]) => args)).toEqual([
+    { color: "#111317" },
+    { color: "#111317" },
+  ]);
 });
 
 it("restores a saved appearance before settings loads and clears it on System", async () => {
@@ -2259,19 +2281,22 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   });
   expect(proof).toBeVisible();
   const loading = within(proof).getAllByText("Preparing preview…")[0];
-  expect(loading).toHaveAttribute("fill", "var(--preview-loading-text)");
+  expect(loading).toHaveAttribute(
+    "fill",
+    "var(--invariant-preview-loading-text)",
+  );
   expect(loading?.previousElementSibling).toHaveAttribute(
     "fill",
-    "var(--paper)",
+    "var(--invariant-proof-paper)",
   );
   const image = proof.querySelector("image");
   expect(image).not.toBeNull();
   if (image) fireEvent.error(image);
   const error = within(proof).getByText("Image failed to load");
-  expect(error).toHaveAttribute("fill", "var(--preview-error-text)");
+  expect(error).toHaveAttribute("fill", "var(--invariant-preview-error-text)");
   expect(error.previousElementSibling).toHaveAttribute(
     "fill",
-    "var(--preview-error-bg)",
+    "var(--invariant-preview-error-bg)",
   );
   await user.click(
     screen.getAllByRole("button", { name: "Generate PDF" })[0] as HTMLElement,
@@ -2523,7 +2548,9 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
   const preview = screen.getByRole("img", {
     name: /Print preview, arch_b-standard-v/,
   });
-  expect(preview.querySelectorAll('rect[fill="#000000"]')).toHaveLength(8);
+  expect(
+    preview.querySelectorAll('rect[fill="var(--invariant-proof-ink)"]'),
+  ).toHaveLength(8);
   expect(preview).toHaveTextContent("template: arch_b-standard-v");
 });
 
@@ -2590,7 +2617,9 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
   const threeMarks = screen.getByRole("img", {
     name: "Print preview, a4-standard-v5, 4 columns by 2 rows",
   });
-  expect(threeMarks.querySelectorAll('rect[fill="#000000"]')).toHaveLength(5);
+  expect(
+    threeMarks.querySelectorAll('rect[fill="var(--invariant-proof-ink)"]'),
+  ).toHaveLength(5);
   expect(screen.queryByRole("spinbutton", { name: /Card width/ })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Orientation" })).toBeNull();
   expect(screen.getByText("A4 · landscape")).toBeVisible();

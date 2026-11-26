@@ -20,18 +20,63 @@
   --warning-bg: #32281b;
   --success-text: #a8d9b6;
   --success-bg: #1b2d24;
-  --paper: #ffffff;
-  --preview-loading-text: #525b68;
-  --preview-error-text: #8c2323;
-  --preview-error-bg: #f4dedb;
-  --art-gold: #e2b25a;
-  --art-outline: #111317;
   --info: var(--focus);
   --caption-close: #b8322c;
   --on-caption-close: #ffffff;
   --scrim: rgb(0 0 0 / 0.64);
   --menu-shadow: 0 4px 12px rgb(0 0 0 / 0.16);
   --dialog-shadow: 0 12px 36px rgb(0 0 0 / 0.28);
+
+  /* Proof and artwork colors are independent of the app appearance. */
+  --invariant-proof-paper: #ffffff;
+  --invariant-proof-ink: #000000;
+  --invariant-proof-trim: #00a3b0;
+  --invariant-preview-loading-text: #525b68;
+  --invariant-preview-error-text: #8c2323;
+  --invariant-preview-error-bg: #f4dedb;
+  --invariant-art-gold: #e2b25a;
+  --invariant-art-white: #ffffff;
+  --invariant-art-outline: #111317;
+  --invariant-art-cover-scrim: linear-gradient(
+    180deg,
+    #0f10121a 10%,
+    #0f101200 28%,
+    #0f101270 56%,
+    #0f1012fa 100%
+  );
+  --invariant-art-matte: radial-gradient(
+    ellipse at center,
+    #38312a 0%,
+    #181a1f 75%
+  );
+  --invariant-art-matte-icon: #61533c;
+  --invariant-art-cover-badge: #101114bd;
+  --invariant-art-cover-badge-text: #e6e7ed;
+  --invariant-art-cover-title: #eef0f3;
+  --invariant-art-cover-description: #c3c6cd;
+  --invariant-art-cover-coverage: #c9cbd1;
+  --invariant-art-cover-track: #ffffff26;
+  --invariant-art-title-shadow: 0 2px 12px #0008;
+  --invariant-art-stack-shadow: 0 -6px 14px #0009;
+  --invariant-art-quantity-bg: #101014e8;
+  --invariant-art-quantity-border: #ffffff38;
+  --invariant-art-back-bg: #141719;
+  --invariant-art-back-border: #151719;
+  --invariant-art-back-rule: #9b7b41;
+  --invariant-art-back-text: #aaaaaa;
+  --invariant-proof-back-rule: #cca152;
+  --invariant-proof-back-text: #b3b3b3;
+  --invariant-art-heart-shadow: 0 1px 3px #000;
+  --invariant-proof-shadow: 0 15px 45px #000a;
+  --invariant-mana-shadow: 0 0 0 1px #0008;
+  --invariant-mana-neutral: #777777;
+  --invariant-mana-white: #efe9d2;
+  --invariant-mana-white-ink: #3b3628;
+  --invariant-mana-blue: #2f6fb3;
+  --invariant-mana-black: #4a4356;
+  --invariant-mana-black-ink: #f0ecf5;
+  --invariant-mana-red: #b64130;
+  --invariant-mana-green: #2f7d4f;
 
   --ui-font: "IBM Plex Sans", sans-serif;
   --numeric-font: "IBM Plex Mono", monospace;
@@ -138,7 +183,7 @@
   --color-warning-bg: var(--warning-bg);
   --color-success-ink: var(--success-text);
   --color-success-bg: var(--success-bg);
-  --color-paper: var(--paper);
+  --color-paper: var(--invariant-proof-paper);
   --color-info: var(--info);
   --font-ui: var(--ui-font);
   --font-numeric: var(--numeric-font);

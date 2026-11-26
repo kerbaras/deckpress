@@ -4,6 +4,8 @@
 //! draws the title bar and window controls itself. Set
 //! `DECKPRESS_NATIVE_DECORATIONS=1` to keep the window manager's frame.
 
+use std::time::Duration;
+
 use serde::Serialize;
 use tauri::Manager;
 
@@ -37,10 +39,20 @@ fn native_decorations() -> bool {
 }
 
 pub fn setup(app: &tauri::App) -> tauri::Result<()> {
-    if chrome().custom_controls {
-        if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window("main") {
+        if chrome().custom_controls {
             window.set_decorations(false)?;
         }
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            if matches!(window.is_visible(), Ok(false))
+                && !matches!(window.is_minimized(), Ok(true))
+            {
+                if let Err(error) = window.show() {
+                    log::warn!("Could not reveal the main window: {error}");
+                }
+            }
+        });
     }
     Ok(())
 }
