@@ -1228,7 +1228,12 @@ export function DiscardPreview({
       focusFallback={focusFallback}
     >
       <div className="modal-actions">
-        <button type="button" className="primary" onClick={onStay}>
+        <button
+          type="button"
+          className="primary"
+          ref={(button) => button?.setAttribute("autofocus", "")}
+          onClick={onStay}
+        >
           {leaving === "card" ? "Stay" : "Keep preview"}
         </button>
         <button type="button" onClick={onDiscard}>

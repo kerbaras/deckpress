@@ -12,6 +12,7 @@ import {
 import { ZodError } from "zod";
 import { imageSrc, uploadTrimSrc } from "./api.ts";
 import type { Art, DeckEntry } from "./core/index.ts";
+import { ModalWindowChrome } from "./titlebar.tsx";
 
 export const zoneNames = {
   main: "Mainboard",
@@ -335,6 +336,7 @@ export function Modal({
   focusFallback?: (() => void) | undefined;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const descriptionId = useId();
   useEffect(() => {
     const dialog = ref.current;
@@ -351,29 +353,33 @@ export function Modal({
       ref={ref}
       className={wide ? "modal modal-wide" : "modal"}
       aria-label={title}
+      aria-modal="true"
       aria-describedby={description ? descriptionId : undefined}
-      onKeyDown={(event) => trapTab(event, ref.current)}
+      onKeyDown={(event) => trapTab(event, panel.current)}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onClose();
       }}
     >
-      <div className="modal-heading">
-        <h2>{title}</h2>
-        {showClose && (
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Close dialog"
-            disabled={busy}
-            onClick={onClose}
-          >
-            <X size={18} />
-          </button>
-        )}
+      <div className="modal-panel" ref={panel}>
+        <div className="modal-heading">
+          <h2>{title}</h2>
+          {showClose && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Close dialog"
+              disabled={busy}
+              onClick={onClose}
+            >
+              <X size={18} />
+            </button>
+          )}
+        </div>
+        {description && <p id={descriptionId}>{description}</p>}
+        {children}
       </div>
-      {description && <p id={descriptionId}>{description}</p>}
-      {children}
+      <ModalWindowChrome />
     </dialog>
   );
 }
@@ -390,7 +396,10 @@ function trapTab(
   const items = [...dialog.querySelectorAll<HTMLElement>(focusable)];
   const first = items[0];
   const last = items.at(-1);
-  if (!first || !last) return;
+  if (!first || !last) {
+    event.preventDefault();
+    return;
+  }
   const active = document.activeElement;
   const inside = active instanceof Node && dialog.contains(active);
   if (event.shiftKey && (active === first || !inside)) {

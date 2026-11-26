@@ -1291,6 +1291,32 @@ button.first-run-empty {
   right: 20px;
 }
 .modal {
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.modal::backdrop {
+  background: var(--scrim);
+}
+.modal-caption {
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--titlebar);
+  display: flex;
+  justify-content: flex-end;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.modal-caption .window-controls {
+  margin: 0;
+  background: var(--frame);
+  border-bottom: 1px solid var(--line-subtle);
+}
+.modal-panel {
   width: min(520px, calc(100vw - 36px));
   max-height: calc(100vh - 60px);
   overflow: auto;
@@ -1301,10 +1327,10 @@ button.first-run-empty {
   padding: var(--space-6);
   box-shadow: var(--dialog-shadow);
 }
-.modal::backdrop {
-  background: var(--scrim);
+:where(.modal:has(> .modal-caption)) > .modal-panel {
+  max-height: calc(100vh - 2 * var(--titlebar) - 4px);
 }
-.modal[open]:has(> .import-deck) {
+.modal-panel:has(> .import-deck) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2435,7 +2461,7 @@ progress::-webkit-progress-bar {
 progress::-webkit-progress-value {
   background: var(--accent);
 }
-.modal.modal-wide {
+.modal-wide > .modal-panel {
   width: min(920px, calc(100vw - 36px));
 }
 .style-match {
@@ -3290,7 +3316,7 @@ progress::-webkit-progress-value {
   min-width: 16px;
   text-align: right;
 }
-.modal:has(.discover-preview) {
+.modal-panel:has(.discover-preview) {
   width: min(760px, calc(100vw - 36px));
 }
 

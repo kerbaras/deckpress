@@ -2506,6 +2506,138 @@ async function openGuardedPolicy(user: ReturnType<typeof userEvent.setup>) {
   return { review, preview, apply, save, opener };
 }
 
+function mockCustomWindow() {
+  const commands = vi.fn((command: string) => {
+    if (command === "plugin:window|close")
+      return emit(TauriEvent.WINDOW_CLOSE_REQUESTED);
+    if (
+      command === "plugin:window|is_maximized" ||
+      command === "plugin:window|is_fullscreen"
+    )
+      return false;
+    return [];
+  });
+  mockWindows("main");
+  mockIPC(commands, { shouldMockEvents: true });
+  vi.spyOn(api, "windowChrome").mockResolvedValue({
+    platform: "linux",
+    customControls: true,
+    insetLeft: 0,
+  });
+  return commands;
+}
+
+it("keeps pointer-only window controls available in the top modal and returns focus after cancelling Close", async () => {
+  const user = userEvent.setup();
+  const commands = mockCustomWindow();
+  const { review } = await openGuardedPolicy(user);
+  const caption = review.querySelector<HTMLElement>(".modal-caption");
+  expect(caption).toHaveAttribute("data-tauri-drag-region");
+  expect(caption?.closest("[inert]")).toBeNull();
+  expect(review).toHaveAttribute("aria-modal", "true");
+  expect(
+    within(review).queryByRole("button", { name: "Close window" }),
+  ).toBeNull();
+  if (!caption) throw new Error("Missing modal window controls");
+  const minimize = within(caption).getByTitle("Minimize");
+  const maximize = within(caption).getByTitle("Maximize");
+  const close = within(caption).getByTitle("Close");
+  for (const button of [minimize, maximize, close]) {
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("tabindex", "-1");
+  }
+
+  const first = within(review).getByRole("button", { name: "Close dialog" });
+  const last = within(review).getByRole("button", {
+    name: "Apply art changes",
+  });
+  last.focus();
+  await user.tab();
+  expect(first).toHaveFocus();
+  await user.tab({ shift: true });
+  expect(last).toHaveFocus();
+  await user.click(minimize);
+  await user.click(maximize);
+  expect(commands).toHaveBeenCalledWith("plugin:window|minimize", {
+    label: "main",
+  });
+  expect(commands).toHaveBeenCalledWith("plugin:window|toggle_maximize", {
+    label: "main",
+  });
+  expect(last).toHaveFocus();
+
+  await user.click(close);
+  expect(commands).toHaveBeenCalledWith("plugin:window|close", {
+    label: "main",
+  });
+  const guard = await screen.findByRole("dialog", promptName);
+  const keep = within(guard).getByRole("button", { name: "Keep preview" });
+  const discard = within(guard).getByRole("button", { name: "Discard" });
+  expect(keep).toHaveFocus();
+  await user.tab({ shift: true });
+  expect(discard).toHaveFocus();
+  await user.tab();
+  expect(keep).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(guard).not.toBeInTheDocument();
+  expect(review).toBeVisible();
+  expect(last).toHaveFocus();
+  expect(commands).not.toHaveBeenCalledWith("plugin:window|destroy", {
+    label: "main",
+  });
+});
+
+it("guards dirty Deck settings and active print jobs on the shared Tauri close request", async () => {
+  const user = userEvent.setup();
+  const commands = mockCustomWindow();
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  vi.spyOn(api, "deck").mockResolvedValue(deck);
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  vi.spyOn(api, "jobs").mockResolvedValue([
+    {
+      id,
+      deckId: id,
+      deckName: deck.name,
+      status: "running",
+      completed: 0,
+      total: 1,
+      message: "Rendering",
+      createdAt: deck.createdAt,
+      fileName: "Proof.pdf",
+      bytes: 0,
+      pages: 0,
+      calibrationPage: false,
+      format: "pdf",
+    },
+  ]);
+  renderWithClient(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: "Deck settings" }),
+  );
+  const settings = screen.getByRole("dialog", { name: "Deck settings" });
+  const name = within(settings).getByRole("textbox", { name: "Deck name" });
+  await user.type(name, " unsaved");
+
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  const guard = await screen.findByRole("dialog", { name: "Close Deckpress?" });
+  expect(guard).toHaveAccessibleDescription(
+    "Unsaved changes will be lost. A print job will be interrupted.",
+  );
+  expect(within(guard).getByRole("button", { name: "Cancel" })).toHaveFocus();
+  fireEvent(guard, new Event("cancel", { cancelable: true }));
+  expect(guard).not.toBeInTheDocument();
+  expect(name).toHaveFocus();
+
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  await user.tab();
+  await user.keyboard("{Enter}");
+  await waitFor(() =>
+    expect(commands).toHaveBeenCalledWith("plugin:window|destroy", {
+      label: "main",
+    }),
+  );
+});
+
 it("traps policy exit focus and keeps the same review on Keep and Escape", async () => {
   const user = userEvent.setup();
   const { review, preview, apply, save } = await openGuardedPolicy(user);

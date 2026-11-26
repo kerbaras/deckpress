@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import {
   createContext,
+  type MouseEvent,
   type ReactNode,
   type Ref,
   useContext,
@@ -84,6 +85,19 @@ export function useWindowState(
 const ToolbarSlot = createContext<HTMLElement | null>(null);
 
 export const ToolbarSlotProvider = ToolbarSlot.Provider;
+
+const ModalChrome = createContext(false);
+
+export const ModalChromeProvider = ModalChrome.Provider;
+
+export function ModalWindowChrome() {
+  if (!useContext(ModalChrome)) return null;
+  return (
+    <div className="modal-caption" aria-hidden="true" data-tauri-drag-region>
+      <WindowControls pointerOnly />
+    </div>
+  );
+}
 
 /**
  * A page's contribution to the window toolbar. Pages render this wherever
@@ -201,7 +215,7 @@ export function TitleBar({
   );
 }
 
-function WindowControls() {
+function WindowControls({ pointerOnly = false }: { pointerOnly?: boolean }) {
   const [maximized, setMaximized] = useState(false);
   useEffect(() => {
     const current = currentWindow();
@@ -232,10 +246,15 @@ function WindowControls() {
     const current = currentWindow();
     if (current) void action(current);
   };
+  const keepDialogFocus = pointerOnly
+    ? (event: MouseEvent<HTMLButtonElement>) => event.preventDefault()
+    : undefined;
   return (
     <div className="window-controls">
       <button
         type="button"
+        tabIndex={pointerOnly ? -1 : undefined}
+        onMouseDown={keepDialogFocus}
         aria-label="Minimize"
         title="Minimize"
         onClick={run((window) => window.minimize())}
@@ -244,6 +263,8 @@ function WindowControls() {
       </button>
       <button
         type="button"
+        tabIndex={pointerOnly ? -1 : undefined}
+        onMouseDown={keepDialogFocus}
         aria-label={maximized ? "Restore" : "Maximize"}
         title={maximized ? "Restore" : "Maximize"}
         onClick={run((window) => window.toggleMaximize())}
@@ -252,11 +273,13 @@ function WindowControls() {
       </button>
       <button
         type="button"
+        tabIndex={pointerOnly ? -1 : undefined}
+        onMouseDown={keepDialogFocus}
         className="close"
         aria-label="Close window"
         title="Close"
         onClick={(event) => {
-          event.currentTarget.focus();
+          if (!pointerOnly) event.currentTarget.focus();
           run((window) => window.close())();
         }}
       >
