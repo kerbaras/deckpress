@@ -2089,6 +2089,7 @@ it("lists images below 300 effective DPI with scan quality in print preflight", 
       onChange={vi.fn()}
       onSave={vi.fn()}
       onJobs={vi.fn()}
+      mpcExport={{ busy: false, run: () => {} }}
     />,
   );
   expect(check).not.toHaveBeenCalled();
@@ -2119,6 +2120,7 @@ it("waits for a recheck after the print settings change", async () => {
         onChange={setValue}
         onSave={vi.fn()}
         onJobs={vi.fn()}
+        mpcExport={{ busy: false, run: () => {} }}
       />
     );
   }
@@ -2237,6 +2239,7 @@ it("separates MPC DPI from measured source DPI and reports the selected AI model
         onChange={setValue}
         onSave={vi.fn()}
         onJobs={vi.fn()}
+        mpcExport={{ busy: false, run: () => {} }}
       />
     );
   }
