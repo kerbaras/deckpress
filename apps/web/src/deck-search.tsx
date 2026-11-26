@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Compass, Eye, Import } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -26,11 +26,13 @@ import {
   ErrorNotice,
   ExternalLink,
   Loading,
+  LoadingIndicator,
   ManaPips,
   Modal,
   prettyDate,
   SearchField,
   StatusRegion,
+  useLoadingSequence,
   useTask,
 } from "./ui.tsx";
 
@@ -148,9 +150,10 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
     return () => window.clearTimeout(timer);
   }, [text]);
   const query: DeckQuery = { text: debounced, field, format, source };
+  const queryKey = ["decksearch", query, page];
   const ready = debounced.length >= MIN_QUERY;
   const results = useQuery({
-    queryKey: ["decksearch", query, page],
+    queryKey,
     queryFn: ({ signal }) => api.searchDecks(query, page, signal),
     enabled: ready,
     staleTime: 5 * 60 * 1000,
@@ -221,6 +224,13 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
           error={results.error}
           retry={() => void results.refetch()}
         />
+        <Loading
+          active={ready && results.isPending}
+          announcementId={hashKey(queryKey)}
+          label="Discover search loading"
+        >
+          {`Searching ${sourceNames[source]}…`}
+        </Loading>
         {!ready ? (
           <div className="empty-state discover-intro">
             <Compass size={44} />
@@ -235,8 +245,6 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
               authors' work. Deckpress caches responses for 24 hours.
             </p>
           </div>
-        ) : results.isPending ? (
-          <Loading>Searching {sourceNames[source]}…</Loading>
         ) : results.data ? (
           <>
             {results.data.matchedCard && (
@@ -359,10 +367,12 @@ function DeckPreview({
   open: (id: string) => void;
 }) {
   const client = useQueryClient();
+  const previewLoad = useLoadingSequence();
   const detail = useQuery({
     queryKey: ["decksearch", "detail", summary.source, summary.id],
     queryFn: ({ signal }) => api.deckDetail(summary.source, summary.id, signal),
     staleTime: 5 * 60 * 1000,
+    enabled: previewLoad.start,
   });
   const task = useTask();
   const [resolved, setResolved] = useState<ResolvedCards | null>(null);
@@ -417,9 +427,13 @@ function DeckPreview({
         ) : (
           <ErrorNotice error={task.error} />
         )}
-        {detail.isPending ? (
-          <Loading>Loading decklist…</Loading>
-        ) : detail.data ? (
+        <StatusRegion label="Discover decklist loading">
+          {previewLoad.announce && detail.isPending ? "Loading decklist…" : ""}
+        </StatusRegion>
+        {detail.isPending && (
+          <LoadingIndicator>Loading decklist…</LoadingIndicator>
+        )}
+        {detail.data && (
           <>
             {detail.data.description && (
               <p className="discover-description">{detail.data.description}</p>
@@ -515,7 +529,7 @@ function DeckPreview({
               )}
             </div>
           </>
-        ) : null}
+        )}
       </div>
     </Modal>
   );

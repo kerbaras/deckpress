@@ -323,7 +323,8 @@ it.each(["format", "theme"])(
     ).toBeVisible();
     const status = screen.getByRole("status", { name: "Deck builder blocker" });
     await waitFor(() => expect(status).toHaveTextContent(blocker));
-    const announcement = status.firstChild;
+    const announcement = within(status).getByRole("group");
+    expect(announcement).toHaveTextContent(blocker);
     expect(precedingButton).toBeEnabled();
     precedingButton.focus();
     await user.tab();

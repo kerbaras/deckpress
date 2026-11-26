@@ -43,10 +43,10 @@ import {
 import {
   ErrorNotice,
   ExternalLink,
-  Loading,
   prettyDate,
   STATUS_COALESCE_MS,
   StatusRegion,
+  UnkeyedLoading,
   useTask,
 } from "./ui.tsx";
 import { Workspace } from "./workspace.tsx";
@@ -104,6 +104,7 @@ export function App() {
   const restoreSequence = useRef(0);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [artExitOpen, setArtExitOpen] = useState(false);
+  const [editionsLoading, setEditionsLoading] = useState(false);
   const artPreview = useRef(false);
   const policyPreview = useRef<{
     discard: () => void;
@@ -321,6 +322,9 @@ export function App() {
       >
         {importAnnouncement?.text}
       </StatusRegion>
+      <StatusRegion label="Art editions loading">
+        {editionsLoading ? "Finding editions…" : ""}
+      </StatusRegion>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>
           <SidebarToggle
@@ -454,6 +458,7 @@ export function App() {
                 onDirty={onDirty}
                 onPreviewChange={onPreviewChange}
                 registerPolicyPreview={registerPolicyPreview}
+                onEditionsLoading={setEditionsLoading}
                 confirmArtExit={confirmArtExit}
                 onBack={(trigger) => void navigate("decks", false, trigger)}
                 onJobs={(job) => {
@@ -705,7 +710,7 @@ function PrintJobs({
           {...(query.error ? { retry: () => void query.refetch() } : {})}
         />
         {query.isPending ? (
-          <Loading>Loading print jobs…</Loading>
+          <UnkeyedLoading>Loading print jobs…</UnkeyedLoading>
         ) : !query.data?.length ? (
           <div className="empty-state">
             <Printer size={38} />

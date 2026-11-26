@@ -68,7 +68,64 @@ export function ErrorNotice({
   );
 }
 
-export function Loading({ children = "Loading…" }: { children?: ReactNode }) {
+export function Loading({
+  active = true,
+  announcementId,
+  label,
+  children = "Loading…",
+}: {
+  active?: boolean;
+  announcementId?: string;
+  label?: string;
+  children?: string;
+}) {
+  const ready = usePainted(!active);
+  return (
+    <>
+      <StatusRegion label={label} announcementId={announcementId}>
+        {active && ready ? children : ""}
+      </StatusRegion>
+      {active && <LoadingIndicator>{children}</LoadingIndicator>}
+    </>
+  );
+}
+
+function usePainted(initial: boolean) {
+  const [ready, setReady] = useState(initial);
+  useEffect(() => {
+    let afterPaint = 0;
+    const frame = requestAnimationFrame(() => {
+      afterPaint = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(afterPaint);
+    };
+  }, []);
+  return ready;
+}
+
+export function useLoadingSequence() {
+  const announce = usePainted(false);
+  const [start, setStart] = useState(false);
+  useEffect(() => {
+    if (!announce) return;
+    const frame = requestAnimationFrame(() => setStart(true));
+    return () => cancelAnimationFrame(frame);
+  }, [announce]);
+  return { announce, start };
+}
+
+export function LoadingIndicator({ children }: { children: string }) {
+  return (
+    <div className="loading" aria-hidden="true">
+      <LoaderCircle size={19} className="spin" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+export function UnkeyedLoading({ children }: { children: string }) {
   return (
     <div className="loading" role="status">
       <LoaderCircle size={19} className="spin" />
@@ -90,7 +147,7 @@ export function StatusRegion({
   as?: "p" | "span";
   children: ReactNode;
   className?: string;
-  label?: string;
+  label?: string | undefined;
   announcementId?: string | number | undefined;
   coalesce?: boolean;
 }) {

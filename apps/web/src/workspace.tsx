@@ -49,11 +49,11 @@ import {
   ArtThumbnail,
   countCards,
   ErrorNotice,
-  Loading,
   ManaPips,
   Modal,
   SearchField,
   StatusRegion,
+  UnkeyedLoading,
   useTask,
   zoneLabel,
   zoneNames,
@@ -66,6 +66,8 @@ type PrintSetupRequest = {
 type RegisterPolicyPreview = (
   preview: { discard: () => void; canDiscard: () => boolean } | null,
 ) => void;
+const ignoreEditionsLoading = () => {};
+
 export function Workspace({
   id,
   printSetup,
@@ -75,6 +77,7 @@ export function Workspace({
   onDirty,
   onPreviewChange,
   registerPolicyPreview,
+  onEditionsLoading = ignoreEditionsLoading,
   confirmArtExit,
   onJobs,
 }: {
@@ -86,6 +89,7 @@ export function Workspace({
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
   registerPolicyPreview: RegisterPolicyPreview;
+  onEditionsLoading?: (active: boolean) => void;
   confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
@@ -94,7 +98,7 @@ export function Workspace({
     queryFn: ({ signal }) => api.deck(id, signal),
     refetchOnWindowFocus: false,
   });
-  if (query.isPending) return <Loading>Opening deck…</Loading>;
+  if (query.isPending) return <UnkeyedLoading>Opening deck…</UnkeyedLoading>;
   if (!query.data)
     return (
       <>
@@ -114,6 +118,7 @@ export function Workspace({
       onDirty={onDirty}
       onPreviewChange={onPreviewChange}
       registerPolicyPreview={registerPolicyPreview}
+      onEditionsLoading={onEditionsLoading}
       confirmArtExit={confirmArtExit}
       onJobs={onJobs}
     />
@@ -174,6 +179,7 @@ function DeckWorkspace({
   onDirty,
   onPreviewChange,
   registerPolicyPreview,
+  onEditionsLoading,
   confirmArtExit,
   onJobs,
 }: {
@@ -185,6 +191,7 @@ function DeckWorkspace({
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
   registerPolicyPreview: RegisterPolicyPreview;
+  onEditionsLoading: (active: boolean) => void;
   confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
@@ -531,6 +538,7 @@ function DeckWorkspace({
           onApply={commit}
           canLocalize={!dirty && !isSaving && !artTask.busy}
           onLocalize={previewLocalization}
+          onEditionsLoading={onEditionsLoading}
           onPreviewChange={onPreviewChange}
           onUploadEdited={(art) => {
             const nextDeck = withEditedUpload(deck, art);

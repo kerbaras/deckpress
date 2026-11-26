@@ -1,6 +1,92 @@
 import { act, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { StatusRegion, zoneLabel } from "./ui.tsx";
+import { Loading, StatusRegion, zoneLabel } from "./ui.tsx";
+
+it("adds a keyed loading message to an already mounted region", () => {
+  const { rerender } = render(<Loading active={false} />);
+  const status = screen.getByRole("status");
+  expect(status).toBeEmptyDOMElement();
+  rerender(<Loading />);
+  expect(
+    screen.getAllByText(/^Loading…$/).find((node) => node.closest(".loading")),
+  ).toBeVisible();
+  const first = screen.getByRole("group");
+  expect(first).toHaveTextContent(/^Loading…$/);
+  rerender(<Loading />);
+  expect(screen.getByRole("group")).toBe(first);
+  rerender(<Loading>Searching…</Loading>);
+  expect(screen.getByRole("status")).toBe(status);
+  const next = screen.getByRole("group");
+  expect(next).not.toBe(first);
+  expect(next).toHaveTextContent(/^Searching…$/);
+  rerender(<Loading active={false}>Searching…</Loading>);
+  expect(screen.getByRole("status")).toBe(status);
+  expect(status).toBeEmptyDOMElement();
+  expect(screen.queryByText(/^Searching…$/)).not.toBeInTheDocument();
+});
+
+it("mounts active loading with an empty live region before the first paint", () => {
+  vi.useFakeTimers({
+    toFake: [
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "setTimeout",
+      "clearTimeout",
+    ],
+  });
+  try {
+    render(<Loading>Finding editions…</Loading>);
+    const status = screen.getByRole("status");
+    expect(screen.getByText(/^Finding editions…$/)).toBeVisible();
+    expect(status).toBeEmptyDOMElement();
+    act(() => vi.advanceTimersToNextFrame());
+    expect(status).toBeEmptyDOMElement();
+    act(() => vi.advanceTimersToNextFrame());
+    expect(screen.getByRole("status")).toBe(status);
+    expect(screen.getByRole("group")).toHaveTextContent("Finding editions…");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("inserts the loading message once if its parent rerenders before paint", () => {
+  vi.useFakeTimers({
+    toFake: [
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "setTimeout",
+      "clearTimeout",
+    ],
+  });
+  try {
+    const preview = (active: boolean, label: string) => (
+      <>
+        <h2>{label}</h2>
+        <Loading active={active}>Loading decklist…</Loading>
+      </>
+    );
+    const { rerender } = render(preview(true, "Deck preview"));
+    const status = screen.getByRole("status");
+    act(() => vi.advanceTimersByTime(10));
+    rerender(preview(true, "Updated deck preview"));
+    expect(status).toBeEmptyDOMElement();
+    act(() => vi.advanceTimersByTime(24));
+    const announcement = screen.getByRole("group");
+    expect(announcement).toHaveTextContent("Loading decklist…");
+    rerender(preview(true, "Another preview update"));
+    expect(screen.getByRole("group")).toBe(announcement);
+    rerender(preview(false, "Decklist ready"));
+    expect(
+      screen.getByRole("heading", { name: "Decklist ready" }),
+    ).toBeVisible();
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status).toBeEmptyDOMElement();
+    act(() => vi.runOnlyPendingTimers());
+    expect(status).toBeEmptyDOMElement();
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 it("re-inserts changed messages or ids without replacing the live region", () => {
   const { rerender } = render(

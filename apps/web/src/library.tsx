@@ -26,11 +26,11 @@ import {
   ArtThumbnail,
   countCards,
   ErrorNotice,
-  Loading,
   ManaPips,
   Modal,
   prettyDate,
   SearchField,
+  UnkeyedLoading,
   useTask,
 } from "./ui.tsx";
 
@@ -228,7 +228,7 @@ export function Library({
           </div>
         )}
         {query.isPending ? (
-          <Loading>Opening your library…</Loading>
+          <UnkeyedLoading>Opening your library…</UnkeyedLoading>
         ) : decks.length === 0 && !query.isError ? (
           <FirstRun
             onCreate={() => setCreate(true)}

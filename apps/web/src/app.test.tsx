@@ -137,6 +137,117 @@ function renderWithClient(
   );
 }
 
+it("shows Library loading immediately as unkeyed status text", async () => {
+  const decks = Promise.withResolvers<Awaited<ReturnType<typeof api.decks>>>();
+  const readLibrary = vi.spyOn(api, "decks").mockReturnValue(decks.promise);
+  renderWithClient(<App />);
+
+  const status = screen.getByText("Opening your library…");
+  expect(status).toBeVisible();
+  expect(status).toHaveRole("status");
+  expect(within(status).queryByRole("group")).not.toBeInTheDocument();
+  expect(readLibrary).toHaveBeenCalledTimes(1);
+
+  decks.resolve([deck]);
+  await screen.findByRole("heading", { name: deck.name });
+  expect(status).not.toBeInTheDocument();
+});
+
+it("shows print-job loading immediately as unkeyed status text", async () => {
+  window.history.replaceState(null, "", "#/jobs");
+  const jobs = Promise.withResolvers<Awaited<ReturnType<typeof api.jobs>>>();
+  vi.spyOn(api, "jobs").mockReturnValue(jobs.promise);
+  renderWithClient(<App />);
+
+  const status = screen.getByText("Loading print jobs…");
+  expect(status).toBeVisible();
+  expect(status).toHaveRole("status");
+  expect(within(status).queryByRole("group")).not.toBeInTheDocument();
+
+  jobs.resolve([]);
+  await screen.findByRole("heading", { name: "No print jobs yet" });
+  expect(status).not.toBeInTheDocument();
+});
+
+it("shows workspace loading immediately as unkeyed status text", async () => {
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof api.deck>>>();
+  vi.spyOn(api, "deck").mockReturnValue(pending.promise);
+  renderWithClient(<App />);
+
+  const status = screen.getByText("Opening deck…");
+  expect(status).toBeVisible();
+  expect(status).toHaveRole("status");
+  expect(within(status).queryByRole("group")).not.toBeInTheDocument();
+
+  pending.resolve(deck);
+  await screen.findByRole("button", { name: "Art studio" });
+  expect(status).not.toBeInTheDocument();
+});
+
+it.each([22, 43, 250])(
+  "keeps one Discover loading announcement across a sidebar toggle during a %i ms search",
+  async (duration) => {
+    const sidebarPreference = window.localStorage.getItem("deckpress.sidebar");
+    vi.useFakeTimers();
+    try {
+      window.history.replaceState(null, "", "/#/discover");
+      const search =
+        Promise.withResolvers<Awaited<ReturnType<typeof api.searchDecks>>>();
+      vi.spyOn(api, "searchDecks").mockReturnValue(search.promise);
+      const advance = (ms: number) =>
+        act(() => vi.advanceTimersByTimeAsync(ms));
+      const getStatus = () =>
+        screen.getByRole("status", { name: "Discover search loading" });
+      renderWithClient(<App />);
+      const status = getStatus();
+      expect(status).toBeEmptyDOMElement();
+      const input = screen.getByRole("searchbox", {
+        name: "Search public decks by deck name",
+      });
+      fireEvent.change(input, { target: { value: "Burn" } });
+      await advance(450);
+      const message = "Searching Archidekt…";
+      expect(
+        screen.getAllByText(message).find((node) => node.closest(".loading")),
+      ).toBeVisible();
+      expect(getStatus()).toBe(status);
+      const announcement = within(status).getByRole("group");
+      expect(announcement).toHaveTextContent(message);
+      const app = status.closest(".app-shell");
+      const sidebar = app?.getAttribute("data-sidebar");
+      await advance(Math.floor(duration / 2));
+      fireEvent.keyDown(input, { key: "b", ctrlKey: true });
+      expect(app?.getAttribute("data-sidebar")).not.toBe(sidebar);
+      await advance(Math.ceil(duration / 2));
+      expect(getStatus()).toBe(status);
+      expect(within(status).getByRole("group")).toBe(announcement);
+      await act(async () => {
+        search.resolve({
+          items: [],
+          page: 1,
+          hasMore: false,
+          total: 0,
+          matchedCard: null,
+          cardMatches: [],
+        });
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(
+        screen.getByRole("heading", { name: "No decks found" }),
+      ).toBeVisible();
+      expect(getStatus()).toBe(status);
+      expect(status).toBeEmptyDOMElement();
+      expect(screen.queryByText(message)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+      if (sidebarPreference === null)
+        window.localStorage.removeItem("deckpress.sidebar");
+      else window.localStorage.setItem("deckpress.sidebar", sidebarPreference);
+    }
+  },
+);
+
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
   vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(
@@ -1946,6 +2057,31 @@ it("keeps an unapplied Art Studio pick guarded through policy Keep, Apply, and U
   await user.click(editor);
   expect(screen.getByRole("dialog", promptName)).toBeVisible();
   expect(pick).toHaveAttribute("aria-pressed", "true");
+});
+
+it("adds one editions message to the status already mounted in the workspace", async () => {
+  const user = userEvent.setup();
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  vi.spyOn(api, "deck").mockResolvedValue(deck);
+  const art = mockPickerArt([original]);
+  const editions = Promise.withResolvers<Awaited<ReturnType<typeof api.art>>>();
+  art.mockReturnValue(editions.promise);
+  renderWithClient(<App />);
+  const studio = await screen.findByRole("button", { name: "Art studio" });
+  const status = screen.getByRole("status", { name: "Art editions loading" });
+  expect(status).toBeEmptyDOMElement();
+
+  await user.click(studio);
+  expect(status).toHaveTextContent("Finding editions…");
+  expect(status.children).toHaveLength(1);
+  expect(document.querySelector(".loading")).toHaveTextContent(
+    "Finding editions…",
+  );
+  editions.resolve({ items: [original], page: 1, hasMore: false, total: 1 });
+  await waitFor(() => expect(status).toBeEmptyDOMElement());
+  expect(screen.getByRole("status", { name: "Art editions loading" })).toBe(
+    status,
+  );
 });
 
 it.each([
