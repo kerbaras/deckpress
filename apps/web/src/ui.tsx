@@ -77,7 +77,6 @@ export function StatusRegion({
   as: Element = "p",
   children,
   className = "sr-only",
-  id,
   label,
   announcementId,
   coalesce = false,
@@ -85,7 +84,6 @@ export function StatusRegion({
   as?: "p" | "span";
   children: ReactNode;
   className?: string;
-  id?: string;
   label?: string;
   announcementId?: string | number | undefined;
   coalesce?: boolean;
@@ -126,7 +124,6 @@ export function StatusRegion({
   }
   return (
     <Element
-      id={id}
       className={className}
       role="status"
       aria-atomic="true"

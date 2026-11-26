@@ -265,14 +265,9 @@ function Wizard({
         )}
         {step !== "cards" ? (
           <>
-            <StatusRegion
-              as="span"
-              className="hint builder-action-note"
-              id={actionNoteId}
-              label="Deck builder blocker"
-            >
+            <span className="hint builder-action-note" id={actionNoteId}>
               {stop && `${stop}.`}
-            </StatusRegion>
+            </span>
             <button
               type="button"
               className="primary builder-next"
@@ -306,6 +301,9 @@ function Wizard({
           </>
         )}
       </PageToolbar>
+      <StatusRegion label="Deck builder blocker" coalesce>
+        {stop && `${stop}.`}
+      </StatusRegion>
       <div className="page-content builder">
         <ErrorNotice error={task.error} />
         {step === "format" && <FormatStep {...stepProps} />}
