@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import Papa from "papaparse";
+import { describe, expect, it, vi } from "vitest";
 import { parseDecklist } from "./import.ts";
 
 describe("decklist import", () => {
@@ -485,6 +486,157 @@ describe("decklist import", () => {
       ]);
     },
   );
+
+  it.each([
+    ["a board comment", "\n", ",", ["// Board: testing Pool"], "testing Pool"],
+    [
+      "comments and blank lines",
+      "\r\n",
+      ";",
+      ["// Exported deck", "", "# notes", "// Board: testing Pool", ""],
+      "testing Pool",
+    ],
+    ["a plain comment", "\n", ",", ["// Exported deck"], undefined],
+  ])(
+    "detects CSV after %s before the header and keeps physical lines",
+    (_case, newline, delimiter, leading, board) => {
+      const result = parseDecklist(
+        [
+          "",
+          ...leading,
+          `Name${delimiter}Quantity`,
+          `Opt${delimiter}1`,
+          `Shock${delimiter}invalid`,
+        ].join(newline),
+      );
+      const header = leading.length + 2;
+      expect(result.format).toBe("CSV");
+      expect(result.entries).toEqual([
+        expect.objectContaining({ name: "Opt", quantity: 1, board }),
+      ]);
+      expect(result.lines).toEqual([header + 1]);
+      expect(result.issues).toEqual([
+        {
+          line: header + 2,
+          input: "Shock",
+          message: "Expected a card name and a quantity between 1 and 250",
+          category: "csv",
+        },
+      ]);
+    },
+  );
+
+  it.each([
+    {
+      name: "a CRLF board comment before LF rows",
+      input:
+        "\uFEFF// Board: Companions\r\nName,Quantity\nLurrus of the Dream-Den,1\nOpt,invalid",
+      entries: [{ name: "Lurrus of the Dream-Den", zone: "companion" }],
+      lines: [3],
+      invalid: 4,
+    },
+    {
+      name: "an indented board comment after another comment",
+      input:
+        "\uFEFF// Exported\n  // Board: Companions\nName,Quantity\nLurrus of the Dream-Den,1\nOpt,invalid",
+      entries: [{ name: "Lurrus of the Dream-Den", zone: "companion" }],
+      lines: [4],
+      invalid: 5,
+    },
+    {
+      name: "several leading comments with mixed endings",
+      input:
+        "\uFEFF\r\n# notes\r\n// Board: Sideboard\n\t// Board: Companions\r\n\r\nName;Quantity\r\nLurrus of the Dream-Den;1\r\nOpt;invalid\r\n// Board: testing Pool\r\nShock;1",
+      entries: [
+        { name: "Lurrus of the Dream-Den", zone: "companion" },
+        { name: "Shock", zone: "main", board: "testing Pool" },
+      ],
+      lines: [7, 10],
+      invalid: 8,
+    },
+  ])(
+    "keeps boards and physical lines with $name",
+    ({ input, entries, lines, invalid }) => {
+      const result = parseDecklist(input);
+      expect(result.format).toBe("CSV");
+      expect(result.entries).toMatchObject(entries);
+      expect(result.lines).toEqual(lines);
+      expect(result.issues).toEqual([
+        {
+          line: invalid,
+          input: "Opt",
+          message: "Expected a card name and a quantity between 1 and 250",
+          category: "csv",
+        },
+      ]);
+    },
+  );
+
+  it.each([
+    ["a plain header", "Name,Quantity,Board", ""],
+    ["a quoted header", 'Name,Quantity,Board,"Notes;Name;Source"', ",x"],
+  ])(
+    "keeps quoted multiline Board values byte-for-byte with %s",
+    (_case, header, extra) => {
+      const result = parseDecklist(
+        [
+          "// Exported",
+          header,
+          'Opt,1,"Testing',
+          `  // Board: notes"${extra}`,
+          'Opt,2,"Testing',
+          `// Board: notes"${extra}`,
+        ].join("\n"),
+      );
+      expect(result.entries).toMatchObject([
+        { name: "Opt", quantity: 1, board: "Testing\n  // Board: notes" },
+        { name: "Opt", quantity: 2, board: "Testing\n// Board: notes" },
+      ]);
+      expect(result.lines).toEqual([3, 5]);
+      expect(result.issues).toEqual([
+        expect.objectContaining({
+          line: 3,
+          input: "Testing\n  // Board: notes",
+        }),
+        expect.objectContaining({ line: 5, input: "Testing\n// Board: notes" }),
+      ]);
+    },
+  );
+
+  it("reports CSV rows that produce no cards instead of an empty import", () => {
+    const parse = Papa.parse;
+    const spy = vi.spyOn(Papa, "parse").mockImplementationOnce(((
+      input: string,
+      config: Papa.ParseConfig<Record<string, string>>,
+    ) => ({
+      ...parse(input, config),
+      data: [],
+    })) as never);
+    try {
+      const result = parseDecklist("// Exported\nName,Quantity\nOpt,1");
+      expect(result.entries).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          line: 3,
+          input: "CSV row",
+          message: "No cards could be read from the CSV rows",
+          category: "csv",
+        },
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("keeps text lists that start with comments as Text / Arena", () => {
+    const result = parseDecklist("// Exported deck\n# notes\n\n1 Opt\n2 Shock");
+    expect(result.format).toBe("Text / Arena");
+    expect(result.entries).toMatchObject([
+      { name: "Opt", quantity: 1 },
+      { name: "Shock", quantity: 2 },
+    ]);
+    expect(result.lines).toEqual([4, 5]);
+  });
 
   it("reads quoted CSV names and MTGO XML without interpreting entities", () => {
     const csv = parseDecklist(

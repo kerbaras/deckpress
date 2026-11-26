@@ -79,6 +79,7 @@ function csvSourceLines(
   text: string,
   firstLine: number,
   { delimiter, linebreak }: Papa.ParseMeta,
+  leadingBoard: string | undefined,
 ) {
   const newline = linebreak === "\r\n" || linebreak === "\r" ? linebreak : "\n";
   const recordLines: number[] = [];
@@ -87,7 +88,7 @@ function csvSourceLines(
   const headingLines = new Set<number>();
   let offset = 0;
   let line = firstLine;
-  let board: string | undefined;
+  let board = leadingBoard;
   Papa.parse<string[]>(text, {
     delimiter,
     newline,
@@ -119,8 +120,11 @@ export function parseDecklist(input: string): ParsedDecklist {
   if (input.length > 200_000) throw new Error("Decklist exceeds 200 KB");
   const source = input.replace(/^\uFEFF/, "");
   const text = source.trim();
+  const leadingLines =
+    /^(?:[ \t]*(?:(?:\/\/|#)[^\r\n]*)?(?:\r\n|\r|\n))*/.exec(text)?.[0] ?? "";
+  const csvText = text.slice(leadingLines.length);
   const csvHeaderDelimiter = /^(?:.*[;,])?(?:name|card name)([;,])/i.exec(
-    text.split(/\r?\n/, 1)[0] ?? "",
+    csvText.split(/\r?\n/, 1)[0] ?? "",
   )?.[1];
   const result: ParsedDecklist = {
     entries: [],
@@ -187,21 +191,28 @@ export function parseDecklist(input: string): ParsedDecklist {
       skipEmptyLines: "greedy",
       transformHeader: (header) => header.toLowerCase().replace(/[^a-z]/g, ""),
     };
-    const detected = Papa.parse(text, config);
+    const detected = Papa.parse(csvText, config);
     const csv = detected.errors.some(
       (error) => error.code === "UndetectableDelimiter",
     )
-      ? Papa.parse(text, { ...config, delimiter: csvHeaderDelimiter })
+      ? Papa.parse(csvText, { ...config, delimiter: csvHeaderDelimiter })
       : detected;
     const firstLine =
       1 +
       lineBreakCount(
         source.slice(0, source.length - source.trimStart().length),
-      );
+      ) +
+      lineBreakCount(leadingLines);
+    const leadingBoard = leadingLines
+      .split(/\r\n|\r|\n/)
+      .map((line) => boardComment(line.trim()))
+      .filter(Boolean)
+      .pop();
     const { recordLines, nonEmptyLines, boards, headingLines } = csvSourceLines(
-      text,
+      csvText,
       firstLine,
       csv.meta,
+      leadingBoard,
     );
     const [headerLine = firstLine, ...dataLines] = nonEmptyLines;
     const invalidLines = new Set<number>();
@@ -259,6 +270,14 @@ export function parseDecklist(input: string): ParsedDecklist {
         row.name ?? row.cardname ?? "",
       );
     });
+    const unreadLine = dataLines.find((line) => !headingLines.has(line));
+    if (!result.entries.length && !result.issues.length && unreadLine)
+      result.issues.push({
+        line: unreadLine,
+        input: "CSV row",
+        message: "No cards could be read from the CSV rows",
+        category: "csv",
+      });
   } else {
     let zone: ImportLine["zone"] = "main";
     let board: string | undefined;
