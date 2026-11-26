@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { mockIPC } from "@tauri-apps/api/mocks";
 import {
   act,
   fireEvent,
@@ -381,25 +381,18 @@ it("asks for an MPC back instead of opening the save dialog for a front-only dec
   expect(saveMpcXml).not.toHaveBeenCalled();
 });
 
-it("sets the window and webview canvas colors before showing the window", async () => {
+it("passes the resolved canvas color to the native reveal command", async () => {
   const invoke = vi.fn();
   mockIPC(invoke);
-  mockWindows("main");
   document.documentElement.style.setProperty("--canvas", "#111317");
   try {
     await showThemedWindow();
   } finally {
     document.documentElement.style.removeProperty("--canvas");
   }
-  expect(invoke.mock.calls.map(([command]) => command)).toEqual([
-    "plugin:window|set_background_color",
-    "plugin:webview|set_webview_background_color",
-    "plugin:window|show",
-  ]);
-  expect(invoke.mock.calls.slice(0, 2).map(([, args]) => args)).toEqual([
-    { color: "#111317" },
-    { color: "#111317" },
-  ]);
+  expect(invoke).toHaveBeenCalledExactlyOnceWith("show_themed_window", {
+    canvas: "#111317",
+  });
 });
 
 it("restores a saved appearance before settings loads and clears it on System", async () => {
@@ -458,9 +451,20 @@ it("restores a saved appearance before settings loads and clears it on System", 
     await user.selectOptions(restoredTheme, "system");
     expect(root).toHaveAttribute("data-theme", "dark");
     expect(storage.getItem(themeKey)).toBeNull();
+
+    dark = false;
+    storage.setItem(themeKey, "light");
+    window.deckpressInitialAppearance = "dark";
+    restart();
+    expect(root).toHaveAttribute("data-theme", "dark");
+    window.deckpressInitialAppearance = "system";
+    dark = true;
+    restart();
+    expect(root).toHaveAttribute("data-theme", "dark");
   } finally {
     delete root.dataset.theme;
     delete window.deckpressAppearance;
+    delete window.deckpressInitialAppearance;
     storage.removeItem(themeKey);
   }
 });

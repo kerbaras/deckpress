@@ -4,6 +4,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Deckpress",
         "width": 1440,
         "height": 940,

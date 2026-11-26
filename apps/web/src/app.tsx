@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
@@ -18,7 +19,13 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
+import {
+  type Appearance,
+  api,
+  confirmAction,
+  fetchHealth,
+  type ModelStatus,
+} from "./api.ts";
 import type { PrintJob } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
@@ -44,9 +51,10 @@ import { Workspace } from "./workspace.tsx";
 
 declare global {
   interface Window {
+    deckpressInitialAppearance?: Appearance;
     deckpressAppearance?: {
-      readonly preference: string;
-      set(value: string): void;
+      readonly preference: Appearance;
+      set(value: Appearance): void;
     };
   }
 }
@@ -653,10 +661,14 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
             Theme
             <select
               value={appearance}
+              disabled={task.busy}
               onChange={(event) => {
-                const theme = event.currentTarget.value;
-                setAppearance(theme);
-                window.deckpressAppearance?.set(theme);
+                const theme = event.currentTarget.value as Appearance;
+                void task.run(async () => {
+                  if (isTauri()) await api.saveAppearance(theme);
+                  setAppearance(theme);
+                  window.deckpressAppearance?.set(theme);
+                });
               }}
             >
               <option value="system">System</option>

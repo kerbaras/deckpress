@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -39,6 +39,14 @@ pub struct Store {
 const CACHE_TTL_MS: i64 = 86_400_000;
 const PRINTER_PROFILE: &str = "printer_profile";
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Appearance {
+    System,
+    Light,
+    Dark,
+}
+
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -47,6 +55,14 @@ fn now_ms() -> i64 {
 }
 
 impl Store {
+    pub fn appearance(&self) -> AppResult<Option<Appearance>> {
+        self.get("settings", "appearance")
+    }
+
+    pub fn set_appearance(&self, appearance: Appearance) -> AppResult<()> {
+        self.put("settings", "appearance", &appearance)
+    }
+
     pub fn open(path: &Path) -> AppResult<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;

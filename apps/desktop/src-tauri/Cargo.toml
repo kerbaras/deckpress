@@ -28,6 +28,9 @@ percent-encoding = "2"
 log = "0.4"
 env_logger = "0.11"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
 [features]
 default = []
 # Linux/Windows builds with NVIDIA support. Requires the CUDA/cuDNN runtime on the target machine.

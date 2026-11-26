@@ -361,6 +361,8 @@ export interface CropPosition {
   y: number;
 }
 
+export type Appearance = "system" | "light" | "dark";
+
 export const api = {
   windowChrome: () =>
     command("window_chrome", windowChromeSchema).catch(
@@ -428,6 +430,8 @@ export const api = {
   settings: (_signal?: AbortSignal) => command("settings", settingsSchema),
   savePrintLanguage: (preferences: PrintLanguagePreferences) =>
     command("save_print_language", printLanguageSchema, { preferences }),
+  saveAppearance: (appearance: Appearance) =>
+    command("save_appearance", z.null(), { appearance }),
   downloadModel: (id: string) =>
     command("download_model", z.array(modelStatusSchema), { id }),
   loadModel: (id: string) => command("load_model", upscalerInfoSchema, { id }),

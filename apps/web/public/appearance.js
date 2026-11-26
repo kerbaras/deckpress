@@ -2,12 +2,15 @@
   const key = "deckpress.theme";
   const systemDark = matchMedia("(prefers-color-scheme: dark)");
   const { dataset } = document.documentElement;
-  let preference = "system";
-  try {
-    const saved = localStorage.getItem(key);
-    if (saved === "light" || saved === "dark") preference = saved;
-  } catch {
-    // Use System if local storage is unavailable.
+  const initial = window.deckpressInitialAppearance;
+  let preference = initial ?? "system";
+  if (initial === undefined) {
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved === "light" || saved === "dark") preference = saved;
+    } catch {
+      // Use System if local storage is unavailable.
+    }
   }
 
   function apply() {
@@ -26,6 +29,7 @@
     set(value) {
       preference = value;
       apply();
+      if (window.isTauri) return;
       try {
         if (value === "system") localStorage.removeItem(key);
         else localStorage.setItem(key, value);
