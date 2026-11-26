@@ -200,4 +200,9 @@ it("saves an imported list with the chosen name and format", async () => {
     }),
   );
   await waitFor(() => expect(window.location.hash).toBe(`#/decks/${id}`));
+  const heading = await screen.findByRole("heading", {
+    name: "Burn",
+    level: 1,
+  });
+  expect(document.activeElement).toBe(heading);
 });

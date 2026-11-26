@@ -43,11 +43,13 @@ import {
 
 export function Workspace({
   id,
+  focusHeading,
   onBack,
   onDirty,
   onJobs,
 }: {
   id: string;
+  focusHeading: boolean;
   onBack: () => void;
   onDirty: (dirty: boolean) => void;
   onJobs: () => void;
@@ -70,6 +72,7 @@ export function Workspace({
   return (
     <DeckWorkspace
       initial={query.data}
+      focusHeading={focusHeading}
       onBack={onBack}
       onDirty={onDirty}
       onJobs={onJobs}
@@ -106,11 +109,13 @@ const views = [
 
 function DeckWorkspace({
   initial,
+  focusHeading,
   onBack,
   onDirty,
   onJobs,
 }: {
   initial: Deck;
+  focusHeading: boolean;
   onBack: () => void;
   onDirty: (dirty: boolean) => void;
   onJobs: () => void;
@@ -125,6 +130,9 @@ function DeckWorkspace({
   const heading = useRef<HTMLHeadingElement>(null);
   const saving = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
+  useEffect(() => {
+    if (focusHeading) heading.current?.focus();
+  }, [focusHeading]);
   useEffect(() => {
     onDirty(deck !== saved);
     return () => onDirty(false);

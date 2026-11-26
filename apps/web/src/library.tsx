@@ -29,11 +29,13 @@ import {
 
 export function Library({
   open,
+  openImported,
   createRequest = 0,
   onCreateHandled,
   onBuild,
 }: {
   open: (id: string) => void;
+  openImported: (id: string) => void;
   /** Bumped by the title bar's "New deck" action; opens the create dialog. */
   createRequest?: number;
   onCreateHandled?: () => void;
@@ -125,7 +127,7 @@ export function Library({
                   );
                   const deck = await api.createDeck(original);
                   await refresh();
-                  open(deck.id);
+                  openImported(deck.id);
                 });
               event.target.value = "";
             }}
@@ -211,7 +213,7 @@ export function Library({
             {...(onBuild ? { onBuild } : {})}
             onSaved={async (deck) => {
               await refresh();
-              open(deck.id);
+              openImported(deck.id);
             }}
           />
         ) : (
