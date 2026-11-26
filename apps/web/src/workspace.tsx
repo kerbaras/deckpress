@@ -247,7 +247,9 @@ function DeckWorkspace({
           data-tauri-drag-region
         >
           <SaveStatusIcon aria-hidden="true" />
-          <span data-tauri-drag-region>{saveStatus}</span>
+          <span className="save-state-label" data-tauri-drag-region>
+            <span data-tauri-drag-region>{saveStatus}</span>
+          </span>
         </span>
         <button
           ref={saveButton}

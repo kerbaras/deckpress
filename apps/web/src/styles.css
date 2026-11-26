@@ -516,10 +516,29 @@ pre {
   height: var(--icon-size);
   stroke-width: var(--icon-stroke);
 }
-.save-state span {
+.save-state::after,
+.save-state-label {
+  grid-area: 1 / 2;
+}
+.save-state::after {
+  content: attr(aria-label);
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.save-state-label {
+  container: save-state-label / inline-size;
+}
+.save-state-label > span {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+@container save-state-label (inline-size < 5ch) {
+  .save-state-label > span {
+    opacity: 0;
+  }
 }
 .window-controls {
   display: flex;
