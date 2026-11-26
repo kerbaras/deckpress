@@ -32,6 +32,14 @@
     "calibrationPages": 2
   },
   {
+    "name": "free duplex without calibration",
+    "quantity": 60,
+    "settings": { "backs": "long-edge", "calibrationPage": false },
+    "cardSheets": 7,
+    "pdfPages": 14,
+    "calibrationPages": 0
+  },
+  {
     "name": "separate backs",
     "quantity": 60,
     "settings": { "backs": "separate", "calibrationPage": true },
@@ -74,5 +82,59 @@
     "cardSheets": 1,
     "pdfPages": 4,
     "calibrationPages": 2
+  },
+  {
+    "name": "SCM duplex without calibration",
+    "quantity": 4,
+    "settings": {
+      "layoutMode": "scm",
+      "backs": "long-edge",
+      "calibrationPage": false
+    },
+    "cardSheets": 1,
+    "pdfPages": 2,
+    "calibrationPages": 0
+  },
+  {
+    "name": "SCM fronts only with calibration",
+    "quantity": 4,
+    "settings": {
+      "layoutMode": "scm",
+      "backs": "none",
+      "calibrationPage": true
+    },
+    "cardSheets": 1,
+    "pdfPages": 2,
+    "calibrationPages": 1
+  },
+  {
+    "name": "SCM fronts only without calibration",
+    "quantity": 4,
+    "settings": {
+      "layoutMode": "scm",
+      "backs": "none",
+      "calibrationPage": false
+    },
+    "cardSheets": 1,
+    "pdfPages": 1,
+    "calibrationPages": 0
+  },
+  {
+    "name": "compact free duplex with calibration",
+    "quantity": 1,
+    "settings": {
+      "paper": "custom",
+      "customWidthMm": 40,
+      "customHeightMm": 40,
+      "cardWidthMm": 25,
+      "cardHeightMm": 25,
+      "marginMm": 0,
+      "backs": "long-edge",
+      "calibrationPage": true
+    },
+    "cardSheets": 1,
+    "pdfPages": 4,
+    "calibrationPages": 2,
+    "rulerMm": 20
   }
 ]

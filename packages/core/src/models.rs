@@ -401,6 +401,8 @@ pub struct PrintJob {
     pub file_name: String,
     pub bytes: u64,
     pub pages: u32,
+    #[serde(default)]
+    pub calibration_page: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
