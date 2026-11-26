@@ -61,13 +61,14 @@ export function TokenSuggestions({
           {show ? "Hide suggestions" : "Find tokens"}
         </button>
       </div>
-      <StatusRegion
-        label="Token lookup status"
-        className={finding || count === 0 ? "hint" : "sr-only"}
-        coalesce
-      >
+      <StatusRegion label="Token lookup status" coalesce>
         {status}
       </StatusRegion>
+      {(finding || count === 0) && (
+        <p className="hint" aria-hidden="true">
+          {status}
+        </p>
+      )}
       {show && (
         <>
           <ErrorNotice
