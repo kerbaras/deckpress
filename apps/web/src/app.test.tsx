@@ -2011,6 +2011,31 @@ it("keeps an unapplied Art Studio pick guarded through policy Keep, Apply, and U
   expect(pick).toHaveAttribute("aria-pressed", "true");
 });
 
+it("adds one editions message to the status already mounted in the workspace", async () => {
+  const user = userEvent.setup();
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  vi.spyOn(api, "deck").mockResolvedValue(deck);
+  const art = mockPickerArt([original]);
+  const editions = Promise.withResolvers<Awaited<ReturnType<typeof api.art>>>();
+  art.mockReturnValue(editions.promise);
+  renderWithClient(<App />);
+  const studio = await screen.findByRole("button", { name: "Art studio" });
+  const status = screen.getByRole("status", { name: "Art editions loading" });
+  expect(status).toBeEmptyDOMElement();
+
+  await user.click(studio);
+  expect(status).toHaveTextContent("Finding editions…");
+  expect(status.children).toHaveLength(1);
+  expect(document.querySelector(".loading")).toHaveTextContent(
+    "Finding editions…",
+  );
+  editions.resolve({ items: [original], page: 1, hasMore: false, total: 1 });
+  await waitFor(() => expect(status).toBeEmptyDOMElement());
+  expect(screen.getByRole("status", { name: "Art editions loading" })).toBe(
+    status,
+  );
+});
+
 it.each([
   [
     "Deck editor",

@@ -38,7 +38,7 @@ import {
   CardImage,
   ErrorNotice,
   ExternalLink,
-  Loading,
+  LoadingIndicator,
   Modal,
   providerName,
   SearchField,
@@ -53,6 +53,7 @@ export function ArtPicker(props: {
   entry: DeckEntry;
   onSelect: (id: string) => void;
   onApply: (deck: Deck) => Promise<Deck>;
+  onEditionsLoading?: (active: boolean) => void;
   onPreviewChange?: (changed: boolean) => void;
   onUploadEdited?: (art: Art) => void;
   preservePreview?: boolean;
@@ -207,6 +208,7 @@ function ArtSession({
   setFace,
   heading,
   onMatchSummary,
+  onEditionsLoading,
   onApplied,
   onPreviewChange,
   preservePreview,
@@ -227,6 +229,7 @@ function ArtSession({
   setFace: (face: number, restoreFocus: boolean) => void;
   heading: React.Ref<HTMLHeadingElement>;
   onMatchSummary: (summary: string) => void;
+  onEditionsLoading?: (active: boolean) => void;
   onApplied: (printing: string) => void;
   onPreviewChange?: (changed: boolean) => void;
   preservePreview?: boolean;
@@ -513,6 +516,13 @@ function ArtSession({
   };
   const showPrints = official || provider === "all" || provider === "scryfall";
   const showCommunity = !official && (provider === "all" || provider === "mpc");
+  const editionsLoading =
+    (showPrints && prints.isFetching && !prints.data) ||
+    (showCommunity && community.isFetching && !community.data);
+  useEffect(() => {
+    onEditionsLoading?.(editionsLoading);
+    return () => onEditionsLoading?.(false);
+  }, [editionsLoading, onEditionsLoading]);
   const fetchingArt =
     (showPrints && prints.isFetching) ||
     (showCommunity && community.isFetching) ||
@@ -1015,9 +1025,8 @@ function ArtSession({
             error={uploads.error}
             retry={() => void uploads.refetch()}
           />
-          {((showPrints && prints.isFetching && !prints.data) ||
-            (showCommunity && community.isFetching && !community.data)) && (
-            <Loading>Finding editions…</Loading>
+          {editionsLoading && (
+            <LoadingIndicator>Finding editions…</LoadingIndicator>
           )}
           <div className="art-grid">
             {shown.map((art) => {

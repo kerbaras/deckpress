@@ -72,29 +72,46 @@ export function Loading({
   active = true,
   announcementId,
   label,
+  waitForPaint = true,
   children = "Loading…",
 }: {
   active?: boolean;
   announcementId?: string;
   label?: string;
+  waitForPaint?: boolean;
   children?: string;
 }) {
-  const [mounted, setMounted] = useState(false);
+  const [ready, setReady] = useState(!active);
   useEffect(() => {
-    setMounted(true);
-  }, []);
+    if (!waitForPaint) {
+      setReady(true);
+      return;
+    }
+    let afterPaint = 0;
+    const frame = requestAnimationFrame(() => {
+      afterPaint = requestAnimationFrame(() => setReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(afterPaint);
+    };
+  }, [waitForPaint]);
   return (
     <>
       <StatusRegion label={label} announcementId={announcementId}>
-        {active && mounted ? children : ""}
+        {active && ready ? children : ""}
       </StatusRegion>
-      {active && (
-        <div className="loading" aria-hidden="true">
-          <LoaderCircle size={19} className="spin" />
-          <span>{children}</span>
-        </div>
-      )}
+      {active && <LoadingIndicator>{children}</LoadingIndicator>}
     </>
+  );
+}
+
+export function LoadingIndicator({ children }: { children: string }) {
+  return (
+    <div className="loading" aria-hidden="true">
+      <LoaderCircle size={19} className="spin" />
+      <span>{children}</span>
+    </div>
   );
 }
 

@@ -25,8 +25,39 @@ it("adds a keyed loading message to an already mounted region", () => {
   expect(screen.queryByText(/^Searching…$/)).not.toBeInTheDocument();
 });
 
-it("inserts the loading message even if a preview rerenders before its timer can run", () => {
-  vi.useFakeTimers();
+it("mounts active loading with an empty live region before the first paint", () => {
+  vi.useFakeTimers({
+    toFake: [
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "setTimeout",
+      "clearTimeout",
+    ],
+  });
+  try {
+    render(<Loading>Finding editions…</Loading>);
+    const status = screen.getByRole("status");
+    expect(screen.getByText(/^Finding editions…$/)).toBeVisible();
+    expect(status).toBeEmptyDOMElement();
+    act(() => vi.advanceTimersToNextFrame());
+    expect(status).toBeEmptyDOMElement();
+    act(() => vi.advanceTimersToNextFrame());
+    expect(screen.getByRole("status")).toBe(status);
+    expect(screen.getByRole("group")).toHaveTextContent("Finding editions…");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("inserts the loading message once if its parent rerenders before paint", () => {
+  vi.useFakeTimers({
+    toFake: [
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "setTimeout",
+      "clearTimeout",
+    ],
+  });
   try {
     const preview = (active: boolean, label: string) => (
       <>
@@ -36,10 +67,14 @@ it("inserts the loading message even if a preview rerenders before its timer can
     );
     const { rerender } = render(preview(true, "Deck preview"));
     const status = screen.getByRole("status");
-    vi.setSystemTime(Date.now() + 10);
+    act(() => vi.advanceTimersByTime(10));
     rerender(preview(true, "Updated deck preview"));
-    vi.setSystemTime(Date.now() + 45);
-    expect(status.firstElementChild).toHaveTextContent("Loading decklist…");
+    expect(status).toBeEmptyDOMElement();
+    act(() => vi.advanceTimersByTime(24));
+    const announcement = screen.getByRole("group");
+    expect(announcement).toHaveTextContent("Loading decklist…");
+    rerender(preview(true, "Another preview update"));
+    expect(screen.getByRole("group")).toBe(announcement);
     rerender(preview(false, "Decklist ready"));
     expect(
       screen.getByRole("heading", { name: "Decklist ready" }),

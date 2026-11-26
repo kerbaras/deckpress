@@ -104,6 +104,7 @@ export function App() {
   const restoreSequence = useRef(0);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [artExitOpen, setArtExitOpen] = useState(false);
+  const [editionsLoading, setEditionsLoading] = useState(false);
   const artPreview = useRef(false);
   const policyPreview = useRef<{
     discard: () => void;
@@ -321,6 +322,9 @@ export function App() {
       >
         {importAnnouncement?.text}
       </StatusRegion>
+      <StatusRegion label="Art editions loading">
+        {editionsLoading ? "Finding editions…" : ""}
+      </StatusRegion>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>
           <SidebarToggle
@@ -454,6 +458,7 @@ export function App() {
                 onDirty={onDirty}
                 onPreviewChange={onPreviewChange}
                 registerPolicyPreview={registerPolicyPreview}
+                onEditionsLoading={setEditionsLoading}
                 confirmArtExit={confirmArtExit}
                 onBack={(trigger) => void navigate("decks", false, trigger)}
                 onJobs={(job) => {

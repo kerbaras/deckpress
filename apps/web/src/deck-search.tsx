@@ -423,7 +423,11 @@ function DeckPreview({
         ) : (
           <ErrorNotice error={task.error} />
         )}
-        <Loading active={detail.isPending} label="Discover decklist loading">
+        <Loading
+          active={detail.isPending}
+          label="Discover decklist loading"
+          waitForPaint={false}
+        >
           Loading decklist…
         </Loading>
         {detail.data && (
