@@ -63,7 +63,6 @@ type PrintSetupRequest = {
   failure: Pick<PrintJob, "failureTarget" | "message"> | undefined;
 };
 
-
 type RegisterPolicyPreview = (
   preview: { discard: () => void; canDiscard: () => boolean } | null,
 ) => void;

@@ -8,7 +8,7 @@ import {
   artTreatments,
 } from "./core/index.ts";
 import { languageCode } from "./print-language.tsx";
-import { CardImage, ErrorNotice, Modal, StatusRegion } from "./ui.tsx";
+import { ArtThumbnail, ErrorNotice, Modal, StatusRegion } from "./ui.tsx";
 
 export function ArtPolicyFields({
   current,
@@ -173,7 +173,7 @@ const labels = {
 function PrintSummary({ art, label }: { art: Art; label: string }) {
   return (
     <div className="art-change-print">
-      <CardImage url={art.thumbnailUrl} name="" />
+      <ArtThumbnail art={art} name="" />
       <div>
         <span className="hint">{label}</span>
         <div>

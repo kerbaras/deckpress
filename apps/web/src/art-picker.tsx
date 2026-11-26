@@ -13,7 +13,7 @@ import {
   Upload,
   ZoomIn,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { api, type Preferences, uploadTrimSrc } from "./api.ts";
 import { ScanQualityBadge, scanLabel } from "./art-quality.tsx";
 import {

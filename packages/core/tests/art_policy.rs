@@ -3,7 +3,7 @@ mod common;
 use std::sync::Arc;
 
 use deckpress_core::art_policy::{ArtChangeKind, ArtPolicies, ArtPolicy, Border, Frame, Treatment};
-use deckpress_core::models::{PrintLanguagePolicy, PrintLanguagePreferences};
+use deckpress_core::models::{PrintLanguagePolicy, PrintLanguagePreferences, Provider, Zone};
 use deckpress_core::providers::{normalize_scryfall, Providers};
 use deckpress_core::store::Store;
 use serde_json::{json, Value};
@@ -58,6 +58,30 @@ fn preferences(providers: &Providers, language: &str, policy: PrintLanguagePolic
 }
 
 #[tokio::test]
+async fn latest_policy_uses_scan_quality_before_the_set_tie_break() {
+    let cards = cards();
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::new(store.clone()).unwrap());
+    preferences(&providers, "en", PrintLanguagePolicy::Strict);
+    let service = ArtPolicies::new(store.clone(), providers);
+    let highres = printing(&cards, "m11", "en").clone();
+    let mut lowres = printing(&cards, "m10", "en").clone();
+    lowres["released_at"] = highres["released_at"].clone();
+    lowres["image_status"] = json!("lowres");
+    lowres["highres_image"] = json!(false);
+    search(&store, None, 1, false, &[lowres, highres]);
+
+    let mut input = common::new_deck("Scan-quality tie");
+    input.entries = vec![entry(printing(&cards, "lea", "en"))];
+    let deck = store.create_deck(input).unwrap();
+    let preview = service
+        .preview_policy(&deck.id, deck.revision, ArtPolicy::Latest)
+        .await
+        .unwrap();
+    assert_eq!(preview.changes[0].after.as_ref().unwrap().set, "m11");
+}
+
+#[tokio::test]
 async fn previews_original_latest_set_and_style_then_applies_and_undoes_without_touching_pins() {
     let cards = cards();
     let store = Arc::new(Store::in_memory().unwrap());
@@ -66,11 +90,20 @@ async fn previews_original_latest_set_and_style_then_applies_and_undoes_without_
     search(&store, None, 1, true, &cards[..4]);
     search(&store, None, 2, false, &cards[4..]);
 
-    let original = entry(printing(&cards, "m10", "en"));
+    let mut original = entry(printing(&cards, "m10", "en"));
+    original.zone = Zone::Companion;
     let mut pinned = entry(printing(&cards, "m11", "en"));
+    pinned.zone = Zone::Companion;
     pinned.selected_art = Some(pinned.front_art().clone());
+    let mut upload = entry(printing(&cards, "m11", "en"));
+    let custom_art = &mut upload.card.faces[0];
+    custom_art.provider = Provider::Upload;
+    custom_art.id = format!("upload:{}", upload.id);
+    custom_art.image_url = format!("upload://{}", upload.id);
+    custom_art.thumbnail_url = custom_art.image_url.clone();
+    custom_art.bleed_mm = 2.0;
     let mut input = common::new_deck("Art policy");
-    input.entries = vec![original, pinned.clone()];
+    input.entries = vec![original, pinned.clone(), upload.clone()];
     let deck = store.create_deck(input).unwrap();
     let mut last_preview = None;
     for (policy, set) in [
@@ -100,6 +133,8 @@ async fn previews_original_latest_set_and_style_then_applies_and_undoes_without_
             .unwrap();
         assert_eq!(preview.changes[0].after.as_ref().unwrap().set, set);
         assert_eq!(preview.changes[1].kind, ArtChangeKind::Pinned);
+        assert_eq!(preview.changes[2].kind, ArtChangeKind::Pinned);
+        assert_eq!(&preview.changes[2].before, upload.front_art());
         assert_eq!(
             store
                 .get::<deckpress_core::models::Deck>("deck", &deck.id)
@@ -116,8 +151,10 @@ async fn previews_original_latest_set_and_style_then_applies_and_undoes_without_
         .apply(&deck.id, deck.revision, &last_preview.unwrap())
         .unwrap();
     assert_eq!(applied.entries[0].front_art().set, "lea");
+    assert_eq!(applied.entries[0].zone, Zone::Companion);
     assert_eq!(applied.entries[0].card.faces[0].set, "m10");
     assert_eq!(applied.entries[1], pinned);
+    assert_eq!(applied.entries[2], upload);
     assert_eq!(applied.art_policy, Some(ArtPolicy::Original));
     let restored = service.undo(&deck.id, applied.revision).unwrap();
     assert_eq!(restored.entries, deck.entries);

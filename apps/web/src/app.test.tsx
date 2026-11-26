@@ -2344,7 +2344,6 @@ it("separates MPC DPI from measured source DPI and reports the selected AI model
   );
 });
 
-
 async function openGuardedPolicy(user: ReturnType<typeof userEvent.setup>) {
   window.history.replaceState(null, "", `/#/decks/${id}`);
   vi.spyOn(api, "deck").mockResolvedValue(deck);

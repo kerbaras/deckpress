@@ -3,6 +3,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
+import { uploadTrimSrc } from "./api.ts";
 import {
   artSchema,
   backArt,
@@ -50,7 +51,20 @@ async function openPolicy() {
     quantity: 1,
     requestedLanguages: ["es"],
   });
-  const pinned = { ...entry, id: crypto.randomUUID(), artPinned: true };
+  const upload = artSchema.parse({
+    ...before,
+    id: "upload:art",
+    provider: "upload",
+    imageUrl: "upload://art",
+    thumbnailUrl: "upload://art",
+    bleedMm: 2,
+  });
+  const pinned = {
+    ...entry,
+    id: crypto.randomUUID(),
+    artPinned: true,
+    selectedArt: upload,
+  };
   const unmatched = { ...entry, id: crypto.randomUUID() };
   const deck = deckSchema.parse({
     id: crypto.randomUUID(),
@@ -80,7 +94,7 @@ async function openPolicy() {
         entryId: pinned.id,
         name: "Manual print",
         quantity: 1,
-        before,
+        before: upload,
         after: null,
         kind: "pinned",
         reason: "Manual art is protected.",
@@ -138,6 +152,7 @@ async function openPolicy() {
       <ToolbarSlotProvider value={slot}>
         <Workspace
           id={deck.id}
+          printSetup={undefined}
           focusHeading={false}
           onBack={vi.fn()}
           onDirty={vi.fn()}
@@ -175,8 +190,19 @@ async function openPolicy() {
     entry,
     after,
     previewId,
+    upload,
   };
 }
+
+it("uses the trimmed upload thumbnail in a protected art preview row", async () => {
+  const { open, upload } = await openPolicy();
+  const dialog = await open();
+  const row = (await dialog.findByText("Pinned — unchanged")).closest("li");
+  expect(row?.querySelector("img")).toHaveAttribute(
+    "src",
+    uploadTrimSrc(upload, true),
+  );
+});
 
 it("previews protected and unresolved art; Keep and Escape write nothing; Apply can be undone", async () => {
   const { user, settings, trigger, open, apply, undo, deck, previewId } =

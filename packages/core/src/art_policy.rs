@@ -173,8 +173,9 @@ impl ArtPolicy {
     }
 }
 
-fn compare_scan_quality(_a: Option<&Art>, _b: Option<&Art>) -> Ordering {
-    Ordering::Equal
+fn compare_scan_quality(a: Option<&Art>, b: Option<&Art>) -> Ordering {
+    b.and_then(|art| art.scan_quality)
+        .cmp(&a.and_then(|art| art.scan_quality))
 }
 
 fn same_illustrations(anchor: &Printing, candidate: &Printing) -> bool {
@@ -423,21 +424,18 @@ impl ArtPolicies {
         let mut translations = HashMap::<(String, String), Vec<Printing>>::new();
         let mut changes = Vec::with_capacity(before.entries.len());
         for entry in &mut next.entries {
-            if entry.is_art_pinned() {
+            if entry.is_art_pinned()
+                || entry
+                    .card
+                    .faces
+                    .iter()
+                    .any(|art| art.provider != crate::models::Provider::Scryfall)
+            {
                 changes.push(ArtChange::new(
                     entry,
                     ArtChangeKind::Pinned,
                     None,
                     "Manual art is protected.",
-                ));
-                continue;
-            }
-            if entry.card.faces[0].provider != crate::models::Provider::Scryfall {
-                changes.push(ArtChange::new(
-                    entry,
-                    ArtChangeKind::Unmatched,
-                    None,
-                    "This entry has no Scryfall printing to match.",
                 ));
                 continue;
             }
