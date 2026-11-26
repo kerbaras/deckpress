@@ -1809,6 +1809,9 @@ dd {
   letter-spacing: 0.1em;
   margin-bottom: 3px;
 }
+.settings-panel[hidden] {
+  display: none;
+}
 .setting-row {
   display: flex;
   justify-content: space-between;

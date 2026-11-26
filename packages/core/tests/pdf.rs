@@ -1,6 +1,6 @@
 mod common;
 
-use deckpress_core::models::{Backs, PrintSettings};
+use deckpress_core::models::{Backs, LayoutMode, PrintSettings, ScmTemplate};
 use deckpress_core::pdf::{build_pdf, print_plan, PdfServices};
 use deckpress_core::upscaler::CancelToken;
 
@@ -22,6 +22,43 @@ fn plans_sheets_and_duplex_sides() {
         ..PrintSettings::default()
     };
     assert!(print_plan(&common::deck(10), &ranged).is_err());
+}
+
+#[test]
+fn builds_an_arch_b_scm_duplex_sheet_with_clamped_raster_bleed() {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = PrintSettings {
+        layout_mode: LayoutMode::Scm,
+        scm_template: ScmTemplate {
+            paper: "arch_b".into(),
+            marks: 4,
+            ..ScmTemplate::default()
+        },
+        bleed_mm: 4.0,
+        dpi: 300,
+        backs: Backs::LongEdge,
+        calibration_page: false,
+        ..PrintSettings::default()
+    };
+    let png = common::png(372, 520, [30, 90, 200]);
+    let output = build_pdf(
+        &common::deck(4),
+        &settings,
+        &PdfServices {
+            raster_dir: dir.path(),
+            upscaler: None,
+        },
+        &CancelToken::default(),
+        &mut |_, _, _| {},
+        &mut |_| Ok(png.clone()),
+    )
+    .unwrap();
+    assert_eq!(output.pages, 2);
+    assert!(output.bytes.starts_with(b"%PDF"));
+    for entry in std::fs::read_dir(dir.path()).unwrap() {
+        let (width, height) = image::image_dimensions(entry.unwrap().path()).unwrap();
+        assert_eq!((width, height), (744 + 2 * 7, 1039 + 2 * 7));
+    }
 }
 
 #[test]

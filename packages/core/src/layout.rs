@@ -2,7 +2,8 @@
 //! (Rust) must agree on every point value, so keep both in sync.
 
 use crate::error::{AppError, AppResult};
-use crate::models::{Backs, Guides, Orientation, PrintSettings};
+use crate::models::{Backs, Guides, LayoutMode, Orientation, PrintSettings};
+use crate::scm::{self, ScmSheet};
 
 pub fn mm_to_pt(mm: f64) -> f64 {
     mm * 72.0 / 25.4
@@ -52,6 +53,7 @@ pub struct PrintLayout {
     pub slots: Vec<Slot>,
     pub guides: Vec<Guide>,
     pub registration: Vec<Registration>,
+    pub scm: Option<ScmSheet>,
     /// Baseline of the sheet label in the bottom margin, if there is room.
     pub label_baseline: Option<f64>,
 }
@@ -71,14 +73,22 @@ pub struct SheetLabelPlacement {
 
 pub fn fit_sheet_label(layout: &PrintLayout, text: &str) -> Option<SheetLabelPlacement> {
     let baseline = layout.label_baseline?;
-    let x = layout.slots.first()?.rect.x;
+    let left = if layout.scm.is_some() {
+        mm_to_pt(4.0)
+    } else {
+        layout.slots.first()?.rect.x
+    };
     let advance = text.chars().count() as f64 * LABEL_GLYPH_ADVANCE_EM;
-    let width = (advance * LABEL_SIZE_PT).min(layout.width - x - mm_to_pt(4.0));
+    let width = (advance * LABEL_SIZE_PT).min(layout.width - left - mm_to_pt(4.0));
     if width <= 0.0 {
         return None;
     }
     Some(SheetLabelPlacement {
-        x,
+        x: if layout.scm.is_some() {
+            (layout.width - width) / 2.0
+        } else {
+            left
+        },
         baseline,
         font_size_pt: width / advance,
         width,
@@ -132,6 +142,9 @@ fn dedup(values: impl Iterator<Item = f64>) -> Vec<f64> {
 }
 
 pub fn create_layout(options: &PrintSettings) -> AppResult<PrintLayout> {
+    if options.layout_mode == LayoutMode::Scm {
+        return scm::create_layout(options);
+    }
     let (w, h) = options
         .paper
         .size_mm((options.custom_width_mm, options.custom_height_mm));
@@ -335,11 +348,15 @@ pub fn create_layout(options: &PrintSettings) -> AppResult<PrintLayout> {
         slots,
         guides,
         registration,
+        scm: None,
         label_baseline,
     })
 }
 
 pub fn duplex_slot(slot: &Slot, layout: &PrintLayout, settings: &PrintSettings) -> Slot {
+    if layout.scm.is_some() {
+        return scm::duplex_slot(slot, layout, settings);
+    }
     let mirror_x = (settings.backs != Backs::ShortEdge) == (layout.height >= layout.width);
     let dx = mm_to_pt(settings.back_offset_xmm);
     let dy = mm_to_pt(settings.back_offset_ymm);

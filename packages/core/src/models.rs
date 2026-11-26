@@ -139,6 +139,8 @@ pub enum Paper {
     A5,
     Legal,
     Tabloid,
+    #[serde(rename = "arch_b")]
+    ArchB,
     Custom,
 }
 
@@ -151,6 +153,7 @@ impl Paper {
             Paper::A5 => (148.0, 210.0),
             Paper::Legal => (215.9, 355.6),
             Paper::Tabloid => (279.4, 431.8),
+            Paper::ArchB => (304.8, 457.2),
             Paper::Custom => custom,
         }
     }
@@ -188,9 +191,45 @@ pub enum Backs {
     Separate,
 }
 
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutMode {
+    #[default]
+    Free,
+    Scm,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ScmVariant {
+    Default,
+    Borderless,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScmTemplate {
+    pub paper: String,
+    pub card: String,
+    pub variant: ScmVariant,
+    pub marks: u8,
+}
+
+impl Default for ScmTemplate {
+    fn default() -> Self {
+        Self {
+            paper: "a4".into(),
+            card: "standard".into(),
+            variant: ScmVariant::Default,
+            marks: 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct PrintSettings {
+    pub layout_mode: LayoutMode,
+    pub scm_template: ScmTemplate,
     pub paper: Paper,
     pub custom_width_mm: f64,
     pub custom_height_mm: f64,
@@ -227,6 +266,8 @@ pub struct PrintSettings {
 impl Default for PrintSettings {
     fn default() -> Self {
         Self {
+            layout_mode: LayoutMode::Free,
+            scm_template: ScmTemplate::default(),
             paper: Paper::A4,
             custom_width_mm: 210.0,
             custom_height_mm: 297.0,

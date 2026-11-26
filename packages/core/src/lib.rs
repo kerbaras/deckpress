@@ -13,6 +13,7 @@ pub mod models;
 pub mod pdf;
 pub mod providers;
 pub mod raster;
+pub mod scm;
 pub mod store;
 pub mod style;
 pub mod upscaler;

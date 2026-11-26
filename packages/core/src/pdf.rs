@@ -21,6 +21,7 @@ use crate::layout::{
 };
 use crate::models::{Art, Backs, Deck, DeckEntry, PrintSettings};
 use crate::raster::{encode_jpeg, parse_hex_color, rasterize};
+use crate::scm;
 use crate::upscaler::{CancelToken, Upscaler};
 
 const FONT: &[u8] = include_bytes!("../fonts/JetBrainsMono-Regular.ttf");
@@ -466,6 +467,8 @@ pub fn build_pdf(
         sides,
         total_sheets,
     } = print_plan(deck, settings)?;
+    let raster_settings = scm::raster_settings(settings)?;
+    let settings = &raster_settings;
     if settings.upscale && services.upscaler.is_none() {
         return Err(AppError::user(
             "Upscaling is enabled but no model is loaded",
@@ -540,6 +543,21 @@ pub fn build_pdf(
                     if side.back { " · back" } else { "" }
                 ),
             );
+            let rotate = side.back
+                && layout
+                    .scm
+                    .as_ref()
+                    .is_some_and(|scm| scm.orientation == crate::models::Orientation::Landscape);
+            if rotate {
+                surface.push_transform(&Transform::from_row(
+                    -1.0,
+                    0.0,
+                    0.0,
+                    -1.0,
+                    (2.0 * slot.rect.x + slot.rect.width) as f32,
+                    (2.0 * slot.rect.y + slot.rect.height) as f32,
+                ));
+            }
             match art {
                 Some(art) => {
                     let source = read_source(&art.image_url)?;
@@ -605,6 +623,9 @@ pub fn build_pdf(
                 }
                 None => draw_placeholder(&mut surface, &slot, &font),
             }
+            if rotate {
+                surface.pop();
+            }
             completed += 1;
             progress(
                 completed,
@@ -625,12 +646,30 @@ pub fn build_pdf(
         for mark in &layout.registration {
             draw_registration(&mut surface, mark, guide_color);
         }
+        if let Some(scm) = &layout.scm {
+            let black = color("#000000");
+            surface.set_fill(Some(fill(black)));
+            for mark in &scm.marks {
+                if let Some(path) = rect_path(mark.x, mark.y, mark.width, mark.height) {
+                    surface.draw_path(&path);
+                }
+            }
+            surface.set_fill(None);
+        }
+        let label = match &layout.scm {
+            Some(scm) => format!("sheet: {}, template: {}", side.sheet, scm.name),
+            None => sheet_label(settings, &deck.name, side.sheet, total_sheets, side.back),
+        };
         draw_sheet_label(
             &mut surface,
             &layout,
             &font,
-            guide_color,
-            &sheet_label(settings, &deck.name, side.sheet, total_sheets, side.back),
+            if layout.scm.is_some() {
+                color("#000000")
+            } else {
+                guide_color
+            },
+            &label,
         );
         surface.finish();
         page.finish();
