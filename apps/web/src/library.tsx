@@ -100,6 +100,7 @@ export function Library({
         }
       >
         <SearchField
+          compact
           ref={searchField}
           label="Search decks, formats, cards"
           value={search}

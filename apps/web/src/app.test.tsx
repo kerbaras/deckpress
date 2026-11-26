@@ -1872,6 +1872,9 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
     ).getByText("English fallback: Black Lotus"),
   ).toBeVisible();
   expect(
+    screen.getByRole("button", { name: "Choose art for Black Lotus" }),
+  ).toHaveAccessibleDescription("English fallback");
+  expect(
     within(
       screen.getByRole("button", { name: "Choose art for Black Lotus" }),
     ).getByText("English fallback"),
@@ -2455,6 +2458,11 @@ it("labels only English fallback scans on each Print Preview page", async () => 
   await user.click(next);
   const sheet = screen.getByRole("img", { name: /Print preview/ });
   expect(within(sheet).getByText("English fallback")).toBeVisible();
+  expect(
+    within(sheet)
+      .getByText("English fallback")
+      .parentElement?.querySelectorAll("rect[stroke]"),
+  ).toHaveLength(2);
   expect(sheet).toHaveAccessibleDescription("English fallback: Lightning Bolt");
   await user.click(next);
   expect(within(sheet).queryByText("English fallback")).not.toBeInTheDocument();

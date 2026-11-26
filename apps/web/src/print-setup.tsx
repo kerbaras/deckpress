@@ -1109,18 +1109,28 @@ export function PrintSetup({
                           />
                         )}
                         {fallback && (
-                          <g>
+                          <g
+                            transform={`translate(${slot.trim.x + 4}, ${slot.trim.y + slot.trim.height - 18})`}
+                          >
                             <rect
-                              x={slot.trim.x + 4}
-                              y={slot.trim.y + slot.trim.height - 18}
+                              width={69}
+                              height={14}
+                              rx={3}
+                              fill="none"
+                              stroke="var(--art-badge-halo)"
+                              strokeWidth={2.4}
+                            />
+                            <rect
                               width={69}
                               height={14}
                               rx={3}
                               fill="var(--warning-bg)"
+                              stroke="var(--art-badge-edge)"
+                              strokeWidth={0.8}
                             />
                             <text
-                              x={slot.trim.x + 8}
-                              y={slot.trim.y + slot.trim.height - 8}
+                              x={4}
+                              y={10}
                               fill="var(--warning-text)"
                               fontSize={8}
                               fontFamily="Helvetica, sans-serif"

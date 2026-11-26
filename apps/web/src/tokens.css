@@ -8,6 +8,9 @@
   --text-muted: #a9b0bb;
   --line-subtle: #30353d;
   --line-control: #747e8c;
+  --field-line: var(--text-muted);
+  --field-label: var(--text);
+  --field-placeholder: var(--text-muted);
   --accent: #e2b25a;
   --on-accent: #191610;
   --score-low-fill: #a58a59;
@@ -18,6 +21,8 @@
   --danger-bg: #301e1c;
   --warning-text: #f2cd89;
   --warning-bg: #32281b;
+  --art-badge-edge: var(--invariant-proof-paper);
+  --art-badge-halo: var(--invariant-proof-ink);
   --success-text: #a8d9b6;
   --success-bg: #1b2d24;
   --info: var(--focus);
@@ -111,36 +116,6 @@
   --focus-offset: 2px;
 }
 
-.modal[open]:has(> .import-deck) {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.import-deck {
-  --import-footer-size: calc(var(--control-size) + var(--space-2));
-  overflow: auto;
-  margin-inline: calc(-1 * var(--space-1));
-  padding-inline: var(--space-1);
-  scroll-padding-block: var(--space-2)
-    calc(var(--import-footer-size) + var(--space-2));
-}
-
-.import-deck > .modal-actions {
-  position: sticky;
-  inset-block-end: 0;
-  padding-block-start: var(--space-2);
-  background: var(--panel);
-}
-
-.main-content:has(> .workspace-edit) {
-  scroll-padding-block: var(--space-2);
-}
-
-.import-file-name {
-  overflow-wrap: anywhere;
-}
-
 :root[data-theme="light"] {
   color-scheme: light;
   --canvas: #f6f4f1;
@@ -160,6 +135,8 @@
   --danger-bg: #fde9e4;
   --warning-text: #754702;
   --warning-bg: #fff1d2;
+  --art-badge-edge: var(--invariant-proof-ink);
+  --art-badge-halo: var(--invariant-proof-paper);
   --success-text: #24563a;
   --success-bg: #e5f2e9;
 }
