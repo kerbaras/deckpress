@@ -3,8 +3,9 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
-    paths: ['.github/workflows/build.yml']
+    paths: ['.github/workflows/build.yml', 'scripts/check-release*.mjs']
   workflow_dispatch:
 
 permissions:
@@ -19,8 +20,44 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  release_gate:
+    name: Validate release
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG_PUSH: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - name: No version tag to validate
+        if: github.event_name != 'pull_request' && env.RELEASE_TAG_PUSH != 'true'
+        run: echo "Release validation is not required for this ref."
+
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request' || env.RELEASE_TAG_PUSH == 'true'
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        if: github.event_name == 'pull_request' || env.RELEASE_TAG_PUSH == 'true'
+        with:
+          node-version-file: .node-version
+
+      - name: Test release validation
+        if: github.event_name == 'pull_request'
+        run: node --test scripts/check-release.test.mjs
+
+      - name: Validate tag, versions, and release notes
+        if: env.RELEASE_TAG_PUSH == 'true'
+        run: node scripts/check-release.mjs "$GITHUB_REF_NAME" > release-notes.md
+
+      - uses: actions/upload-artifact@v7
+        if: env.RELEASE_TAG_PUSH == 'true'
+        with:
+          name: release-notes
+          if-no-files-found: error
+          path: release-notes.md
+
   package:
     name: ${{ matrix.name }}
+    needs: release_gate
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -71,6 +108,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          # Remove the Windows pin when we use an ort-sys release that handles
+          # Cargo >=1.100's build-dir layout: https://github.com/pykeio/ort/issues/674
+          toolchain: ${{ runner.os == 'Windows' && '1.99.0' || 'stable' }}
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
@@ -121,7 +161,7 @@ jobs:
 
   nightly:
     name: Publish nightly prerelease
-    if: github.event_name != 'pull_request'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: package
     runs-on: ubuntu-24.04
     permissions:
@@ -145,3 +185,29 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "Nightly (${GITHUB_SHA::7})" \
             --notes "Development build of \`${GITHUB_SHA}\` from \`${GITHUB_REF_NAME}\`. Replaced on every push to main."
+
+  release:
+    name: Publish tagged release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [release_gate, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-notes
+
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: deckpress-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish release
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --title "$GITHUB_REF_NAME" --notes-file release-notes.md
