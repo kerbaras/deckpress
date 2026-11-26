@@ -1088,7 +1088,9 @@ it.each([
     const status = screen.getByRole("status", {
       name: "Print job announcements",
     });
-    expect(status).toHaveTextContent(`Opening Print setup for ${deck.name}.`);
+    await waitFor(() =>
+      expect(status).toHaveTextContent(`Opening Print setup for ${deck.name}.`),
+    );
     const announcement = status.firstElementChild;
     expect(announcement).toHaveTextContent(
       `Opening Print setup for ${deck.name}.`,
@@ -1122,7 +1124,7 @@ it.each([
     await user.click(
       await screen.findByRole("button", { name: "Back to print setup" }),
     );
-    expect(status.firstElementChild).not.toBe(announcement);
+    await waitFor(() => expect(status.firstElementChild).not.toBe(announcement));
     expect(status.firstElementChild).toHaveTextContent(
       `Opening Print setup for ${deck.name}.`,
     );
