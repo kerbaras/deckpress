@@ -136,7 +136,7 @@ impl ModelManager {
     pub fn installed_path(&self, spec: &ModelSpec) -> AppResult<PathBuf> {
         self.path(spec).ok_or_else(|| {
             AppError::user(format!(
-                "{} is not installed. Download it from Print setup first.",
+                "{} is not installed. Download it under Settings → Local AI upscaling.",
                 spec.name
             ))
         })
@@ -227,15 +227,16 @@ impl ModelManager {
         tokio::fs::create_dir_all(&self.models_dir).await?;
         let target = self.models_dir.join(&spec.file);
         let partial = self.models_dir.join(format!("{}.part", spec.file));
-        let response = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .map_err(|_| AppError::user("Could not reach the model download server"))?;
+        let response = self.client.get(url).send().await.map_err(|_| {
+            AppError::user(format!(
+                "{} download failed: could not reach {url}. Check your connection and retry.",
+                spec.name
+            ))
+        })?;
         if !response.status().is_success() {
             return Err(AppError::user(format!(
-                "Model download failed ({})",
+                "{} download failed (HTTP {}): {url}",
+                spec.name,
                 response.status().as_u16()
             )));
         }

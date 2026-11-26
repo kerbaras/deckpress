@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
@@ -489,6 +489,12 @@ function LocalSettings() {
     queryFn: ({ signal }) => api.settings(signal),
   });
   const task = useTask();
+  const download = useMutation({
+    mutationFn: api.downloadModel,
+    onSuccess: () => query.refetch(),
+  });
+  const busy = task.busy || download.isPending;
+  const failedModelId = download.isError ? download.variables : undefined;
   const loaded = query.data?.loaded;
   return (
     <>
@@ -498,7 +504,7 @@ function LocalSettings() {
           className="icon-button quiet"
           aria-label="Open data folder"
           title="Open data folder"
-          disabled={task.busy}
+          disabled={busy}
           onClick={() => void task.run(() => api.openDataDir())}
         >
           <FolderOpen size={16} />
@@ -525,6 +531,12 @@ function LocalSettings() {
             resized to your target DPI. Fine lettering can change, so always
             check a proof.
           </p>
+          {failedModelId && !busy && (
+            <ErrorNotice
+              error={download.error}
+              retry={() => download.mutate(failedModelId)}
+            />
+          )}
           <div className="model-list">
             {(query.data?.models ?? []).map((model) => (
               <ModelRow
@@ -532,13 +544,12 @@ function LocalSettings() {
                 model={model}
                 isDefault={model.id === query.data?.defaultModel}
                 loaded={loaded?.modelId === model.id}
-                busy={task.busy}
-                onDownload={() =>
-                  void task.run(async () => {
-                    await api.downloadModel(model.id);
-                    await query.refetch();
-                  })
+                busy={busy}
+                downloading={
+                  model.downloading ||
+                  (download.isPending && download.variables === model.id)
                 }
+                onDownload={() => download.mutate(model.id)}
                 onLoad={() =>
                   void task.run(async () => {
                     await api.loadModel(model.id);
@@ -637,6 +648,7 @@ function ModelRow({
   isDefault,
   loaded,
   busy,
+  downloading,
   onDownload,
   onLoad,
 }: {
@@ -644,6 +656,7 @@ function ModelRow({
   isDefault: boolean;
   loaded: boolean;
   busy: boolean;
+  downloading: boolean;
   onDownload: () => void;
   onLoad: () => void;
 }) {
@@ -669,11 +682,11 @@ function ModelRow({
           <button
             type="button"
             className="primary"
-            disabled={busy || model.downloading}
+            disabled={busy || downloading}
             onClick={onDownload}
           >
             <Download size={15} />
-            {model.downloading ? "Downloading…" : "Download"}
+            {downloading ? "Downloading…" : "Download"}
           </button>
         )}
       </div>

@@ -550,7 +550,7 @@ export function PrintSetup({
                         ? ` on ${system.data.loaded.executionProvider}`
                         : ""
                     }. Runs on this machine, only when a scan is below the target resolution.`
-                  : "Download the selected model under Local AI in the top bar before exporting with upscaling."
+                  : "Download the selected model under Settings → Local AI upscaling before exporting."
                 : "Checking the local AI engine…"}
             </p>
             <p className="hint">
