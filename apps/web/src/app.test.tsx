@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { mockIPC } from "@tauri-apps/api/mocks";
+import { emit, TauriEvent } from "@tauri-apps/api/event";
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import {
   act,
   fireEvent,
@@ -1360,6 +1361,180 @@ function mockPickerArt(prints = [original, alternate, community]) {
       total: provider === "scryfall" ? prints.length : 0,
     }));
 }
+
+const secondArtDeck = {
+  ...deck,
+  id: "053d7e52-19e2-451c-a568-0b49c2adc544",
+  name: "Second deck",
+};
+
+async function openArtStudio(user: ReturnType<typeof userEvent.setup>) {
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  mockPickerArt([original, alternate]);
+  vi.spyOn(api, "decks").mockResolvedValue([deck, secondArtDeck]);
+  vi.spyOn(api, "deck").mockImplementation(async (deckId) =>
+    deckId === id ? deck : secondArtDeck,
+  );
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Art studio" }));
+  return screen.findByRole("button", previewButton);
+}
+
+it.each([
+  [
+    "Deck editor",
+    () => screen.findByRole("searchbox", { name: "Find a card" }),
+  ],
+  ["Print setup", () => screen.findByRole("button", { name: "Export PNGs" })],
+  [
+    "Back to decks",
+    () => screen.findByRole("heading", { name: "Decks", level: 1 }),
+  ],
+  [
+    "Second deck",
+    () => screen.findByRole("heading", { name: "Second deck", level: 1 }),
+  ],
+  [
+    "Print jobs",
+    () => screen.findByRole("heading", { name: "Print jobs", level: 1 }),
+  ],
+  ["Decks", () => screen.findByRole("heading", { name: "Decks", level: 1 })],
+  [
+    "Art sources",
+    () => screen.findByRole("heading", { name: "Art sources", level: 1 }),
+  ],
+  [
+    "Discover",
+    () => screen.findByRole("heading", { name: "Discover decks", level: 1 }),
+  ],
+  [
+    "Deck builder",
+    () => screen.findByRole("heading", { name: "Deck builder", level: 1 }),
+  ],
+  [
+    "Settings",
+    () => screen.findByRole("heading", { name: "Settings", level: 1 }),
+  ],
+] as const)("guards the %s exit from Art studio", async (name, destination) => {
+  const user = userEvent.setup();
+  const preview = await openArtStudio(user);
+  await user.click(preview);
+  const trigger = await screen.findByRole("button", { name });
+  await user.click(trigger);
+  const prompt = screen.getByRole("dialog", promptName);
+  expect(prompt).toHaveAccessibleDescription(/leave Art studio/);
+  const keep = within(prompt).getByRole("button", { name: "Keep preview" });
+  const discard = within(prompt).getByRole("button", { name: "Discard" });
+  discard.focus();
+  await user.tab();
+  expect(keep).toHaveFocus();
+  await user.click(keep);
+  expect(prompt).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(trigger);
+  fireEvent(
+    screen.getByRole("dialog", promptName),
+    new Event("cancel", { cancelable: true }),
+  );
+  expect(trigger).toHaveFocus();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(trigger);
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  expect(await destination()).toBeVisible();
+  expect(preview).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  expect(
+    name === "Back to decks" ? screen.getByRole("main") : trigger,
+  ).toHaveFocus();
+});
+
+it("keeps, then discards a preview when Tauri requests window close", async () => {
+  const user = userEvent.setup();
+  const commands = vi.fn((command: string) =>
+    command === "plugin:window|is_fullscreen" ? false : [],
+  );
+  mockWindows("main");
+  mockIPC(commands, { shouldMockEvents: true });
+  const preview = await openArtStudio(user);
+  await user.click(preview);
+
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  await user.click(screen.getByRole("button", { name: "Keep preview" }));
+  expect(preview).toHaveFocus();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+  expect(commands).not.toHaveBeenCalledWith("plugin:window|destroy", {
+    label: "main",
+  });
+
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  await waitFor(() =>
+    expect(commands).toHaveBeenCalledWith("plugin:window|destroy", {
+      label: "main",
+    }),
+  );
+});
+
+it("navigates immediately when there is no preview to discard", async () => {
+  const user = userEvent.setup();
+  await openArtStudio(user);
+  await user.click(screen.getByRole("button", { name: "Deck editor" }));
+  expect(
+    await screen.findByRole("searchbox", { name: "Find a card" }),
+  ).toBeVisible();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Art studio" }));
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  expect(
+    await screen.findByRole("heading", { name: "Decks", level: 1 }),
+  ).toBeVisible();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+});
+
+it("protects the preview on hash navigation and Settings shortcut, but not on sidebar toggle", async () => {
+  const user = userEvent.setup();
+  const preview = await openArtStudio(user);
+  await user.click(preview);
+  await user.keyboard("{Control>}b{/Control}");
+  expect(screen.getByRole("button", { name: "Show sidebar" })).toBeVisible();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+  await user.keyboard("{Control>}b{/Control}");
+
+  act(() => {
+    window.history.replaceState(null, "", "#/jobs");
+    window.dispatchEvent(new Event("hashchange"));
+  });
+  const prompt = await screen.findByRole("dialog", promptName);
+  expect(window.location.hash).toBe(`#/decks/${id}`);
+  await user.click(
+    within(prompt).getByRole("button", { name: "Keep preview" }),
+  );
+  expect(preview).toHaveFocus();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+
+  await user.keyboard("{Control>},{/Control}");
+  await user.click(
+    within(await screen.findByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Settings", level: 1 }),
+  ).toBeVisible();
+  expect(screen.getByRole("main")).toHaveFocus();
+});
 
 it("shows original, saved and preview art separately, even when saved art is outside the results", async () => {
   const user = userEvent.setup();

@@ -209,6 +209,7 @@ export function Modal({
   busy = false,
   wide = false,
   showClose = true,
+  focusFallback,
 }: {
   title: string;
   description?: string;
@@ -217,6 +218,7 @@ export function Modal({
   busy?: boolean;
   wide?: boolean;
   showClose?: boolean;
+  focusFallback?: (() => void) | undefined;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const descriptionId = useId();
@@ -227,8 +229,9 @@ export function Modal({
     return () => {
       dialog?.close();
       if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+      if (document.activeElement === document.body) focusFallback?.();
     };
-  }, []);
+  }, [focusFallback]);
   return (
     <dialog
       ref={ref}

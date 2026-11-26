@@ -57,12 +57,16 @@ export function Workspace({
   focusHeading,
   onBack,
   onDirty,
+  onPreviewChange,
+  confirmArtExit,
   onJobs,
 }: {
   id: string;
   focusHeading: boolean;
-  onBack: () => void;
+  onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
+  onPreviewChange: (changed: boolean) => void;
+  confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
   const query = useQuery({
@@ -86,6 +90,8 @@ export function Workspace({
       focusHeading={focusHeading}
       onBack={onBack}
       onDirty={onDirty}
+      onPreviewChange={onPreviewChange}
+      confirmArtExit={confirmArtExit}
       onJobs={onJobs}
     />
   );
@@ -95,7 +101,7 @@ function BackButton({
   onBack,
   disabled,
 }: {
-  onBack: () => void;
+  onBack: (trigger: HTMLButtonElement) => void;
   disabled?: boolean;
 }) {
   return (
@@ -105,7 +111,7 @@ function BackButton({
       aria-label="Back to decks"
       title="Back to decks"
       disabled={disabled}
-      onClick={onBack}
+      onClick={(event) => onBack(event.currentTarget)}
     >
       <ArrowLeft size={16} />
     </button>
@@ -123,12 +129,16 @@ function DeckWorkspace({
   focusHeading,
   onBack,
   onDirty,
+  onPreviewChange,
+  confirmArtExit,
   onJobs,
 }: {
   initial: Deck;
   focusHeading: boolean;
-  onBack: () => void;
+  onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
+  onPreviewChange: (changed: boolean) => void;
+  confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
   const client = useQueryClient();
@@ -243,7 +253,14 @@ function DeckWorkspace({
                 disabled={isSaving || (id !== "edit" && !deck.entries.length)}
                 aria-current={view === id ? "page" : undefined}
                 title={name}
-                onClick={() => setView(id)}
+                onClick={async (event) => {
+                  if (view === "art" && id !== "art") {
+                    const exit = confirmArtExit(event.currentTarget);
+                    if (exit === false || (exit !== true && !(await exit)))
+                      return;
+                  }
+                  setView(id);
+                }}
               >
                 <Icon size={15} aria-hidden="true" />
                 <span>{name}</span>
@@ -341,6 +358,7 @@ function DeckWorkspace({
           entry={selected}
           onSelect={setSelectedId}
           onApply={commit}
+          onPreviewChange={onPreviewChange}
         />
       )}
       {view === "print" && (

@@ -26,6 +26,7 @@ import {
   fetchHealth,
   type ModelStatus,
 } from "./api.ts";
+import { DiscardPreview } from "./art-picker.tsx";
 import { formatCount, type PrintJob } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
@@ -77,6 +78,7 @@ const confirmDiscard = () =>
     "Discard changes",
   );
 const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
+const focusMain = () => document.getElementById("main")?.focus();
 type ImportAnnouncement = { id: string; text: string };
 
 function readSidebar(): boolean {
@@ -98,7 +100,29 @@ export function App() {
   const [importAnnouncement, setImportAnnouncement] =
     useState<ImportAnnouncement | null>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
-  const window_ = useWindowState();
+  const [artExitOpen, setArtExitOpen] = useState(false);
+  const artPreview = useRef(false);
+  const artExit = useRef<((discard: boolean) => void) | null>(null);
+  const artExitDestination = useRef<string | null>(null);
+  const onPreviewChange = useCallback((changed: boolean) => {
+    artPreview.current = changed;
+  }, []);
+  const confirmArtExit = useCallback((trigger?: HTMLElement) => {
+    if (artExit.current) return false;
+    if (!artPreview.current) return true;
+    trigger?.focus();
+    setArtExitOpen(true);
+    return new Promise<boolean>((resolve) => {
+      artExit.current = resolve;
+    });
+  }, []);
+  const finishArtExit = (discard: boolean) => {
+    const resolve = artExit.current;
+    artExit.current = null;
+    setArtExitOpen(false);
+    resolve?.(discard);
+  };
+  const window_ = useWindowState(confirmArtExit);
   const routeRef = useRef(route);
   const dirty = useRef(false);
   const onDirty = useCallback((value: boolean) => {
@@ -123,12 +147,28 @@ export function App() {
     jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
       .length ?? 0;
   const { announcements, announceJobs } = usePrintJobAnnouncements(jobs.data);
-  const navigate = async (next: string, saved = false) => {
-    if (!saved && dirty.current && !(await confirmDiscard())) return false;
-    dirty.current = false;
-    window.location.hash = `/${next}`;
-    return true;
-  };
+  const applyRoute = useCallback((next: string) => {
+    routeRef.current = next;
+    setImportedDeckId((id) => (deckRoute(next) === id ? id : undefined));
+    setRoute(next);
+    const main = document.getElementById("main");
+    if (main) main.scrollTop = 0;
+  }, []);
+  const navigate = useCallback(
+    async (next: string, saved = false, trigger?: HTMLElement) => {
+      if (next === routeRef.current) return true;
+      const hadPreview = artPreview.current;
+      const exit = confirmArtExit(trigger);
+      if (exit === false || (exit !== true && !(await exit))) return false;
+      if (!saved && dirty.current && !(await confirmDiscard())) return false;
+      if (hadPreview) artExitDestination.current = next;
+      dirty.current = false;
+      window.location.hash = `/${next}`;
+      applyRoute(next);
+      return true;
+    },
+    [applyRoute, confirmArtExit],
+  );
   const openImportedDeck = async (id: string, importedCards?: number) => {
     if (!(await navigate(`decks/${id}`))) return;
     setImportedDeckId(id);
@@ -136,33 +176,31 @@ export function App() {
       setPendingImport({ id, text: importStatus(null, importedCards) });
   };
   useEffect(() => {
-    const change = async () => {
+    const onChange = () => {
       const next = routeFromHash();
       if (next === routeRef.current) return;
-      if (dirty.current) {
+      if (dirty.current || artPreview.current) {
         window.history.replaceState(null, "", `#/${routeRef.current}`);
-        if (!(await confirmDiscard())) return;
-        dirty.current = false;
-        window.location.hash = `/${next}`;
+        void navigate(next);
         return;
       }
-      routeRef.current = next;
-      setImportedDeckId((id) => (deckRoute(next) === id ? id : undefined));
-      setRoute(next);
-      const main = document.getElementById("main");
-      if (main) main.scrollTop = 0;
+      applyRoute(next);
     };
     const unload = (event: BeforeUnloadEvent) => {
-      if (dirty.current) event.preventDefault();
+      if (dirty.current || artPreview.current) event.preventDefault();
     };
-    const onChange = () => void change();
     window.addEventListener("hashchange", onChange);
     window.addEventListener("beforeunload", unload);
     return () => {
       window.removeEventListener("hashchange", onChange);
       window.removeEventListener("beforeunload", unload);
     };
-  }, []);
+  }, [applyRoute, navigate]);
+  useEffect(() => {
+    if (artExitDestination.current !== route) return;
+    artExitDestination.current = null;
+    if (document.activeElement === document.body) focusMain();
+  }, [route]);
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((open) => {
       try {
@@ -173,8 +211,9 @@ export function App() {
       return !open;
     });
   }, []);
-  const newDeck = async () => {
-    if (await navigate("decks")) setNewDeckRequest((count) => count + 1);
+  const newDeck = async (trigger?: HTMLElement) => {
+    if (await navigate("decks", false, trigger))
+      setNewDeckRequest((count) => count + 1);
   };
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
@@ -211,11 +250,7 @@ export function App() {
         ["--inset-left" as string]: `${window_.fullscreen ? 0 : window_.insetLeft}px`,
       }}
     >
-      <button
-        type="button"
-        className="skip-link"
-        onClick={() => document.getElementById("main")?.focus()}
-      >
+      <button type="button" className="skip-link" onClick={focusMain}>
         Skip to content
       </button>
       <StatusRegion
@@ -257,7 +292,7 @@ export function App() {
             className="sidebar-row sidebar-action"
             aria-keyshortcuts="Control+N Meta+N"
             title={`New deck (${modifier}N)`}
-            onClick={() => void newDeck()}
+            onClick={(event) => void newDeck(event.currentTarget)}
           >
             <Plus size={16} aria-hidden="true" />
             <span className="sidebar-label">New deck</span>
@@ -276,7 +311,9 @@ export function App() {
                   !deckId && route.startsWith(id) ? "page" : undefined
                 }
                 data-ancestor={deckId && id === "decks" ? "true" : undefined}
-                onClick={() => void navigate(id)}
+                onClick={(event) =>
+                  void navigate(id, false, event.currentTarget)
+                }
               >
                 <Icon size={16} aria-hidden="true" />
                 <span className="sidebar-label">{name}</span>
@@ -305,7 +342,13 @@ export function App() {
                     className="sidebar-row sidebar-nested"
                     title={`${deck.name} · ${deck.format}`}
                     aria-current={deck.id === deckId ? "page" : undefined}
-                    onClick={() => void navigate(`decks/${deck.id}`)}
+                    onClick={(event) =>
+                      void navigate(
+                        `decks/${deck.id}`,
+                        false,
+                        event.currentTarget,
+                      )
+                    }
                   >
                     <span className="sidebar-label">{deck.name}</span>
                   </button>
@@ -332,7 +375,9 @@ export function App() {
             title={`Settings (${modifier},)`}
             aria-keyshortcuts="Control+, Meta+,"
             aria-current={route.startsWith("settings") ? "page" : undefined}
-            onClick={() => void navigate("settings")}
+            onClick={(event) =>
+              void navigate("settings", false, event.currentTarget)
+            }
           >
             <Settings2 size={16} aria-hidden="true" />
             <span className="sidebar-label">Settings</span>
@@ -354,7 +399,9 @@ export function App() {
                 id={deckId}
                 focusHeading={importedDeckId === deckId}
                 onDirty={onDirty}
-                onBack={() => void navigate("decks")}
+                onPreviewChange={onPreviewChange}
+                confirmArtExit={confirmArtExit}
+                onBack={(trigger) => void navigate("decks", false, trigger)}
                 onJobs={(job) => {
                   announceJobs([job]);
                   void navigate("jobs", true);
@@ -386,6 +433,14 @@ export function App() {
           </ToolbarSlotProvider>
         </main>
       </div>
+      {artExitOpen && (
+        <DiscardPreview
+          leaving="studio"
+          onStay={() => finishArtExit(false)}
+          onDiscard={() => finishArtExit(true)}
+          focusFallback={focusMain}
+        />
+      )}
     </div>
   );
 }
