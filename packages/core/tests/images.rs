@@ -114,12 +114,34 @@ fn upload_detects_common_bleed_sizes_unless_overridden() {
 
 #[tokio::test]
 async fn detected_bleed_upload_fills_physical_trim_in_pdf_export() {
+    assert_edge_bleed_in_export(816, 1112, 36, 3.048, 300.0).await;
+}
+
+#[tokio::test]
+async fn detected_mpc_scan_fills_physical_trim_in_pdf_export() {
+    assert_edge_bleed_in_export(822, 1122, 36, 3.048, 302.0).await;
+}
+
+#[tokio::test]
+async fn detected_eighth_inch_upload_fills_physical_trim_in_pdf_export() {
+    assert_edge_bleed_in_export(819, 1114, 37, 3.175, 300.0).await;
+}
+
+async fn assert_edge_bleed_in_export(
+    width: u32,
+    height: u32,
+    inset: u32,
+    source_bleed: f64,
+    dpi: f64,
+) {
     let dir = tempfile::tempdir().unwrap();
     let images = Images::new(dir.path(), Arc::new(Store::in_memory().unwrap())).unwrap();
-    let upload = RgbImage::from_fn(816, 1112, |x, y| {
-        if !(36..780).contains(&x) || !(36..1076).contains(&y) {
+    let upload = RgbImage::from_fn(width, height, |x, y| {
+        if !(inset..width - inset).contains(&x) || !(inset..height - inset).contains(&y) {
             Rgb([40, 170, 65])
-        } else if !(44..772).contains(&x) || !(44..1068).contains(&y) {
+        } else if !(inset + 8..width - inset - 8).contains(&x)
+            || !(inset + 8..height - inset - 8).contains(&y)
+        {
             Rgb([225, 28, 32])
         } else {
             Rgb([240, 238, 216])
@@ -130,14 +152,15 @@ async fn detected_bleed_upload_fills_physical_trim_in_pdf_export() {
         .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
         .unwrap();
     let art = images.upload(&png, upload_input(None)).unwrap();
-    assert_eq!(art.bleed_mm, 3.048);
-    assert_eq!(art.dpi, 300.0);
+    assert_eq!(art.bleed_mm, source_bleed);
+    assert_eq!(art.dpi, dpi);
     let url = art.image_url.clone();
     let source = images.read(&url).await.unwrap();
     let mut deck = common::deck(1);
     deck.entries[0].selected_art = Some(art);
     let settings = PrintSettings {
         dpi: 300,
+        bleed_mm: 2.0,
         bleed_mode: BleedMode::Edge,
         calibration_page: false,
         ..PrintSettings::default()
@@ -191,4 +214,16 @@ async fn detected_bleed_upload_fills_physical_trim_in_pdf_export() {
     assert_trim_outline(h, &|y| is_outline(bleed + w / 2, y));
     assert!(is_outline(0, bleed + h / 2));
     assert!(is_outline(bleed + w / 2, 0));
+    assert!(is_outline(w + 2 * bleed - 1, bleed + h / 2));
+    assert!(is_outline(bleed + w / 2, h + 2 * bleed - 1));
+    let corner = mm_to_pixels(3.0, settings.dpi) + 2;
+    for (x, y, pixel) in embedded.enumerate_pixels().filter(|(x, y, _)| {
+        (bleed + corner..bleed + w - corner).contains(x)
+            || (bleed + corner..bleed + h - corner).contains(y)
+    }) {
+        assert!(
+            pixel.0.into_iter().max().unwrap() > 128,
+            "{width} × {height}: background band at ({x}, {y})"
+        );
+    }
 }

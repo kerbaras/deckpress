@@ -19,10 +19,11 @@ pub(crate) const UPLOAD_CARD_MM: (f64, f64) = (63.0, 88.0);
 const MPC_BLEED_MM: f64 = 3.048;
 const EIGHTH_INCH_MM: f64 = 3.175;
 const BLEED_ASPECT_TOLERANCE: f64 = 0.0015;
+const TRIM_ASPECT_TOLERANCE: f64 = 0.01;
 
 /// Bump when `rasterize` output changes for identical inputs so cached
 /// previews and PDF rasters are regenerated.
-pub const PIPELINE_VERSION: u32 = 3;
+pub const PIPELINE_VERSION: u32 = 4;
 
 /// Corner radius of a real card.
 pub const CORNER_RADIUS_MM: f64 = 3.0;
@@ -330,6 +331,16 @@ pub fn rasterize(
     if target_w == 0 || target_h == 0 {
         return Err(AppError::user("Card dimensions are too small to print"));
     }
+    let trim_aspect = settings.card_width_mm / settings.card_height_mm;
+    let expected_width = f64::from(face.height()) * trim_aspect;
+    // Rounding the two crop edges can cost a source pixel per axis.
+    let crop_rounding = if art.bleed_mm > 0.0 {
+        1.0 + trim_aspect
+    } else {
+        0.0
+    };
+    let fills_trim = (f64::from(face.width()) - expected_width).abs()
+        <= expected_width * TRIM_ASPECT_TOLERANCE + crop_rounding;
     let mut upscaled = false;
     if settings.upscale
         && f64::from(face.width()) < f64::from(target_w) * 0.95
@@ -340,7 +351,11 @@ pub fn rasterize(
         upscaled = true;
     }
     cancel.check()?;
-    let face = contain(&face, target_w, target_h, background)?;
+    let face = if fills_trim {
+        resize(&face, target_w, target_h)?
+    } else {
+        contain(&face, target_w, target_h, background)?
+    };
     Ok(RasterOutput {
         image: finish_face(&face, settings, background),
         upscaled,

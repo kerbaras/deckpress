@@ -335,6 +335,34 @@ fn corners_are_filled_outside_the_radius_only() {
 }
 
 #[test]
+fn edge_fills_near_matching_trim_without_cropping_mismatched_art() {
+    let settings = PrintSettings {
+        dpi: 300,
+        bleed_mm: 2.0,
+        bleed_mode: BleedMode::Edge,
+        ..PrintSettings::default()
+    };
+    let art_color = Rgb([200, 40, 40]);
+    let background = parse_hex_color(&settings.bleed_color);
+    for (w, h, vertical_edge) in [(372, 520, art_color), (900, 900, background)] {
+        let source = common::png(w, h, art_color.0);
+        let out = rasterize(
+            &source,
+            &art(0.0, Provider::Scryfall),
+            &settings,
+            None,
+            &CancelToken::default(),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        let (width, height) = out.image.dimensions();
+        assert!((0..width).all(|x| *out.image.get_pixel(x, height / 2) == art_color));
+        assert_eq!(*out.image.get_pixel(width / 2, 0), vertical_edge);
+        assert_eq!(*out.image.get_pixel(width / 2, height - 1), vertical_edge);
+    }
+}
+
+#[test]
 fn rasterizes_to_physical_size_plus_bleed_without_upscaling() {
     let settings = PrintSettings {
         dpi: 300,
