@@ -646,8 +646,8 @@ function DeckCards({
             {countCards(deck.entries)} cards have chosen art
           </strong>
           <p>
-            Unchanged cards use the original Scryfall printing. Click any card
-            to compare editions.
+            Cards without custom art use the image they were imported with.
+            Click any card to compare editions.
           </p>
         </div>
         <div className="spacer" />
