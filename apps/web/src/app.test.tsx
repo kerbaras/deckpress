@@ -169,6 +169,22 @@ it("shows print-job loading immediately as unkeyed status text", async () => {
   expect(status).not.toBeInTheDocument();
 });
 
+it("shows workspace loading immediately as unkeyed status text", async () => {
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  const pending = Promise.withResolvers<Awaited<ReturnType<typeof api.deck>>>();
+  vi.spyOn(api, "deck").mockReturnValue(pending.promise);
+  renderWithClient(<App />);
+
+  const status = screen.getByText("Opening deck…");
+  expect(status).toBeVisible();
+  expect(status).toHaveRole("status");
+  expect(within(status).queryByRole("group")).not.toBeInTheDocument();
+
+  pending.resolve(deck);
+  await screen.findByRole("button", { name: "Art studio" });
+  expect(status).not.toBeInTheDocument();
+});
+
 it.each([22, 43, 250])(
   "keeps one Discover loading announcement across a sidebar toggle during a %i ms search",
   async (duration) => {

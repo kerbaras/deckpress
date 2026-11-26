@@ -49,11 +49,11 @@ import {
   ArtThumbnail,
   countCards,
   ErrorNotice,
-  Loading,
   ManaPips,
   Modal,
   SearchField,
   StatusRegion,
+  UnkeyedLoading,
   useTask,
   zoneLabel,
   zoneNames,
@@ -98,7 +98,7 @@ export function Workspace({
     queryFn: ({ signal }) => api.deck(id, signal),
     refetchOnWindowFocus: false,
   });
-  if (query.isPending) return <Loading>Opening deck…</Loading>;
+  if (query.isPending) return <UnkeyedLoading>Opening deck…</UnkeyedLoading>;
   if (!query.data)
     return (
       <>
