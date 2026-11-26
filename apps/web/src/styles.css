@@ -2116,6 +2116,20 @@ dd {
 .settings-panel[hidden] {
   display: none;
 }
+.print-advanced > summary {
+  cursor: pointer;
+  min-height: var(--control-size);
+  font-size: var(--type-control);
+  line-height: var(--control-size);
+}
+.print-advanced > .advanced-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.print-advanced:not([open]) > .advanced-fields {
+  display: none;
+}
 .scm-template-details {
   margin: 0;
 }
@@ -2188,8 +2202,9 @@ dd {
   align-self: stretch;
 }
 .proof-sticky {
+  --proof-height: 48vh;
   position: sticky;
-  top: 20px;
+  top: var(--space-4);
   background: var(--canvas);
   border: 1px solid var(--raised);
   border-radius: var(--panel-radius);
@@ -2197,12 +2212,63 @@ dd {
   background-image: radial-gradient(var(--raised) 0.8px, transparent 0.8px);
   background-size: 16px 16px;
 }
+.print-summary {
+  background: var(--panel);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--panel-radius);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.print-summary-heading {
+  justify-content: space-between;
+}
+.print-summary-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-2) 0;
+}
+.print-summary-values > div {
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0;
+  font-size: var(--type-meta);
+  line-height: var(--leading-meta);
+}
+.print-summary-values > div,
+.print-summary-values > div:last-child {
+  border: 0;
+}
+.print-summary-values dd {
+  text-align: start;
+}
+.print-summary p {
+  margin: var(--space-1) 0 0;
+}
+.print-blockers {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--panel-radius);
+  font-size: var(--type-meta);
+  line-height: var(--leading-meta);
+}
+.print-blockers .notice {
+  margin: var(--space-1) 0;
+}
+.print-blockers a {
+  display: inline-block;
+  color: var(--accent);
+  text-decoration: underline;
+}
+.print-blockers a + a {
+  margin-inline-start: var(--space-3);
+}
 .proof-canvas {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 24px 10px;
-  min-height: 360px;
+  padding: var(--space-3) var(--space-2);
 }
 .proof-sheet {
   display: block;
@@ -2693,6 +2759,11 @@ progress::-webkit-progress-value {
     padding-inline: var(--space-2);
   }
 }
+@media (max-width: 1100px) {
+  .proof-sticky {
+    --proof-height: 40vh;
+  }
+}
 @media (max-width: 1000px) {
   :root {
     --sidebar: 52px;
@@ -2897,11 +2968,7 @@ progress::-webkit-progress-value {
   }
   .proof-sticky {
     position: static;
-    padding: 13px;
-  }
-  .print-title > .mono {
-    flex-basis: 100%;
-    order: 3;
+    padding: var(--space-3);
   }
   .proof-meta {
     gap: 10px;
