@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, type ImportResult, UrlImportError } from "./api.ts";
+import { isMpcXml } from "./core/index.ts";
 import { ImportReview, importStatus } from "./import-review.tsx";
 import { countCards, ErrorNotice, useTask } from "./ui.tsx";
 
@@ -35,6 +36,7 @@ export function ImportPanel({
   const task = useTask();
   const save = useTask();
   const busy = task.busy || save.busy;
+  const mpc = mode !== "url" && isMpcXml(text);
   const reset = () => {
     setResult(null);
     setSaved(null);
@@ -114,7 +116,7 @@ export function ImportPanel({
               <label className="file-drop">
                 <FileUp size={22} />
                 <strong>Choose a decklist</strong>
-                <span>TXT, CSV, Arena export or MTGO .dek</span>
+                <span>TXT, CSV, Arena export, MTGO .dek or MPC Autofill XML</span>
                 <input
                   type="file"
                   accept=".txt,.csv,.dek,.xml"
@@ -122,7 +124,10 @@ export function ImportPanel({
                     const file = event.target.files?.[0];
                     if (file)
                       void task.run(async () => {
-                        if (file.size > 200_000)
+                        if (/\.xml$/i.test(file.name)) {
+                          if (file.size > 512 * 1024)
+                            throw new Error("XML decklist exceeds 512 KB");
+                        } else if (file.size > 200_000)
                           throw new Error("Decklist exceeds 200 KB");
                         setText(await file.text());
                         reset();
@@ -149,8 +154,8 @@ export function ImportPanel({
               />
             </label>
             <p className="hint">
-              Plain text, Arena, CSV and named MTGO XML. Set codes and collector
-              numbers keep the exact printing.
+              Plain text, Arena, CSV, named MTGO XML and MPC Autofill XML. Set
+              codes and collector numbers keep the exact printing.
             </p>
           </>
         )}
@@ -160,7 +165,13 @@ export function ImportPanel({
           disabled={mode === "url" ? !url.trim() : !text.trim()}
           onClick={resolve}
         >
-          {task.busy ? "Resolving cards…" : "Resolve on Scryfall"}
+          {task.busy
+            ? mpc
+              ? "Reading MPC Autofill order…"
+              : "Resolving cards…"
+            : mpc
+              ? "Read MPC Autofill order"
+              : "Resolve on Scryfall"}
         </button>
       </fieldset>
       <ErrorNotice error={task.error} />

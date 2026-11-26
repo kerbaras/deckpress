@@ -2,11 +2,12 @@
 //! serialized through a single rate limiter (550 ms between requests, 30 s
 //! back-off on 429) and every JSON response is cached in SQLite for 24 hours.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use reqwest::{redirect, Client, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
@@ -14,7 +15,7 @@ use url::Url;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    new_id, Art, ArtPage, Card, DeckEntry, ImportIssue, ImportLine, Provider, ResolvedCards,
+    new_id, Art, ArtPage, Card, DeckEntry, ImportIssue, ImportLine, Provider, ResolvedCards, Zone,
 };
 use crate::store::Store;
 
@@ -23,11 +24,94 @@ const SCRYFALL_INTERVAL: Duration = Duration::from_millis(550);
 const SCRYFALL_BACKOFF: Duration = Duration::from_secs(30);
 const COLLECTION_BATCH: usize = 75;
 const MPC_PAGE: usize = 48;
+const MPC_PROJECT_LIMIT: usize = 612;
 
 pub struct Providers {
     store: Arc<Store>,
     client: Client,
     scryfall_next: Mutex<Instant>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MpcCard {
+    name: String,
+    download_link: String,
+    medium_thumbnail_url: String,
+    source: String,
+    dpi: f64,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default = "english")]
+    language: String,
+    #[serde(default)]
+    searchq: String,
+    #[serde(default)]
+    extension: String,
+    #[serde(default)]
+    card_type: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MpcArtwork {
+    pub art: Art,
+    pub filename: String,
+    pub query: String,
+}
+
+impl MpcCard {
+    fn artwork(self, id: &str) -> MpcArtwork {
+        let lower = self.name.to_lowercase();
+        let mut tags = self.tags;
+        if lower.contains("full art") {
+            tags.push("full art".into());
+        }
+        if lower.contains("borderless") {
+            tags.push("borderless".into());
+        }
+        let prefix = match self.card_type.as_str() {
+            "TOKEN" => "t:",
+            "CARDBACK" => "b:",
+            _ => "",
+        };
+        let filename = if self.extension.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}.{}", self.name, self.extension)
+        };
+        MpcArtwork {
+            filename: filename.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_"),
+            query: format!(
+                "{prefix}{}",
+                if self.searchq.is_empty() {
+                    &self.name
+                } else {
+                    &self.searchq
+                }
+            ),
+            art: Art {
+                id: format!("mpc:{id}"),
+                provider: Provider::Mpc,
+                name: self.name,
+                image_url: self.download_link.clone(),
+                thumbnail_url: self.medium_thumbnail_url,
+                art_crop_url: String::new(),
+                source_url: self.download_link,
+                source: self.source,
+                artist: "Uncredited".into(),
+                set: String::new(),
+                collector_number: String::new(),
+                language: self.language.to_lowercase(),
+                released_at: String::new(),
+                tags,
+                dpi: if self.dpi > 0.0 { self.dpi } else { 300.0 },
+                bleed_mm: 3.048,
+                back_image_url: String::new(),
+                back_thumbnail_url: String::new(),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -352,6 +436,73 @@ impl Providers {
         Ok(ResolvedCards { entries, issues })
     }
 
+    async fn collection_by_id(&self, ids: BTreeSet<uuid::Uuid>) -> AppResult<Vec<Value>> {
+        let ids: Vec<_> = ids.into_iter().collect();
+        let mut result = Vec::new();
+        for batch in ids.chunks(COLLECTION_BATCH) {
+            let identifiers: Vec<_> = batch
+                .iter()
+                .map(|id| serde_json::json!({ "id": id.to_string() }))
+                .collect();
+            let mut response = self
+                .json(
+                    "https://api.scryfall.com/cards/collection",
+                    Some(serde_json::json!({ "identifiers": identifiers })),
+                )
+                .await?;
+            let cards = response
+                .get_mut("data")
+                .and_then(Value::as_array_mut)
+                .ok_or_else(|| AppError::user("Unexpected Scryfall collection data"))?;
+            result.append(cards);
+        }
+        Ok(result)
+    }
+
+    pub async fn related_tokens(&self, card_ids: Vec<String>) -> AppResult<Vec<DeckEntry>> {
+        if card_ids.len() > 1000 {
+            return Err(AppError::user("Decklists are limited to 1000 lines"));
+        }
+        let producers = card_ids
+            .iter()
+            .map(|id| uuid::Uuid::parse_str(id).map_err(|_| AppError::user("Invalid card ID")))
+            .collect::<AppResult<_>>()?;
+        let ids = self
+            .collection_by_id(producers)
+            .await?
+            .iter()
+            .filter_map(|card| card["all_parts"].as_array())
+            .flatten()
+            .filter(|part| {
+                part["component"] == "token"
+                    || (part["component"] == "combo_piece"
+                        && part["type_line"]
+                            .as_str()
+                            .is_some_and(|line| line.starts_with("Emblem")))
+            })
+            .filter_map(|part| uuid::Uuid::parse_str(part["id"].as_str()?).ok())
+            .collect();
+        let mut seen = BTreeSet::new();
+        let mut entries: Vec<_> = self
+            .collection_by_id(ids)
+            .await?
+            .iter()
+            .filter_map(|raw| normalize_scryfall(raw).ok())
+            .filter(|card| seen.insert(card.oracle_id.clone()))
+            .map(|card| DeckEntry {
+                id: new_id(),
+                card,
+                quantity: 1,
+                zone: Zone::Tokens,
+                selected_art: None,
+                selected_back: None,
+                excluded: false,
+            })
+            .collect();
+        entries.sort_by(|a, b| a.card.name.cmp(&b.card.name));
+        Ok(entries)
+    }
+
     pub async fn prints(&self, oracle_id: &str, page: u32, face: usize) -> AppResult<ArtPage> {
         let mut url = Url::parse("https://api.scryfall.com/cards/search").expect("static URL");
         url.query_pairs_mut()
@@ -383,27 +534,55 @@ impl Providers {
         })
     }
 
+    async fn mpc_cards_batch(&self, ids: &[String]) -> AppResult<Vec<MpcArtwork>> {
+        let response = self
+            .json(
+                "https://mpcfill.com/2/cards/",
+                Some(serde_json::json!({ "cardIdentifiers": ids })),
+            )
+            .await?;
+        Ok(ids
+            .iter()
+            .filter_map(|id| {
+                let raw = response.get("results")?.get(id)?;
+                let card: MpcCard = serde_json::from_value(raw.clone()).ok()?;
+                Some(card.artwork(id))
+            })
+            .collect())
+    }
+
+    pub async fn mpc_artwork(&self, ids: Vec<String>) -> AppResult<Vec<MpcArtwork>> {
+        if ids.len() > MPC_PROJECT_LIMIT * 2
+            || ids.iter().any(|id| {
+                id.is_empty()
+                    || id.len() > 120
+                    || !id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            })
+        {
+            return Err(AppError::user("Invalid MPC Autofill artwork IDs"));
+        }
+        let ids: Vec<_> = ids
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut artwork = Vec::new();
+        for batch in ids.chunks(MPC_PAGE) {
+            artwork.extend(self.mpc_cards_batch(batch).await?);
+        }
+        for item in &artwork {
+            crate::images::validate_image_url(&item.art.image_url)?;
+            crate::images::validate_image_url(&item.art.thumbnail_url)?;
+        }
+        Ok(artwork)
+    }
+
     pub async fn community(&self, name: &str, page: u32) -> AppResult<ArtPage> {
         #[derive(Deserialize)]
         struct Source {
             pk: u64,
-        }
-        #[derive(Deserialize)]
-        struct MpcCard {
-            name: String,
-            #[serde(rename = "downloadLink")]
-            download_link: String,
-            #[serde(rename = "mediumThumbnailUrl")]
-            medium_thumbnail_url: String,
-            source: String,
-            dpi: f64,
-            #[serde(default)]
-            tags: Vec<String>,
-            #[serde(default = "english_upper")]
-            language: String,
-        }
-        fn english_upper() -> String {
-            "EN".into()
         }
         let sources = self.json("https://mpcfill.com/2/sources/", None).await?;
         let pks: Vec<Value> = sources
@@ -453,47 +632,11 @@ impl Providers {
                 total,
             });
         }
-        let cards = self
-            .json(
-                "https://mpcfill.com/2/cards/",
-                Some(serde_json::json!({ "cardIdentifiers": batch })),
-            )
-            .await?;
-        let items = batch
-            .iter()
-            .filter_map(|id| {
-                let card: MpcCard =
-                    serde_json::from_value(cards.pointer(&format!("/results/{id}"))?.clone())
-                        .ok()?;
-                let lower = card.name.to_lowercase();
-                let mut tags = card.tags;
-                if lower.contains("full art") {
-                    tags.push("full art".into());
-                }
-                if lower.contains("borderless") {
-                    tags.push("borderless".into());
-                }
-                Some(Art {
-                    id: format!("mpc:{id}"),
-                    provider: Provider::Mpc,
-                    name: card.name,
-                    image_url: card.download_link.clone(),
-                    thumbnail_url: card.medium_thumbnail_url,
-                    art_crop_url: String::new(),
-                    source_url: card.download_link,
-                    source: card.source,
-                    artist: "Uncredited".into(),
-                    set: String::new(),
-                    collector_number: String::new(),
-                    language: card.language.to_lowercase(),
-                    released_at: String::new(),
-                    tags,
-                    dpi: if card.dpi > 0.0 { card.dpi } else { 300.0 },
-                    bleed_mm: 3.048,
-                    back_image_url: String::new(),
-                    back_thumbnail_url: String::new(),
-                })
-            })
+        let items = self
+            .mpc_cards_batch(&batch)
+            .await?
+            .into_iter()
+            .map(|item| item.art)
             .collect();
         Ok(ArtPage {
             items,

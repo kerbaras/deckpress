@@ -1,7 +1,7 @@
 import { Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { ImportResult } from "./api.ts";
-import { zones } from "./core/index.ts";
+import { mpcXmlFormat, zones } from "./core/index.ts";
 import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
 
 const plural = (count: number) => `${count} ${count === 1 ? "card" : "cards"}`;
@@ -17,11 +17,16 @@ export function boardCounts(entries: ImportResult["entries"]) {
 }
 
 /** What the Add or Replace action will do, in one sentence. */
-export function saveScope(total: number, existing: number, replace: boolean) {
+export function saveScope(
+  total: number,
+  existing: number,
+  replace: boolean,
+  mpc = false,
+) {
   if (!total)
     return "No cards resolved, so there is nothing to save. Correct the lines above and resolve again.";
   if (replace && existing)
-    return `Replace removes the ${plural(existing)} in this deck and saves these ${plural(total)}, keeping art choices for matching cards.`;
+    return `Replace removes the ${plural(existing)} in this deck and saves these ${plural(total)}${mpc ? " with the MPC Autofill artwork." : ", keeping art choices for matching cards."}`;
   if (existing)
     return `Add saves these ${plural(total)} alongside the ${plural(existing)} already in this deck.`;
   return `Add saves these ${plural(total)} to this deck.`;
@@ -69,6 +74,7 @@ export function ImportReview({
   const total = countCards(result.entries);
   const boards = boardCounts(result.entries);
   const locked = saving || saved !== null;
+  const mpc = result.format === mpcXmlFormat;
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     heading.current?.focus();
@@ -121,11 +127,13 @@ export function ImportReview({
             disabled={saving}
             onChange={(event) => onReplace(event.target.checked)}
           />
-          Replace current list, keeping matching art choices
+          {mpc
+            ? "Replace current list with the MPC Autofill order"
+            : "Replace current list, keeping matching art choices"}
         </label>
       )}
       {saved === null && (
-        <p className="hint">{saveScope(total, existing, replace)}</p>
+        <p className="hint">{saveScope(total, existing, replace, mpc)}</p>
       )}
       <ErrorNotice error={saveError} />
       <button
