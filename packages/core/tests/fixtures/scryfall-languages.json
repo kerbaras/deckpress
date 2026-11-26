@@ -1,0 +1,89 @@
+{
+  "collection": {
+    "object": "list",
+    "not_found": [],
+    "data": [
+      {
+        "id": "435589bb-27c6-4a6d-9d63-394d5092b9d8",
+        "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
+        "name": "Lightning Bolt",
+        "set": "m10",
+        "set_name": "Magic 2010",
+        "collector_number": "146",
+        "lang": "en",
+        "image_uris": { "png": "https://cards.scryfall.io/png/front/4/3/435589bb-27c6-4a6d-9d63-394d5092b9d8.png?1783942371" }
+      },
+      {
+        "id": "b0faa7f2-b547-42c4-a810-839da50dadfe",
+        "oracle_id": "5089ec1a-f881-4d55-af14-5d996171203b",
+        "name": "Black Lotus",
+        "set": "lea",
+        "set_name": "Limited Edition Alpha",
+        "collector_number": "232",
+        "lang": "en",
+        "image_uris": { "png": "https://cards.scryfall.io/png/front/b/0/b0faa7f2-b547-42c4-a810-839da50dadfe.png?1783948669" }
+      },
+      {
+        "id": "7673784e-db4b-43a1-8d55-1bb9fc1e284f",
+        "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
+        "name": "Lightning Bolt",
+        "set": "msc",
+        "set_name": "Marvel Super Heroes Commander",
+        "collector_number": "806",
+        "lang": "en",
+        "image_uris": { "png": "https://cards.scryfall.io/png/front/7/6/7673784e-db4b-43a1-8d55-1bb9fc1e284f.png?1783903008" }
+      }
+    ]
+  },
+  "exact_es": {
+    "id": "9ba97b51-148e-47ab-8a99-e19764c89b59",
+    "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
+    "name": "Lightning Bolt",
+    "printed_name": "Relámpago",
+    "set": "m10",
+    "set_name": "Magic 2010",
+    "collector_number": "146",
+    "lang": "es",
+    "image_uris": { "png": "https://cards.scryfall.io/png/front/9/b/9ba97b51-148e-47ab-8a99-e19764c89b59.png?1783001231" }
+  },
+  "exact_fr": {
+    "id": "35d1bbd2-39ff-4578-bee3-9ddf4e357d0b",
+    "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
+    "name": "Lightning Bolt",
+    "set": "m10",
+    "set_name": "Magic 2010",
+    "collector_number": "146",
+    "lang": "fr",
+    "image_uris": { "png": "https://cards.scryfall.io/png/front/3/5/35d1bbd2-39ff-4578-bee3-9ddf4e357d0b.png?1783001231" }
+  },
+  "search_es": {
+    "object": "list",
+    "total_cards": 9,
+    "has_more": false,
+    "data": [
+      {
+        "id": "05aa8d78-789f-440a-b1fc-6daea5982b9a",
+        "oracle_id": "4457ed35-7c10-48c8-9776-456485fdf070",
+        "name": "Lightning Bolt",
+        "printed_name": "Relámpago",
+        "set": "tle",
+        "set_name": "Avatar: The Last Airbender Eternal",
+        "collector_number": "32",
+        "lang": "es",
+        "image_uris": { "png": "https://cards.scryfall.io/png/front/0/5/05aa8d78-789f-440a-b1fc-6daea5982b9a.png?1782763912" }
+      }
+    ]
+  },
+  "absent_exact_es": {
+    "object": "error",
+    "code": "not_found",
+    "status": 404,
+    "details": "No card found with the given ID or set code and collector number."
+  },
+  "absent_search_es": {
+    "object": "error",
+    "code": "not_found",
+    "status": 404,
+    "details": "Your query didn’t match any cards. Adjust your search terms or refer to the syntax guide at https://scryfall.com/docs/reference"
+  }
+}

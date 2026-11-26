@@ -2,6 +2,7 @@ import { Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { ImportResult } from "./api.ts";
 import { mpcXmlFormat, zones } from "./core/index.ts";
+import { isEnglishFallback } from "./print-language.tsx";
 import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
 
 const plural = (count: number) => `${count} ${count === 1 ? "card" : "cards"}`;
@@ -73,6 +74,13 @@ export function ImportReview({
 }) {
   const total = countCards(result.entries);
   const boards = boardCounts(result.entries);
+  const fallbacks = [
+    ...new Set(
+      result.entries
+        .filter((entry) => isEnglishFallback(entry))
+        .map((entry) => entry.card.name),
+    ),
+  ];
   const locked = saving || saved !== null;
   const mpc = result.format === mpcXmlFormat;
   const heading = useRef<HTMLHeadingElement>(null);
@@ -96,6 +104,9 @@ export function ImportReview({
           ))}
         </ul>
       )}
+      {fallbacks.length > 0 && (
+        <p className="hint">English fallback: {fallbacks.join(", ")}</p>
+      )}
       {result.issues.length > 0 && (
         <div className="import-issues">
           <strong>
@@ -114,8 +125,10 @@ export function ImportReview({
             ))}
           </ul>
           <p>
-            Only resolved cards will be saved. Correct these lines and resolve
-            again to include them.
+            Only resolved cards will be saved.{" "}
+            {result.missingPrints?.length
+              ? "Correct the lines or change your print language settings, then resolve again."
+              : "Correct these lines and resolve again to include them."}
           </p>
         </div>
       )}

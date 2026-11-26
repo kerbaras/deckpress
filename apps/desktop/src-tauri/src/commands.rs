@@ -14,8 +14,8 @@ use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, External
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::UploadInput;
 use deckpress_core::models::{
-    Art, ArtPage, ArtPreference, Deck, DeckEntry, ImportLine, NewDeck, PrintJob, PrintSettings,
-    PrinterProfile, PrinterProfileInput, ResolvedCards,
+    Art, ArtPage, ArtPreference, Deck, DeckEntry, ImportLine, NewDeck, PrintJob,
+    PrintLanguagePreferences, PrintSettings, PrinterProfile, PrinterProfileInput, ResolvedCards,
 };
 use deckpress_core::pdf::build_duplex_calibration_pdf;
 use deckpress_core::providers::MpcArtwork;
@@ -54,6 +54,7 @@ pub struct Settings {
     pub storage: &'static str,
     pub local_only: bool,
     pub data_dir: String,
+    pub print_language: PrintLanguagePreferences,
 }
 
 #[tauri::command]
@@ -66,7 +67,16 @@ pub fn settings(state: State<'_, AppState>) -> AppResult<Settings> {
         storage: "Local SQLite",
         local_only: true,
         data_dir: state.data_dir.display().to_string(),
+        print_language: state.providers.print_language_preferences()?,
     })
+}
+
+#[tauri::command]
+pub fn save_print_language(
+    state: State<'_, AppState>,
+    preferences: PrintLanguagePreferences,
+) -> AppResult<PrintLanguagePreferences> {
+    state.providers.save_print_language_preferences(preferences)
 }
 
 #[tauri::command]
@@ -178,7 +188,7 @@ pub async fn resolve_cards(
     if lines.len() > 1000 {
         return Err(AppError::user("Decklists are limited to 1000 lines"));
     }
-    state.providers.resolve(lines).await
+    state.providers.resolve_import(lines).await
 }
 
 #[tauri::command]
@@ -205,10 +215,16 @@ pub async fn search_art(
     name: String,
     face: usize,
     page: u32,
+    language: Option<String>,
 ) -> AppResult<ArtPage> {
     let page = page.clamp(1, 100);
     match provider.as_str() {
-        "scryfall" => state.providers.prints(&oracle_id, page, face.min(1)).await,
+        "scryfall" => {
+            state
+                .providers
+                .prints(&oracle_id, page, face.min(1), language.as_deref())
+                .await
+        }
         "mpc" => state.providers.community(&name, page).await,
         _ => Err(AppError::user("Unknown art provider")),
     }

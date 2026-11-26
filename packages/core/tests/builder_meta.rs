@@ -246,6 +246,7 @@ async fn atraxa_counters_midrange_resembles_popular_atraxa_lists() {
         selected_art: None,
         selected_back: None,
         excluded: false,
+        requested_languages: Vec::new(),
     }];
     let meta = meta_decks(
         &harness,

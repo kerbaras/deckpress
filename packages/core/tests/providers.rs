@@ -1,10 +1,15 @@
 use std::sync::Arc;
 
-use deckpress_core::models::{Provider, Zone};
+use deckpress_core::models::{
+    ImportLine, PrintLanguagePolicy, PrintLanguagePreferences, Provider, Zone,
+};
 use deckpress_core::providers::{moxfield_status_error, normalize_scryfall, Providers};
 use deckpress_core::store::Store;
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+
+const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
+const LOTUS: &str = "5089ec1a-f881-4d55-af14-5d996171203b";
 
 fn sample() -> Value {
     serde_json::json!({
@@ -135,4 +140,169 @@ async fn suggests_printable_tokens_and_emblems_from_all_parts() {
     assert!(entries
         .iter()
         .all(|entry| entry.zone == Zone::Tokens && entry.quantity == 1));
+}
+
+fn lines() -> Vec<ImportLine> {
+    [
+        ("Lightning Bolt", "m10", "146"),
+        ("Black Lotus", "lea", "232"),
+        ("Lightning Bolt", "", ""),
+    ]
+    .into_iter()
+    .map(|(name, set, collector_number)| ImportLine {
+        name: name.into(),
+        set: set.into(),
+        collector_number: collector_number.into(),
+        quantity: 1,
+        zone: Zone::Main,
+    })
+    .collect()
+}
+
+fn preferences(languages: &[&str], policy: PrintLanguagePolicy) -> PrintLanguagePreferences {
+    PrintLanguagePreferences {
+        languages: languages
+            .iter()
+            .map(|language| (*language).into())
+            .collect(),
+        policy,
+    }
+}
+
+fn record(store: &Store, url: &str, body: Value, response: &Value) {
+    let key = hex::encode(Sha256::digest(format!("{url}{body}")));
+    let data = if response.get("status").and_then(Value::as_u64) == Some(404) {
+        &Value::Null
+    } else {
+        response
+    };
+    store.put("cache", &key, data).unwrap();
+}
+
+fn search_url(query: &str) -> String {
+    let mut url = url::Url::parse("https://api.scryfall.com/cards/search").unwrap();
+    url.query_pairs_mut().append_pair("q", query);
+    format!("{url}&unique=prints&include_multilingual=true&order=released&dir=desc&page=1")
+}
+
+fn recorded_providers() -> Providers {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/scryfall-languages.json")).unwrap();
+    let store = Arc::new(Store::in_memory().unwrap());
+    record(
+        &store,
+        "https://api.scryfall.com/cards/collection",
+        json!({"identifiers": [
+            {"set": "m10", "collector_number": "146"},
+            {"set": "lea", "collector_number": "232"},
+            {"name": "Lightning Bolt"}
+        ]}),
+        &fixture["collection"],
+    );
+    record(
+        &store,
+        "https://api.scryfall.com/cards/collection",
+        json!({"identifiers": [{"set": "m10", "collector_number": "146"}]}),
+        &json!({"object": "list", "not_found": [], "data": [fixture["collection"]["data"][0]]}),
+    );
+    for (path, key) in [
+        ("m10/146/es", "exact_es"),
+        ("m10/146/fr", "exact_fr"),
+        ("lea/232/es", "absent_exact_es"),
+    ] {
+        record(
+            &store,
+            &format!("https://api.scryfall.com/cards/{path}"),
+            Value::Null,
+            &fixture[key],
+        );
+    }
+    for (query, key) in [
+        (format!("oracleid:{BOLT} game:paper lang:es"), "search_es"),
+        (
+            format!("oracleid:{LOTUS} game:paper lang:es"),
+            "absent_search_es",
+        ),
+    ] {
+        record(&store, &search_url(&query), Value::Null, &fixture[key]);
+    }
+    Providers::new(store).unwrap()
+}
+
+async fn check_spanish_import(providers: &Providers) {
+    providers
+        .save_print_language_preferences(preferences(&["es"], PrintLanguagePolicy::Strict))
+        .unwrap();
+    let strict = providers.resolve_import(lines()).await.unwrap();
+    assert_eq!(strict.entries.len(), 2);
+    assert_eq!(strict.entries[0].front_art().language, "es");
+    assert_eq!(strict.entries[0].front_art().set, "m10");
+    assert_eq!(strict.entries[0].front_art().collector_number, "146");
+    assert_eq!(strict.entries[1].front_art().language, "es");
+    assert_eq!(strict.entries[1].card.name, "Lightning Bolt");
+    assert_eq!(strict.issues.len(), 1);
+    assert_eq!(strict.missing_prints.len(), 1);
+    assert_eq!(strict.missing_prints[0].input, "1 Black Lotus (lea) 232");
+    assert_eq!(strict.missing_prints[0].languages, ["es"]);
+
+    providers
+        .save_print_language_preferences(preferences(
+            &["es"],
+            PrintLanguagePolicy::FallbackToEnglish,
+        ))
+        .unwrap();
+    let fallback = providers.resolve_import(lines()).await.unwrap();
+    assert!(fallback.issues.is_empty());
+    assert!(fallback.missing_prints.is_empty());
+    assert_eq!(fallback.entries.len(), 3);
+    let lotus = &fallback.entries[1];
+    assert_eq!(lotus.card.name, "Black Lotus");
+    assert_eq!(lotus.front_art().language, "en");
+    assert_eq!(lotus.requested_languages, ["es"]);
+}
+
+#[tokio::test]
+async fn spanish_policy_and_art_search_use_recorded_scryfall_prints() {
+    let providers = recorded_providers();
+    assert_eq!(
+        providers.print_language_preferences().unwrap(),
+        PrintLanguagePreferences::default()
+    );
+    check_spanish_import(&providers).await;
+    let art = providers.prints(BOLT, 1, 0, Some("es")).await.unwrap();
+    assert_eq!(art.total, 9);
+    assert_eq!(art.items[0].language, "es");
+    assert!(providers
+        .prints(LOTUS, 1, 0, Some("es"))
+        .await
+        .unwrap()
+        .items
+        .is_empty());
+}
+
+#[tokio::test]
+async fn language_order_changes_exact_print_and_does_not_reuse_the_previous_locale() {
+    let providers = recorded_providers();
+    let mut input = lines();
+    input.truncate(1);
+    for (languages, expect) in [(["fr", "es"], "fr"), (["es", "fr"], "es")] {
+        providers
+            .save_print_language_preferences(preferences(&languages, PrintLanguagePolicy::Strict))
+            .unwrap();
+        let resolved = providers.resolve_import(input.clone()).await.unwrap();
+        assert_eq!(resolved.entries[0].front_art().language, expect);
+    }
+    assert!(providers
+        .save_print_language_preferences(preferences(&["es", "es"], PrintLanguagePolicy::Strict))
+        .is_err());
+}
+
+#[tokio::test]
+#[ignore = "talks to Scryfall"]
+async fn live_spanish_import_strict_and_fallback() {
+    let providers = Providers::new(Arc::new(Store::in_memory().unwrap())).unwrap();
+    check_spanish_import(&providers).await;
+    let art = providers.prints(BOLT, 1, 0, Some("es")).await.unwrap();
+    assert!(!art.items.is_empty());
+    assert!(art.items.iter().all(|item| item.language == "es"));
 }

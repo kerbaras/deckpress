@@ -221,6 +221,7 @@ impl Store {
             format: input.format,
             notes: input.notes,
             entries: input.entries,
+            missing_prints: input.missing_prints,
             cover_entry_id: input.cover_entry_id,
             print_settings: input.print_settings,
             revision: 0,

@@ -26,7 +26,7 @@ export const artSchema = z.object({
   artist: z.string().max(200).default("Unknown"),
   set: z.string().max(20).default(""),
   collectorNumber: z.string().max(40).default(""),
-  language: z.string().max(20).default("en"),
+  language: z.string().max(20).default(""),
   releasedAt: z.string().max(40).default(""),
   tags: z.array(z.string().max(80)).max(40).default([]),
   dpi: z.number().min(1).max(10000).default(300),
@@ -56,8 +56,14 @@ export const entrySchema = z.object({
   selectedArt: artSchema.nullable().default(null),
   selectedBack: artSchema.nullable().default(null),
   excluded: z.boolean().default(false),
+  requestedLanguages: z.array(z.string()).optional(),
 });
 export type DeckEntry = z.infer<typeof entrySchema>;
+
+export const missingPrintSchema = z.object({
+  input: z.string(),
+  languages: z.array(z.string()),
+});
 
 export const papers = {
   a4: [210, 297],
@@ -156,6 +162,7 @@ export const deckSchema = z.object({
       "A deck can contain at most 1,500 cards",
     ),
   coverEntryId: z.string().max(36).default(""),
+  missingPrints: z.array(missingPrintSchema).optional(),
   printSettings: printSettingsSchema,
   revision: z.number().int().min(0),
   createdAt: z.iso.datetime(),
@@ -225,11 +232,23 @@ export function mergeImport(
 ): DeckEntry[] {
   const key = (entry: DeckEntry) =>
     `${entry.card.oracleId}:${entry.zone}:${entry.card.id}`;
+  const importKey = (entry: DeckEntry) =>
+    `${key(entry)}:${entry.requestedLanguages?.join(",") ?? ""}`;
   const result: DeckEntry[] = replace ? [] : [...previous];
   const used = new Set<string>();
   for (const entry of incoming) {
+    const permitsArt = (art: Art | null) =>
+      !art ||
+      !entry.requestedLanguages?.length ||
+      entry.requestedLanguages.includes(art.language) ||
+      art.language === frontArt(entry).language;
     if (!replace) {
-      const index = result.findIndex((item) => key(item) === key(entry));
+      const index = result.findIndex(
+        (item) =>
+          importKey(item) === importKey(entry) &&
+          permitsArt(item.selectedArt) &&
+          permitsArt(item.selectedBack),
+      );
       const old = result[index];
       if (old)
         result[index] = { ...old, quantity: old.quantity + entry.quantity };
@@ -260,8 +279,8 @@ export function mergeImport(
         ...entry,
         id: old.id,
         quantity,
-        selectedArt: old.selectedArt,
-        selectedBack: old.selectedBack,
+        selectedArt: permitsArt(old.selectedArt) ? old.selectedArt : null,
+        selectedBack: permitsArt(old.selectedBack) ? old.selectedBack : null,
         excluded: old.excluded,
       });
       used.add(old.id);

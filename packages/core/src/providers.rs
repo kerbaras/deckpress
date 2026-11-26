@@ -15,7 +15,8 @@ use url::Url;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    new_id, Art, ArtPage, Card, DeckEntry, ImportIssue, ImportLine, Provider, ResolvedCards, Zone,
+    new_id, Art, ArtPage, Card, DeckEntry, ImportIssue, ImportLine, MissingPrint,
+    PrintLanguagePolicy, PrintLanguagePreferences, Provider, ResolvedCards, Zone,
 };
 use crate::store::Store;
 
@@ -25,6 +26,10 @@ const SCRYFALL_BACKOFF: Duration = Duration::from_secs(30);
 const COLLECTION_BATCH: usize = 75;
 const MPC_PAGE: usize = 48;
 const MPC_PROJECT_LIMIT: usize = 612;
+const SCRYFALL_LANGUAGES: &[&str] = &[
+    "en", "es", "fr", "de", "it", "pt", "ja", "ko", "ru", "zhs", "zht", "he", "la", "grc", "ar",
+    "sa", "ph", "qya", "tlh", "dw",
+];
 
 pub struct Providers {
     store: Arc<Store>,
@@ -42,7 +47,7 @@ struct MpcCard {
     dpi: f64,
     #[serde(default)]
     tags: Vec<String>,
-    #[serde(default = "english")]
+    #[serde(default)]
     language: String,
     #[serde(default)]
     searchq: String,
@@ -149,7 +154,7 @@ struct ScryfallCard {
     set: String,
     set_name: String,
     collector_number: String,
-    #[serde(default = "english")]
+    #[serde(default)]
     lang: String,
     #[serde(default)]
     released_at: String,
@@ -171,9 +176,6 @@ struct ScryfallCard {
 
 fn unknown() -> String {
     "Unknown".into()
-}
-fn english() -> String {
-    "en".into()
 }
 fn black() -> String {
     "black".into()
@@ -277,6 +279,54 @@ fn fold_name(name: &str) -> String {
     name.trim().to_lowercase()
 }
 
+fn print_search(query: &str, page: u32) -> Url {
+    let mut url = Url::parse("https://api.scryfall.com/cards/search").expect("static URL");
+    url.query_pairs_mut()
+        .append_pair("q", query)
+        .append_pair("unique", "prints")
+        .append_pair("include_multilingual", "true")
+        .append_pair("order", "released")
+        .append_pair("dir", "desc")
+        .append_pair("page", &page.to_string());
+    url
+}
+
+fn cards_in(response: &Value) -> impl Iterator<Item = &Value> {
+    response
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+}
+
+fn has_more(response: &Value) -> bool {
+    response
+        .get("has_more")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn import_label(line: &ImportLine) -> String {
+    if line.set.is_empty() {
+        format!("{} {}", line.quantity, line.name)
+    } else {
+        format!(
+            "{} {} ({}) {}",
+            line.quantity, line.name, line.set, line.collector_number
+        )
+        .trim_end()
+        .to_string()
+    }
+}
+
+fn valid_languages(languages: &[String]) -> bool {
+    !languages.is_empty()
+        && languages.iter().enumerate().all(|(index, language)| {
+            SCRYFALL_LANGUAGES.contains(&language.as_str())
+                && !languages[..index].contains(language)
+        })
+}
+
 impl Providers {
     pub fn new(store: Arc<Store>) -> AppResult<Self> {
         let client = Client::builder()
@@ -292,11 +342,13 @@ impl Providers {
     }
 
     pub async fn json(&self, url: &str, body: Option<Value>) -> AppResult<Value> {
-        self.json_or_status(url, body).await?.map_err(|status| {
-            AppError::user(format!(
-                "Provider returned {status}. Try again or import an exported decklist instead."
-            ))
-        })
+        self.json_or_status(url, body, false)
+            .await?
+            .map_err(|status| {
+                AppError::user(format!(
+                    "Provider returned {status}. Try again or import an exported decklist instead."
+                ))
+            })
     }
 
     /// Like [`Self::json`], but hands a non-success HTTP status back to the
@@ -305,6 +357,7 @@ impl Providers {
         &self,
         url: &str,
         body: Option<Value>,
+        allow_missing: bool,
     ) -> AppResult<Result<Value, u16>> {
         let key = cache_key(url, body.as_ref());
         if let Some(cached) = self.store.cached(&key)? {
@@ -342,6 +395,10 @@ impl Providers {
             }
             return Err(AppError::RateLimited);
         }
+        if allow_missing && response.status() == StatusCode::NOT_FOUND {
+            self.store.put("cache", &key, &Value::Null)?;
+            return Ok(Ok(Value::Null));
+        }
         if !response.status().is_success() {
             return Ok(Err(response.status().as_u16()));
         }
@@ -353,9 +410,52 @@ impl Providers {
         Ok(Ok(json))
     }
 
+    async fn scryfall_json(&self, url: &str) -> AppResult<Value> {
+        self.json_or_status(url, None, true)
+            .await?
+            .map_err(|status| AppError::user(format!("Scryfall returned {status}. Try again.")))
+    }
+
+    pub fn print_language_preferences(&self) -> AppResult<PrintLanguagePreferences> {
+        Ok(self
+            .store
+            .get("settings", "print-language")?
+            .unwrap_or_default())
+    }
+
+    pub fn save_print_language_preferences(
+        &self,
+        preferences: PrintLanguagePreferences,
+    ) -> AppResult<PrintLanguagePreferences> {
+        if !valid_languages(&preferences.languages) {
+            return Err(AppError::user(
+                "Choose at least one supported print language, without duplicates.",
+            ));
+        }
+        self.store.put("settings", "print-language", &preferences)?;
+        Ok(preferences)
+    }
+
+    pub async fn resolve_import(&self, lines: Vec<ImportLine>) -> AppResult<ResolvedCards> {
+        self.resolve_with_languages(lines, &self.print_language_preferences()?)
+            .await
+    }
+
     pub async fn resolve(&self, lines: Vec<ImportLine>) -> AppResult<ResolvedCards> {
+        self.resolve_with_languages(lines, &PrintLanguagePreferences::default())
+            .await
+    }
+
+    async fn resolve_with_languages(
+        &self,
+        lines: Vec<ImportLine>,
+        preferences: &PrintLanguagePreferences,
+    ) -> AppResult<ResolvedCards> {
         let mut entries = Vec::new();
         let mut issues = Vec::new();
+        let mut missing_prints = Vec::new();
+        let languages = &preferences.languages;
+        let english_only = languages.as_slice() == ["en"];
         for (offset, batch) in lines.chunks(COLLECTION_BATCH).enumerate() {
             let identifiers: Vec<Value> = batch
                 .iter()
@@ -376,19 +476,15 @@ impl Providers {
                 )
                 .await?;
             let mut cards = Vec::new();
-            for item in response
-                .get("data")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
+            for item in cards_in(&response) {
                 match normalize_scryfall(item) {
                     Ok(card) => cards.push(card),
-                    Err(_) => issues.push(ImportIssue {
+                    Err(_) if english_only => issues.push(ImportIssue {
                         line: 0,
                         input: "Card without a printable scan".into(),
                         message: "Scryfall returned a card without supported imagery".into(),
                     }),
+                    Err(_) => {}
                 }
             }
             for (index, line) in batch.iter().enumerate() {
@@ -408,32 +504,63 @@ impl Providers {
                             .iter()
                             .any(|face| fold_name(&face.name) == wanted)
                 });
-                match found {
+                let card = if english_only {
+                    match found {
+                        Some(card) if card.faces[0].language == "en" => Some(card.clone()),
+                        Some(card) => self.localized_print(line, Some(card), "en").await?,
+                        None => None,
+                    }
+                } else {
+                    let mut localized = None;
+                    for language in languages {
+                        localized = self.localized_print(line, found, language).await?;
+                        if localized.is_some() {
+                            break;
+                        }
+                    }
+                    if localized.is_none()
+                        && preferences.policy == PrintLanguagePolicy::FallbackToEnglish
+                        && !languages.iter().any(|lang| lang == "en")
+                    {
+                        localized = self.localized_print(line, found, "en").await?;
+                    }
+                    localized
+                };
+                match card {
                     Some(card) => entries.push(DeckEntry {
                         id: new_id(),
-                        card: card.clone(),
+                        card,
                         quantity: line.quantity,
                         zone: line.zone,
                         selected_art: None,
                         selected_back: None,
                         excluded: false,
+                        requested_languages: if english_only { Vec::new() } else { languages.clone() },
                     }),
+                    None if found.is_some() || !english_only => {
+                        let input = import_label(line);
+                        issues.push(ImportIssue {
+                            line: position as u32,
+                            input: input.clone(),
+                            message: format!("No printable scan found in {}{}.", languages.join(", "),
+                                if preferences.policy == PrintLanguagePolicy::FallbackToEnglish
+                                    && !languages.iter().any(|lang| lang == "en") { " or English" } else { "" }),
+                        });
+                        missing_prints.push(MissingPrint { input, languages: languages.clone() });
+                    }
                     None => issues.push(ImportIssue {
                         line: position as u32,
-                        input: if line.set.is_empty() {
-                            format!("{} {}", line.quantity, line.name)
-                        } else {
-                            format!(
-                                "{} {} ({}) {}",
-                                line.quantity, line.name, line.set, line.collector_number
-                            )
-                        },
+                        input: import_label(line),
                         message: "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.".into(),
                     }),
                 }
             }
         }
-        Ok(ResolvedCards { entries, issues })
+        Ok(ResolvedCards {
+            entries,
+            issues,
+            missing_prints,
+        })
     }
 
     async fn collection_by_id(&self, ids: BTreeSet<uuid::Uuid>) -> AppResult<Vec<Value>> {
@@ -497,36 +624,127 @@ impl Providers {
                 selected_art: None,
                 selected_back: None,
                 excluded: false,
+                requested_languages: Vec::new(),
             })
             .collect();
         entries.sort_by(|a, b| a.card.name.cmp(&b.card.name));
         Ok(entries)
     }
 
-    pub async fn prints(&self, oracle_id: &str, page: u32, face: usize) -> AppResult<ArtPage> {
-        let mut url = Url::parse("https://api.scryfall.com/cards/search").expect("static URL");
-        url.query_pairs_mut()
-            .append_pair("q", &format!("oracleid:{oracle_id} game:paper"))
-            .append_pair("unique", "prints")
-            .append_pair("order", "released")
-            .append_pair("dir", "desc")
-            .append_pair("page", &page.to_string());
-        let response = self.json(url.as_str(), None).await?;
-        let items = response
-            .get("data")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
+    async fn localized_print(
+        &self,
+        line: &ImportLine,
+        original: Option<&Card>,
+        language: &str,
+    ) -> AppResult<Option<Card>> {
+        if let Some(card) = original.filter(|card| card.faces[0].language == language) {
+            return Ok(Some(card.clone()));
+        }
+        if !line.set.is_empty() && !line.collector_number.is_empty() {
+            let mut url = Url::parse("https://api.scryfall.com/cards").expect("static URL");
+            url.path_segments_mut().expect("static URL").extend([
+                line.set.as_str(),
+                line.collector_number.as_str(),
+                language,
+            ]);
+            let raw = self.scryfall_json(url.as_str()).await?;
+            if let Ok(card) = normalize_scryfall(&raw) {
+                let front = &card.faces[0];
+                if front.language == language
+                    && front.set == line.set
+                    && front.collector_number == line.collector_number
+                    && original.is_none_or(|original| original.oracle_id == card.oracle_id)
+                {
+                    return Ok(Some(card));
+                }
+            }
+            if original.is_none() {
+                return Ok(None);
+            }
+        }
+        let mut query = if let Some(card) = original {
+            if uuid::Uuid::parse_str(&card.oracle_id).is_err() {
+                return Ok(None);
+            }
+            format!("oracleid:{}", card.oracle_id)
+        } else {
+            let escaped = line.name.replace('\\', "\\\\").replace('"', "\\\"");
+            format!("!\"{escaped}\"")
+        };
+        if original.is_none() && !line.set.is_empty() {
+            if !line.set.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+                return Ok(None);
+            }
+            query.push_str(&format!(" set:{}", line.set));
+        }
+        query.push_str(&format!(" game:paper lang:{language}"));
+        for page in 1..=100 {
+            let url = print_search(&query, page);
+            let response = self.scryfall_json(url.as_str()).await?;
+            for raw in cards_in(&response) {
+                let Ok(card) = normalize_scryfall(raw) else {
+                    continue;
+                };
+                if card.faces[0].language != language {
+                    continue;
+                }
+                let matches = match original {
+                    Some(original) => original.oracle_id == card.oracle_id,
+                    None => {
+                        let wanted = fold_name(&line.name);
+                        (line.set.is_empty() || line.set == card.faces[0].set)
+                            && (fold_name(&card.name) == wanted
+                                || raw
+                                    .get("printed_name")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|name| fold_name(name) == wanted))
+                    }
+                };
+                if matches {
+                    return Ok(Some(card));
+                }
+            }
+            if !has_more(&response) {
+                break;
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn prints(
+        &self,
+        oracle_id: &str,
+        page: u32,
+        face: usize,
+        language: Option<&str>,
+    ) -> AppResult<ArtPage> {
+        if language.is_some_and(|lang| !SCRYFALL_LANGUAGES.contains(&lang)) {
+            return Err(AppError::user("Unsupported print language."));
+        }
+        if uuid::Uuid::parse_str(oracle_id).is_err() {
+            return Ok(ArtPage {
+                items: Vec::new(),
+                page,
+                has_more: false,
+                total: 0,
+            });
+        }
+        let mut query = format!("oracleid:{oracle_id} game:paper");
+        if let Some(language) = language {
+            query.push_str(&format!(" lang:{language}"));
+        }
+        let url = print_search(&query, page);
+        let response = self.scryfall_json(url.as_str()).await?;
+        let items = cards_in(&response)
             .filter_map(|raw| normalize_scryfall(raw).ok())
+            .filter(|card| card.oracle_id == oracle_id)
             .filter_map(|card| card.faces.get(face).cloned())
+            .filter(|art| language.is_none_or(|language| language == art.language))
             .collect();
         Ok(ArtPage {
             items,
             page,
-            has_more: response
-                .get("has_more")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
+            has_more: has_more(&response),
             total: response
                 .get("total_cards")
                 .and_then(Value::as_u64)
@@ -677,6 +895,7 @@ impl Providers {
                 .json_or_status(
                     &format!("https://api2.moxfield.com/v3/decks/all/{id}"),
                     None,
+                    false,
                 )
                 .await?
                 .map_err(moxfield_status_error)?;

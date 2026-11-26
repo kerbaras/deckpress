@@ -27,6 +27,7 @@ import {
   zones,
 } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
+import { DeckLanguageSummary, entryLanguageLabel } from "./print-language.tsx";
 import { PrintSetup } from "./print-setup.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import { TokenSuggestions } from "./token-suggestions.tsx";
@@ -301,6 +302,7 @@ function DeckWorkspace({
                   result.format === mpcXmlFormat
                     ? [...(replace ? [] : deck.entries), ...result.entries]
                     : mergeImport(deck.entries, result.entries, replace),
+                missingPrints: result.missingPrints ?? [],
               });
               heading.current?.focus();
             }}
@@ -541,6 +543,7 @@ function DeckCards({
         </div>
       </div>
       <ErrorNotice error={error} />
+      <DeckLanguageSummary deck={deck} />
       {!entries.length ? (
         <div className="empty-state">
           <Image size={35} />
@@ -575,6 +578,7 @@ function DeckCards({
                 <span>
                   {entry.card.name}
                   <small>{frontArt(entry).source}</small>
+                  <span className="badge">{entryLanguageLabel(entry)}</span>
                 </span>
               </button>
               <input
@@ -655,6 +659,8 @@ function DeckCards({
                     key={entry.id}
                     className={`playing-card ${entry.selectedArt ? "custom-art" : ""} ${entry.excluded ? "excluded" : ""}`}
                     aria-label={`Choose art for ${entry.card.name}`}
+                    aria-description={entryLanguageLabel(entry)}
+                    title={entryLanguageLabel(entry)}
                     onClick={() => onArt(entry)}
                   >
                     <CardImage
@@ -662,6 +668,9 @@ function DeckCards({
                       name={entry.card.name}
                     />
                     <span className="quantity">{entry.quantity}</span>
+                    <span className="badge card-language">
+                      {entryLanguageLabel(entry)}
+                    </span>
                     {entry.excluded && (
                       <span className="card-status">Not printing</span>
                     )}

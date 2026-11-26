@@ -1376,6 +1376,138 @@ it.each([
   },
 );
 
+it("saves an ordered list of print languages and strict policy in app settings", async () => {
+  const user = userEvent.setup();
+  const save = vi
+    .spyOn(api, "savePrintLanguage")
+    .mockImplementation(async (value) => value);
+  window.location.hash = "#/settings";
+  renderWithClient(<App />);
+  await user.selectOptions(await screen.findByLabelText("First choice"), "es");
+  await user.selectOptions(screen.getByLabelText("Add a language"), "fr");
+  await user.selectOptions(
+    screen.getByLabelText("If none are available"),
+    "strict",
+  );
+  const button = screen.getByRole("button", { name: "Save print languages" });
+  await user.click(button);
+  expect(save).toHaveBeenCalledWith({
+    languages: ["es", "fr"],
+    policy: "strict",
+  });
+  await waitFor(() => expect(button).toBeDisabled());
+});
+
+it("lists skipped cards and badges English fallbacks in the saved deck", async () => {
+  const user = userEvent.setup();
+  let saved = { ...deck, entries: [] as DeckEntry[] };
+  const localized: DeckEntry = {
+    ...entry,
+    card: { ...entry.card, faces: [{ ...original, language: "es" }] },
+    requestedLanguages: ["es"],
+  };
+  const fallback: DeckEntry = {
+    ...entry,
+    id: "38314027-5003-49ff-aa3a-825082526106",
+    card: {
+      ...entry.card,
+      id: "ace130da-9914-49b3-a40c-5273bec3813d",
+      oracleId: "ace130da-9914-49b3-a40c-5273bec3813d",
+      name: "Black Lotus",
+      faces: [{ ...original, language: "en" }],
+    },
+    requestedLanguages: ["es"],
+  };
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [saved];
+      case "get_deck":
+        return saved;
+      case "resolve_cards":
+        return {
+          entries: [localized, fallback],
+          issues: [],
+          missingPrints: [{ input: "1 Time Walk", languages: ["es"] }],
+        };
+      case "save_deck":
+        saved = deckSchema.parse((args as { deck: unknown }).deck);
+        return saved;
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  window.location.hash = `#/decks/${id}`;
+  renderWithClient(<App />);
+  await user.type(await screen.findByLabelText("Decklist"), "1 Lightning Bolt");
+  await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Add 8 cards to deck" }),
+  );
+  expect(
+    await screen.findByText("Not imported (last import): 1 Time Walk"),
+  ).toBeVisible();
+  expect(screen.getByText("English fallback: Black Lotus")).toBeVisible();
+  expect(
+    within(
+      screen.getByRole("button", { name: "Choose art for Black Lotus" }),
+    ).getByText("English fallback"),
+  ).toBeVisible();
+  expect(
+    within(
+      screen.getByRole("button", { name: "Choose art for Lightning Bolt" }),
+    ).getByText("ES"),
+  ).toBeVisible();
+});
+
+it("filters art by language and sends the selected language to Scryfall", async () => {
+  const user = userEvent.setup();
+  const english = { ...original, language: "en" };
+  const spanish = { ...alternate, language: "es" };
+  const search = vi.spyOn(api, "art").mockImplementation(async (provider) => ({
+    items: provider === "scryfall" ? [english, spanish] : [],
+    page: 1,
+    hasMore: false,
+    total: 2,
+  }));
+  vi.spyOn(api, "uploads").mockResolvedValue([]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  renderWithClient(
+    <ArtPicker
+      deck={deck}
+      entry={entry}
+      onSelect={vi.fn()}
+      onApply={vi.fn()}
+    />,
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Language" }),
+    "es",
+  );
+  const option = await screen.findByRole("button", {
+    name: "Select Mystical Archive 42 by Anato Finnstark",
+  });
+  expect(within(option).getByText("ES")).toBeVisible();
+  expect(
+    screen.queryByRole("button", {
+      name: "Select Magic 2010 146 by Christopher Moeller",
+    }),
+  ).toBeNull();
+  expect(search).toHaveBeenCalledWith(
+    "scryfall",
+    id,
+    "Lightning Bolt",
+    0,
+    1,
+    expect.any(AbortSignal),
+    "es",
+  );
+});
+
 it("ranks the other cards against a reference art and only applies the picks the user keeps", async () => {
   const user = userEvent.setup();
   const boltId = "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241";

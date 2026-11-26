@@ -78,3 +78,19 @@ it("defaults new print settings to mirrored bleed and keeps stored modes", () =>
     "solid",
   );
 });
+
+it("does not inherit non-preferred art when a localized print is imported", () => {
+  const old = { ...entry, selectedArt: { ...art, language: "en" } };
+  const incoming = {
+    ...entry,
+    id: "0326aebd-6115-4bc6-82c4-80281c957244",
+    card: { ...entry.card, faces: [{ ...art, language: "es" }] },
+    selectedArt: null,
+    requestedLanguages: ["es"],
+  };
+  const [replaced] = mergeImport([old], [incoming], true);
+  expect(replaced).toMatchObject({ id: old.id, selectedArt: null });
+  expect(
+    mergeImport([{ ...old, requestedLanguages: ["es"] }], [incoming], false),
+  ).toEqual([{ ...old, requestedLanguages: ["es"] }, incoming]);
+});

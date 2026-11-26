@@ -1284,6 +1284,7 @@ pub fn plan_fill(
                 selected_art: None,
                 selected_back: None,
                 excluded: false,
+                requested_languages: Vec::new(),
             }
         })
         .collect();

@@ -9,6 +9,10 @@ import { CardImage, ErrorNotice, Modal, StatusRegion, useTask } from "./ui.tsx";
 const MAX_OPTIONS = 80;
 /** Alternatives offered per card in the review table. */
 const SHOWN = 3;
+const styleLanguage = (entry: DeckEntry) =>
+  entry.requestedLanguages?.length
+    ? frontArt(entry).language || entry.requestedLanguages[0]
+    : "en";
 
 type Phase =
   | { step: "intro" }
@@ -24,6 +28,7 @@ export async function collectOptions(entry: DeckEntry): Promise<Art[]> {
     (art): art is Art => !!art,
   );
   let page = 1;
+  const language = styleLanguage(entry);
   while (items.length < MAX_OPTIONS) {
     const result = await api.art(
       "scryfall",
@@ -31,6 +36,8 @@ export async function collectOptions(entry: DeckEntry): Promise<Art[]> {
       entry.card.name,
       0,
       page,
+      undefined,
+      language,
     );
     items.push(...result.items);
     if (!result.hasMore) break;
@@ -50,6 +57,7 @@ export function optionsKey(entry: DeckEntry) {
     entry.card.oracleId,
     entry.card.faces[0]?.id ?? "",
     entry.selectedArt?.id ?? "",
+    styleLanguage(entry),
   ];
 }
 
