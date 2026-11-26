@@ -1,10 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowRight,
   Copy,
   Download,
   FolderOpen,
-  Layers3,
   LayoutGrid,
   List,
   Plus,
@@ -13,11 +11,9 @@ import {
   Wand2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import burnImage from "../../../docs/prototype/assets/48fcafcca79ea3dd7877c5b56f9fecb3.jpg";
-import cubeImage from "../../../docs/prototype/assets/87e0158039c89cf1bdd854a215188d1d.jpg";
-import atraxaImage from "../../../docs/prototype/assets/06140bf59bb49753e6e56092cfe63477.jpg";
 import { api, downloadJson } from "./api.ts";
 import { type Deck, deckSchema, formats, frontArt } from "./core/index.ts";
+import { FirstRun } from "./first-run.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
   CardImage,
@@ -30,30 +26,6 @@ import {
   SearchField,
   useTask,
 } from "./ui.tsx";
-
-const samples = [
-  {
-    name: "Boros Burn",
-    format: "Modern" as const,
-    image: burnImage,
-    description: "A 60-card canvas of fire and lightning.",
-    text: "Deck\n4 Monastery Swiftspear (KTK) 118\n4 Goblin Guide (ZEN) 126\n4 Eidolon of the Great Revel (JOU) 94\n4 Lightning Bolt (M10) 146\n4 Boros Charm (GTC) 148\n4 Lightning Helix (RAV) 213\n4 Searing Blaze (WWK) 90\n4 Lava Spike (CHK) 178\n4 Rift Bolt (TSP) 176\n4 Skewer the Critics (RNA) 115\n4 Sacred Foundry (GRN) 254\n4 Inspiring Vantage (KLD) 246\n4 Sunbaked Canyon (MH1) 247\n4 Arid Mesa (ZEN) 211\n4 Mountain (M21) 269",
-  },
-  {
-    name: "Atraxa study",
-    format: "Commander" as const,
-    image: atraxaImage,
-    description: "12 cards to explore. A starter, not a full deck.",
-    text: "Commander\n1 Atraxa, Praetors' Voice\nDeck\n1 Sol Ring\n1 Arcane Signet\n1 Swords to Plowshares\n1 Cultivate\n1 Counterspell\n1 Brainstorm\n1 Command Tower\n1 Forest\n1 Island\n1 Plains\n1 Swamp",
-  },
-  {
-    name: "The classics",
-    format: "Cube" as const,
-    image: cubeImage,
-    description: "Nine iconic cards. One perfect proof sheet.",
-    text: "1 Black Lotus\n1 Lightning Bolt (M10) 146\n1 Counterspell\n1 Birds of Paradise\n1 Swords to Plowshares\n1 Dark Ritual\n1 Sol Ring\n1 Brainstorm\n1 Llanowar Elves",
-  },
-];
 
 export function Library({
   open,
@@ -115,21 +87,6 @@ export function Library({
           : b.updatedAt.localeCompare(a.updatedAt),
     );
   const refresh = () => client.invalidateQueries({ queryKey: ["decks"] });
-  const startSample = (sample: (typeof samples)[number]) =>
-    void task.run(async () => {
-      const result = await api.import({ text: sample.text });
-      if (result.issues.length)
-        throw new Error(
-          `Sample could not be fully resolved: ${result.issues.map((issue) => issue.input).join(", ")}`,
-        );
-      const deck = await api.createDeck({
-        name: sample.name,
-        format: sample.format,
-        entries: result.entries,
-      });
-      await refresh();
-      open(deck.id);
-    });
   return (
     <>
       <PageToolbar
@@ -188,110 +145,75 @@ export function Library({
           error={query.error ?? task.error}
           retry={() => void query.refetch()}
         />
-        <div className="toolbar">
-          <div className="chips">
-            {[
-              "All",
-              ...formats.filter((value) =>
-                decks.some((deck) => deck.format === value),
-              ),
-            ].map((value) => (
-              <button
-                type="button"
-                className={value === format ? "chip active" : "chip"}
-                aria-pressed={value === format}
-                onClick={() => setFormat(value)}
-                key={value}
-              >
-                {value}
-                <span>
-                  {value === "All"
-                    ? decks.length
-                    : decks.filter((deck) => deck.format === value).length}
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className="spacer" />
-          <label className="inline-label">
-            Sort
-            <select
-              aria-label="Sort decks"
-              value={sort}
-              onChange={(event) => setSort(event.target.value)}
-            >
-              <option value="recent">Recently edited</option>
-              <option value="name">Name</option>
-              <option value="coverage">Art coverage</option>
-            </select>
-          </label>
-          <div className="segmented">
-            <button
-              type="button"
-              aria-label="Tile view"
-              aria-pressed={!list}
-              onClick={() => setList(false)}
-            >
-              <LayoutGrid size={16} />
-            </button>
-            <button
-              type="button"
-              aria-label="List view"
-              aria-pressed={list}
-              onClick={() => setList(true)}
-            >
-              <List size={16} />
-            </button>
-          </div>
-        </div>
-        {query.isPending ? (
-          <Loading>Opening your library…</Loading>
-        ) : decks.length === 0 && !query.isError ? (
-          <>
-            <section className="welcome">
-              <Layers3 size={30} />
-              <h2>No decks yet</h2>
-              <p>
-                Paste a decklist, pick the art for each card, and export a PDF
-                at the exact card size. Everything stays on this machine.
-              </p>
-              <button
-                type="button"
-                className="primary"
-                onClick={() => setCreate(true)}
-              >
-                <Plus size={17} />
-                Create your first deck
-              </button>
-            </section>
-            <div className="section-heading">
-              <h3>Or start from a sample</h3>
-              <span className="muted">Real cards from Scryfall</span>
-            </div>
-            <div className="deck-grid sample-grid">
-              {samples.map((sample) => (
+        {decks.length > 0 && (
+          <div className="toolbar">
+            <div className="chips">
+              {[
+                "All",
+                ...formats.filter((value) =>
+                  decks.some((deck) => deck.format === value),
+                ),
+              ].map((value) => (
                 <button
                   type="button"
-                  className="deck-tile sample-tile"
-                  key={sample.name}
-                  onClick={() => startSample(sample)}
-                  disabled={task.busy}
+                  className={value === format ? "chip active" : "chip"}
+                  aria-pressed={value === format}
+                  onClick={() => setFormat(value)}
+                  key={value}
                 >
-                  <img className="deck-cover" src={sample.image} alt="" />
-                  <div className="deck-shade" />
-                  <span className="deck-format">{sample.format}</span>
-                  <div className="deck-caption">
-                    <h2>{sample.name}</h2>
-                    <p>{sample.description}</p>
-                    <span className="sample-action">
-                      {task.busy ? "Resolving cards…" : "Use sample"}
-                      <ArrowRight size={15} />
-                    </span>
-                  </div>
+                  {value}
+                  <span>
+                    {value === "All"
+                      ? decks.length
+                      : decks.filter((deck) => deck.format === value).length}
+                  </span>
                 </button>
               ))}
             </div>
-          </>
+            <div className="spacer" />
+            <label className="inline-label">
+              Sort
+              <select
+                aria-label="Sort decks"
+                value={sort}
+                onChange={(event) => setSort(event.target.value)}
+              >
+                <option value="recent">Recently edited</option>
+                <option value="name">Name</option>
+                <option value="coverage">Art coverage</option>
+              </select>
+            </label>
+            <div className="segmented">
+              <button
+                type="button"
+                aria-label="Tile view"
+                aria-pressed={!list}
+                onClick={() => setList(false)}
+              >
+                <LayoutGrid size={16} />
+              </button>
+              <button
+                type="button"
+                aria-label="List view"
+                aria-pressed={list}
+                onClick={() => setList(true)}
+              >
+                <List size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+        {query.isPending ? (
+          <Loading>Opening your library…</Loading>
+        ) : decks.length === 0 && !query.isError ? (
+          <FirstRun
+            onCreate={() => setCreate(true)}
+            {...(onBuild ? { onBuild } : {})}
+            onSaved={async (deck) => {
+              await refresh();
+              open(deck.id);
+            }}
+          />
         ) : (
           <div className={list ? "deck-grid list-mode" : "deck-grid"}>
             {shown.map((deck) => {
