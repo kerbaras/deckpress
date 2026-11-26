@@ -380,7 +380,7 @@ export function PrintSetup({
                   <>
                     <h3>Fixed by template</h3>
                     <dl
-                      className="scm-template-details my-0"
+                      className="scm-template-details"
                       aria-live="polite"
                       aria-atomic="true"
                     >

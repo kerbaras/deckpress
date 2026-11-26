@@ -1847,6 +1847,9 @@ dd {
 .settings-panel[hidden] {
   display: none;
 }
+.scm-template-details {
+  margin: 0;
+}
 .scm-template-details > div {
   gap: var(--space-3);
   padding: var(--space-2) 0;
@@ -2367,7 +2370,8 @@ progress::-webkit-progress-value {
     gap: 20px;
     grid-template-columns: 260px minmax(0, 1fr);
   }
-  .toolbar-subtitle .mono {
+  .toolbar-subtitle .mono,
+  .save-state {
     display: none;
   }
   .card-groups {
@@ -2435,9 +2439,6 @@ progress::-webkit-progress-value {
     font-size: 10px;
   }
   .toolbar-subtitle {
-    display: none;
-  }
-  .save-state {
     display: none;
   }
   :where(.titlebar) .search {
