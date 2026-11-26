@@ -544,7 +544,7 @@ impl Providers {
                 .into_iter()
                 .flatten()
             {
-                lines.push(zone.clone());
+                let header = lines.len();
                 for entry in board
                     .get("cards")
                     .and_then(Value::as_object)
@@ -564,6 +564,11 @@ impl Providers {
                     } else {
                         format!("{quantity} {name}")
                     });
+                }
+                // Moxfield lists every board, even empty ones; a bare header the
+                // parser doesn't know would otherwise read as a card name.
+                if lines.len() > header {
+                    lines.insert(header, zone.clone());
                 }
             }
             return Ok(lines.join("\n"));
