@@ -213,7 +213,7 @@ export function StyleMatch({
           </div>
         </div>
         <ErrorNotice error={task.error} />
-        <StatusRegion label="Art style match status">
+        <StatusRegion label="Art style match status" coalesce>
           {phaseAnnouncement(phase)}
         </StatusRegion>
         {phase.step === "intro" && (

@@ -74,45 +74,71 @@ export function Loading({ children = "Loading…" }: { children?: ReactNode }) {
 }
 
 export function StatusRegion({
+  as: Element = "p",
   children,
   className = "sr-only",
+  id,
   label,
   announcementId,
+  coalesce = false,
 }: {
+  as?: "p" | "span";
   children: ReactNode;
   className?: string;
+  id?: string;
   label?: string;
   announcementId?: string | number | undefined;
+  coalesce?: boolean;
 }) {
+  const hasMessage = Children.toArray(children).some((child) => child !== "");
+  const [settled, setSettled] = useState<{
+    message: ReactNode;
+    id: typeof announcementId;
+  }>();
+  useEffect(() => {
+    if (!coalesce) return;
+    if (!hasMessage) {
+      setSettled(undefined);
+      return;
+    }
+    const timer = setTimeout(
+      () => setSettled({ message: children, id: announcementId }),
+      50,
+    );
+    return () => clearTimeout(timer);
+  }, [announcementId, children, coalesce, hasMessage]);
+  const message = coalesce ? (hasMessage ? settled?.message : null) : children;
+  const messageId = coalesce ? settled?.id : announcementId;
   const [announcement, setAnnouncement] = useState({
-    children,
-    announcementId,
+    message,
+    messageId,
     sequence: 0,
   });
   if (
-    !Object.is(children, announcement.children) ||
-    !Object.is(announcementId, announcement.announcementId)
+    !Object.is(message, announcement.message) ||
+    !Object.is(messageId, announcement.messageId)
   ) {
     setAnnouncement({
-      children,
-      announcementId,
+      message,
+      messageId,
       sequence: announcement.sequence + 1,
     });
   }
   return (
-    <p
+    <Element
+      id={id}
       className={className}
       role="status"
       aria-atomic="true"
       aria-label={label}
     >
-      {Children.toArray(children).some((child) => child !== "") && (
+      {Children.toArray(message).some((child) => child !== "") && (
         // biome-ignore lint/a11y/useSemanticElements: Expose the inline announcement as a child in WebKitGTK's accessibility tree.
         <span key={announcement.sequence} role="group">
-          {children}
+          {message}
         </span>
       )}
-    </p>
+    </Element>
   );
 }
 

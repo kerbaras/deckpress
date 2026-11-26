@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "./api.ts";
 import type { DeckEntry } from "./core/index.ts";
-import { ErrorNotice } from "./ui.tsx";
+import { ErrorNotice, StatusRegion } from "./ui.tsx";
+
+const noTokens = "No additional tokens or emblems found.";
 
 export function TokenSuggestions({
   entries,
@@ -35,6 +37,15 @@ export function TokenSuggestions({
   const missing = suggestions.data?.filter(
     (entry) => !existing.has(entry.card.oracleId),
   );
+  const finding = show && suggestions.isPending;
+  const count = show && !suggestions.isError ? missing?.length : undefined;
+  const status = finding
+    ? "Finding tokens…"
+    : count === 0
+      ? noTokens
+      : count
+        ? `Found ${count} additional ${count === 1 ? "token or emblem" : "tokens or emblems"}.`
+        : "";
   return (
     <section
       className="panel import-panel"
@@ -50,16 +61,19 @@ export function TokenSuggestions({
           {show ? "Hide suggestions" : "Find tokens"}
         </button>
       </div>
+      <StatusRegion
+        label="Token lookup status"
+        className={finding || count === 0 ? "hint" : "sr-only"}
+        coalesce
+      >
+        {status}
+      </StatusRegion>
       {show && (
         <>
-          {suggestions.isPending && <p role="status">Finding tokens…</p>}
           <ErrorNotice
             error={suggestions.error}
             retry={() => void suggestions.refetch()}
           />
-          {missing?.length === 0 && (
-            <p className="hint">No additional tokens or emblems found.</p>
-          )}
           {missing && missing.length > 0 && (
             <ul className="token-suggestions">
               {missing.map((entry) => (

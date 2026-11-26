@@ -259,7 +259,8 @@ it("suggests related tokens and saves them in the tokens zone only when added", 
     quantity: 1,
     zone: "tokens",
   };
-  const suggest = vi.fn().mockReturnValue([token]);
+  const lookup = Promise.withResolvers<DeckEntry[]>();
+  const suggest = vi.fn().mockReturnValue(lookup.promise);
   const saveDeck = vi.fn((next: Deck) => next);
   mockIPC((cmd, args) => {
     if (cmd === "list_decks") return [deck];
@@ -271,12 +272,28 @@ it("suggests related tokens and saves them in the tokens zone only when added", 
   const user = userEvent.setup();
   renderWithClient(<App />);
   await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  const tokenStatus = screen.getByRole("status", {
+    name: "Token lookup status",
+  });
+  expect(tokenStatus).toBeEmptyDOMElement();
   expect(suggest).not.toHaveBeenCalled();
   await user.click(await screen.findByRole("button", { name: "Find tokens" }));
+  await waitFor(() => expect(tokenStatus).toHaveTextContent("Finding tokens…"));
+  lookup.resolve([token]);
   const add = await screen.findByRole("button", { name: "Add Treasure" });
+  await waitFor(() =>
+    expect(tokenStatus).toHaveTextContent(
+      "Found 1 additional token or emblem.",
+    ),
+  );
   expect(suggest).toHaveBeenCalledWith({ cardIds: [id] });
   expect(saveDeck).not.toHaveBeenCalled();
   await user.click(add);
+  await waitFor(() =>
+    expect(tokenStatus).toHaveTextContent(
+      "No additional tokens or emblems found.",
+    ),
+  );
   expect(screen.queryByRole("button", { name: "Add Treasure" })).toBeNull();
   expect(
     screen.getByRole("button", { name: "Choose art for Treasure" }),
@@ -913,7 +930,9 @@ it("announces print job phases once, leaving polling ticks in the progress contr
   const progress = await screen.findByRole("progressbar", {
     name: "Export progress for Burn",
   });
-  expect(status).toHaveTextContent(/^Print job for Burn queued\.$/);
+  await waitFor(() =>
+    expect(status).toHaveTextContent(/^Print job for Burn queued\.$/),
+  );
   expect(alert).toBeEmptyDOMElement();
   expect(screen.getByText("Old error")).toBeVisible();
   const refresh = screen.getByRole("button", { name: "Refresh print jobs" });
@@ -927,7 +946,9 @@ it("announces print job phases once, leaving polling ticks in the progress contr
   jobs = [running, oldJob];
   await user.click(refresh);
   expect(await screen.findByText(running.message)).toBeVisible();
-  expect(status).toHaveTextContent("Print job for Burn running.");
+  await waitFor(() =>
+    expect(status).toHaveTextContent("Print job for Burn running."),
+  );
   const runningAnnouncement = status.firstChild;
   expect(progress).toHaveValue(1);
 
@@ -956,7 +977,9 @@ it("announces print job phases once, leaving polling ticks in the progress contr
   jobs = [completed, secondJob, oldJob];
   await user.click(refresh);
   expect(await screen.findByText("1 page ready")).toBeVisible();
-  expect(status).toHaveTextContent(/^Print job for Burn completed\.$/);
+  await waitFor(() =>
+    expect(status).toHaveTextContent(/^Print job for Burn completed\.$/),
+  );
   expect(alert).toHaveTextContent(
     "Print job for Second deck started and failed: Disk full",
   );
@@ -1031,7 +1054,7 @@ it.each([
     await user.click(refresh);
     expect(await screen.findByText(job.message)).toBeVisible();
     const announcement = `Print job for Burn started and ${ending}`;
-    expect(target.textContent?.trim()).toBe(announcement);
+    await waitFor(() => expect(target.textContent?.trim()).toBe(announcement));
     if (role === "alert") expect(status).not.toHaveTextContent(announcement);
 
     const terminalMessage = target.firstChild;
@@ -2811,11 +2834,15 @@ it("announces style-match phases and the result once, not every count", async ()
   });
   await user.click(screen.getByRole("button", { name: "Find matches" }));
   expect(await screen.findByText("1 / 2")).toBeVisible();
-  expect(status).toHaveTextContent(/^Collecting printings…$/);
+  await waitFor(() =>
+    expect(status).toHaveTextContent(/^Collecting printings…$/),
+  );
   expect(screen.getByText("1 / 2").closest("[role=status]")).toBeNull();
   firstPage.resolve();
   expect(await screen.findByText("Comparing illustrations")).toBeVisible();
-  expect(status).toHaveTextContent(/^Comparing illustrations…$/);
+  await waitFor(() =>
+    expect(status).toHaveTextContent(/^Comparing illustrations…$/),
+  );
   act(() => progress?.({ done: 1, total: 2 }));
   expect(screen.getByText("1 / 2")).toBeVisible();
   act(() => progress?.({ done: 2, total: 2 }));
@@ -2833,7 +2860,9 @@ it("announces style-match phases and the result once, not every count", async ()
     matches: others.map((other) => ({ entryId: other.id, ranked: [] })),
   });
   expect(await screen.findByText("No changes selected")).toBeVisible();
-  expect(status).toHaveTextContent(/^Matches ready for 2 cards\.$/);
+  await waitFor(() =>
+    expect(status).toHaveTextContent(/^Matches ready for 2 cards\.$/),
+  );
   observer.disconnect();
   expect(announced).toEqual([
     "Collecting printings…",
@@ -2997,6 +3026,17 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   await user.keyboard("{Enter}");
   expect(screen.getByRole("spinbutton", { name: /^Columns/ })).toHaveFocus();
   await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
+  const presetStatus = screen.getByRole("status", {
+    name: "Print preset save status",
+  });
+  expect(presetStatus).toBeEmptyDOMElement();
+  const savePreset = screen.getByRole("button", { name: "Save preset" });
+  await user.click(savePreset);
+  expect(presetStatus).toHaveTextContent("Preset saved on this browser");
+  const firstSave = presetStatus.firstChild;
+  await user.click(savePreset);
+  expect(presetStatus).toHaveTextContent("Preset saved on this browser");
+  expect(presetStatus.firstChild).not.toBe(firstSave);
   await user.click(screen.getByRole("button", { name: "Next page" }));
   const proof = screen.getByRole("img", {
     name: /Print preview, A4, 3 columns by 3 rows/,

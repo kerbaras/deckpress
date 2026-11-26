@@ -312,6 +312,9 @@ it.each(["format", "theme"])(
         ? step("Format")
         : screen.getByRole("button", { name: "Back" });
     expect(screen.getByText(blocker)).toBeVisible();
+    const status = screen.getByRole("status", { name: "Deck builder blocker" });
+    expect(status).toHaveTextContent(blocker);
+    const announcement = status.firstChild;
     expect(precedingButton).toBeEnabled();
     precedingButton.focus();
     await user.tab();
@@ -319,6 +322,7 @@ it.each(["format", "theme"])(
     expect(next).toHaveAttribute("aria-disabled", "true");
     expect(next).toHaveAccessibleDescription(blocker);
     await user.keyboard("{Enter} ");
+    expect(status.firstChild).toBe(announcement);
     expect(
       step(choice === "format" ? "Format" : "Style & theme").closest("li"),
     ).toHaveAttribute("aria-current", "step");

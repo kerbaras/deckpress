@@ -255,6 +255,7 @@ export function App() {
       </button>
       <StatusRegion
         label="Print job announcements"
+        coalesce
         announcementId={announcements.status.map(({ key }) => key).join(",")}
       >
         {announcements.status.map(({ text }) => text).join(" ")}
