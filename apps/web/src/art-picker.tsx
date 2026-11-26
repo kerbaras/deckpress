@@ -48,17 +48,18 @@ export function ArtPicker(props: {
   onApply: (deck: Deck) => Promise<Deck>;
 }) {
   const { entry, onSelect } = props;
-  const [activeFace, setActiveFace] = useState({ entryId: entry.id, face: 0 });
+  const [activeFace, setActiveFace] = useState({
+    entryId: entry.id,
+    face: 0,
+    restoreFocus: false,
+  });
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [applied, setApplied] = useState({ sequence: 0, printing: "" });
   const face = activeFace.entryId === entry.id ? activeFace.face : 0;
   const activeFaceControl = useRef<HTMLButtonElement>(null);
-  const restoreFaceFocus = useRef(false);
   useEffect(() => {
-    if (!restoreFaceFocus.current) return;
-    restoreFaceFocus.current = false;
-    activeFaceControl.current?.focus();
-  }, [face]);
+    if (activeFace.restoreFocus) activeFaceControl.current?.focus();
+  }, [activeFace]);
   const heading = useRef<HTMLHeadingElement>(null);
   const previousEntry = useRef(entry.id);
   useEffect(() => {
@@ -80,12 +81,11 @@ export function ArtPicker(props: {
         {...props}
         face={face}
         activeFaceControl={activeFaceControl}
-        setFace={(nextFace, restoreFocus) => {
-          restoreFaceFocus.current = restoreFocus;
-          setActiveFace({ entryId: entry.id, face: nextFace });
-        }}
+        setFace={(nextFace, restoreFocus) =>
+          setActiveFace({ entryId: entry.id, face: nextFace, restoreFocus })
+        }
         onSelect={(id, nextFace = 0) => {
-          setActiveFace({ entryId: id, face: nextFace });
+          setActiveFace({ entryId: id, face: nextFace, restoreFocus: false });
           onSelect(id);
         }}
         heading={heading}
@@ -939,12 +939,12 @@ function DiscardPreview({
   onDiscard: () => void;
 }) {
   return (
-    <Modal title="Discard art preview?" onClose={onStay} showClose={false}>
-      <p>
-        This preview hasn’t been applied. Discard it to{" "}
-        {switchingFace ? "switch faces" : "move to another card"}. Your saved art
-        won’t change.
-      </p>
+    <Modal
+      title="Discard art preview?"
+      description={`This preview hasn’t been applied. Discard it to ${switchingFace ? "switch faces" : "move to another card"}. Your saved art won’t change.`}
+      onClose={onStay}
+      showClose={false}
+    >
       <div className="modal-actions">
         <button type="button" className="primary" onClick={onStay}>
           {switchingFace ? "Keep preview" : "Stay"}

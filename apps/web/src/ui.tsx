@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type Ref,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -198,6 +199,7 @@ function ImageContent({
 
 export function Modal({
   title,
+  description,
   children,
   onClose,
   busy = false,
@@ -205,6 +207,7 @@ export function Modal({
   showClose = true,
 }: {
   title: string;
+  description?: string;
   children: ReactNode;
   onClose: () => void;
   busy?: boolean;
@@ -212,6 +215,7 @@ export function Modal({
   showClose?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const descriptionId = useId();
   useEffect(() => {
     const dialog = ref.current;
     const opener = document.activeElement;
@@ -226,6 +230,7 @@ export function Modal({
       ref={ref}
       className={wide ? "modal modal-wide" : "modal"}
       aria-label={title}
+      aria-describedby={description ? descriptionId : undefined}
       onKeyDown={(event) => trapTab(event, ref.current)}
       onCancel={(event) => {
         event.preventDefault();
@@ -246,6 +251,7 @@ export function Modal({
           </button>
         )}
       </div>
+      {description && <p id={descriptionId}>{description}</p>}
       {children}
     </dialog>
   );
