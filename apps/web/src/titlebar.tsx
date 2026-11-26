@@ -108,7 +108,10 @@ export function PageToolbar({
           {title}
         </h1>
         {subtitle && (
-          <span className="toolbar-subtitle" data-tauri-drag-region>
+          <span
+            className="toolbar-subtitle text-meta text-muted"
+            data-tauri-drag-region
+          >
             {subtitle}
           </span>
         )}
@@ -177,7 +180,7 @@ export function TitleBar({
           />
         </div>
       )}
-      <div className="toolbar-slot" ref={onSlot} data-tauri-drag-region />
+      <div className="toolbar-slot gap-2" ref={onSlot} data-tauri-drag-region />
       {state.customControls && <WindowControls />}
     </header>
   );

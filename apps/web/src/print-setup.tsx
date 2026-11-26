@@ -188,11 +188,13 @@ export function PrintSetup({
       onJobs();
     });
   return (
-    <div className="print-workspace">
+    <div className="print-workspace px-6 py-4">
       <div className="print-title toolbar">
         <div>
           <h2>Print setup</h2>
-          <p className="muted">Physical dimensions first. No hidden scaling.</p>
+          <p className="text-meta text-muted">
+            Physical dimensions first. No hidden scaling.
+          </p>
         </div>
         <div className="spacer" />
         <span className="mono muted">
