@@ -64,6 +64,27 @@ export function Loading({ children = "Loading…" }: { children?: ReactNode }) {
   );
 }
 
+export function StatusRegion({
+  children,
+  className = "sr-only",
+  label,
+}: {
+  children: ReactNode;
+  className?: string;
+  label?: string;
+}) {
+  return (
+    <p
+      className={className}
+      role="status"
+      aria-atomic="true"
+      aria-label={label}
+    >
+      {children}
+    </p>
+  );
+}
+
 export function SearchField({
   value,
   onChange,

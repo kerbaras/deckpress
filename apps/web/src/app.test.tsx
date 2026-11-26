@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -11,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import printPageCounts from "../../../packages/core/tests/fixtures/print-page-counts.json";
-import { api } from "./api.ts";
+import { api, type StyleReport } from "./api.ts";
 import { App } from "./app.tsx";
 import { ArtPicker, filterArt } from "./art-picker.tsx";
 import {
@@ -739,12 +740,88 @@ it("returns to the start with the error when collecting printings fails", async 
   );
   await user.click(screen.getByRole("button", { name: "Find matches" }));
   expect(await screen.findByText(/Scryfall is unreachable/)).toBeVisible();
-  expect(screen.queryByRole("status")).toBeNull();
+  expect(
+    screen.getByRole("status", { name: "Art style match status" }),
+  ).toBeEmptyDOMElement();
   expect(match).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(match).toHaveBeenCalledOnce());
   expect(art).toHaveBeenCalledTimes(2);
   expect(screen.queryByText(/Scryfall is unreachable/)).toBeNull();
+});
+
+it("announces style-match phases and the result once, not every count", async () => {
+  const user = userEvent.setup();
+  const others = ["Fireblast", "Lava Spike"].map((name, index): DeckEntry => {
+    const cardId = `b4f5c8d1-0903-40be-8f8c-e9dcb5aa724${index}`;
+    return {
+      ...entry,
+      id: cardId,
+      card: { ...entry.card, id: cardId, oracleId: cardId, name },
+    };
+  });
+  const firstPage = Promise.withResolvers<void>();
+  vi.spyOn(api, "art").mockImplementation(async (_provider, oracleId) => {
+    if (oracleId === others[1]?.card.oracleId) await firstPage.promise;
+    return { items: [alternate], page: 1, hasMore: false, total: 1 };
+  });
+  const report = Promise.withResolvers<StyleReport>();
+  let progress: ((value: { done: number; total: number }) => void) | undefined;
+  vi.spyOn(api, "matchArtStyle").mockImplementation((_request, onProgress) => {
+    progress = onProgress;
+    return report.promise;
+  });
+  renderWithClient(
+    <StyleMatch
+      deck={{ ...deck, entries: [entry, ...others] }}
+      entry={entry}
+      reference={original}
+      onClose={vi.fn()}
+      onApply={vi.fn(async (value: Deck) => value)}
+    />,
+  );
+  const status = screen.getByRole("status", { name: "Art style match status" });
+  const announced: string[] = [];
+  const observer = new MutationObserver(() => {
+    const text = status.textContent ?? "";
+    if (text && announced.at(-1) !== text) announced.push(text);
+  });
+  observer.observe(status, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+  await user.click(screen.getByRole("button", { name: "Find matches" }));
+  expect(await screen.findByText("1 / 2")).toBeVisible();
+  expect(status).toHaveTextContent(/^Collecting printings…$/);
+  expect(screen.getByText("1 / 2").closest("[role=status]")).toBeNull();
+  firstPage.resolve();
+  expect(await screen.findByText("Comparing illustrations")).toBeVisible();
+  expect(status).toHaveTextContent(/^Comparing illustrations…$/);
+  act(() => progress?.({ done: 1, total: 2 }));
+  expect(screen.getByText("1 / 2")).toBeVisible();
+  act(() => progress?.({ done: 2, total: 2 }));
+  expect(screen.getByText("2 / 2")).toBeVisible();
+  expect(status).toHaveTextContent(/^Comparing illustrations…$/);
+  expect(
+    screen.getByRole("progressbar", { name: "Art style match progress" }),
+  ).toHaveValue(2);
+  report.resolve({
+    method: "heuristic",
+    model: null,
+    warnings: [],
+    embedded: 0,
+    skipped: 0,
+    matches: others.map((other) => ({ entryId: other.id, ranked: [] })),
+  });
+  expect(await screen.findByText("No changes selected")).toBeVisible();
+  expect(status).toHaveTextContent(/^Matches ready for 2 cards\.$/);
+  observer.disconnect();
+  expect(announced).toEqual([
+    "Collecting printings…",
+    "Comparing illustrations…",
+    "Matches ready for 2 cards.",
+  ]);
 });
 
 it("intersects official provenance, labels and source resolution without inventing popularity", () => {
@@ -904,6 +981,10 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
     }),
   });
   expect(saveTemplate).not.toHaveBeenCalled();
+  const status = screen.getByRole("status", {
+    name: "Cut template export status",
+  });
+  expect(status).toBeEmptyDOMElement();
   await user.click(button);
   await waitFor(() =>
     expect(saveTemplate).toHaveBeenCalledWith({
@@ -911,6 +992,10 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
       settings: deck.printSettings,
     }),
   );
+  expect(status).toHaveTextContent(
+    /^Cut template saved to \/chosen\/burn\.svg$/,
+  );
+  expect(status).toBeVisible();
   const mode = screen.getByRole("combobox", { name: "Layout mode" });
   await user.selectOptions(mode, "scm");
   const template = screen.getByRole("combobox", {
@@ -1029,8 +1114,9 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
   await user.clear(bleed);
   await user.type(bleed, "2");
   expect(bleed).toHaveValue(0.625);
-  expect(screen.getByRole("status")).toHaveTextContent(
-    "SCM limits bleed to 0.625 mm",
+  expect(screen.getByText(/SCM limits bleed to 0.625 mm/)).toHaveAttribute(
+    "role",
+    "status",
   );
   expect(
     screen.queryByRole("combobox", { name: "Style" }),

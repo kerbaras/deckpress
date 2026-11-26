@@ -706,6 +706,12 @@ pre {
   color: var(--warning-text);
   background: var(--warning-bg);
 }
+.notice.success {
+  border-color: color-mix(in srgb, var(--success-text) 22%, var(--line-subtle));
+  color: var(--success-text);
+  background: var(--success-bg);
+  overflow-wrap: anywhere;
+}
 .loading {
   display: flex;
   align-items: center;
