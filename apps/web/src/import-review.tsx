@@ -32,6 +32,30 @@ export function ImportIssueDetails({
   );
 }
 
+function ReviewIssueList({
+  issues,
+  label,
+  showLines,
+}: {
+  issues: ImportResult["issues"];
+  label: string;
+  showLines: boolean;
+}) {
+  return (
+    <ul aria-label={label}>
+      {issues.map((issue) => (
+        <li key={`${issue.line}-${issue.input}-${issue.message}`}>
+          {showLines && issue.line > 0 && (
+            <span className="import-line">Line {issue.line}</span>
+          )}
+          <code>{issue.input}</code>
+          <ImportIssueDetails issue={issue} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** Card counts per board, in deck order, skipping empty boards. */
 export function boardCounts(entries: ImportResult["entries"]) {
   return zones
@@ -80,14 +104,27 @@ export function importLanguageSummary({
     .join(" ");
 }
 
+function reviewIssues(issues: ImportResult["issues"]) {
+  return {
+    unresolved: issues.filter(
+      (issue) => issue.severity !== "warning" && issue.category !== "csv",
+    ),
+    warnings: issues.filter((issue) => issue.severity === "warning"),
+    csvErrors: issues.filter((issue) => issue.category === "csv"),
+  };
+}
+
 /** Live-region text announcing a resolve result. */
 export function resolveSummary(result: ImportResult) {
-  const issues = result.issues.length;
+  const { unresolved, warnings, csvErrors } = reviewIssues(result.issues);
+  const issues = unresolved.length;
   const review = issues
     ? `${issues} ${issues === 1 ? "line needs" : "lines need"} review.`
     : "No lines need review.";
   return [
     `${formatCount(countCards(result.entries), "card")} resolved. ${review}`,
+    csvErrors.length ? `${formatCount(csvErrors.length, "CSV error")}.` : "",
+    warnings.length ? `${formatCount(warnings.length, "warning")}.` : "",
     importLanguageSummary(result),
   ]
     .filter(Boolean)
@@ -127,6 +164,7 @@ export function ImportReview({
 }) {
   const total = countCards(result.entries);
   const boards = boardCounts(result.entries);
+  const { unresolved, warnings, csvErrors } = reviewIssues(result.issues);
   const fallbacks = result.entries.flatMap((entry) => {
     const art = frontArt(entry);
     if (!entry.requestedLanguages?.length || !isEnglishFallback(entry, art))
@@ -174,29 +212,39 @@ export function ImportReview({
           </ul>
         </div>
       )}
-      {result.issues.length > 0 && (
+      {unresolved.length > 0 && (
         <div className="import-issues">
           <strong>
-            {result.issues.length}{" "}
-            {result.issues.length === 1 ? "line needs" : "lines need"} review
+            {unresolved.length}{" "}
+            {unresolved.length === 1 ? "line needs" : "lines need"} review
           </strong>
-          <ul aria-label="Unresolved lines">
-            {result.issues.map((issue) => (
-              <li key={`${issue.line}-${issue.input}-${issue.message}`}>
-                {showLines && issue.line > 0 && (
-                  <span className="import-line">Line {issue.line}</span>
-                )}
-                <code>{issue.input}</code>
-                <ImportIssueDetails issue={issue} />
-              </li>
-            ))}
-          </ul>
+          <ReviewIssueList
+            issues={unresolved}
+            label="Unresolved lines"
+            showLines={showLines}
+          />
           <p>
             Only resolved cards will be saved.{" "}
             {result.missingPrints?.length
               ? "Correct the lines or change your print language settings, then resolve again."
               : "Correct these lines and resolve again to include them."}
           </p>
+        </div>
+      )}
+      {warnings.length > 0 && (
+        <div className="import-issues">
+          <strong>Imported with warnings</strong>
+          <ReviewIssueList
+            issues={warnings}
+            label="Imported with warnings"
+            showLines={showLines}
+          />
+        </div>
+      )}
+      {csvErrors.length > 0 && (
+        <div className="import-issues">
+          <strong>CSV errors</strong>
+          <ReviewIssueList issues={csvErrors} label="CSV errors" showLines />
         </div>
       )}
       {saved === null && existing > 0 && total > 0 && (

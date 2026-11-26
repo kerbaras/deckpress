@@ -13,6 +13,7 @@ import {
   entrySchema,
   exportMpcXml,
   healthResponseSchema,
+  type ImportIssue,
   importLineSchema,
   importMpcXml,
   isMpcXml,
@@ -145,7 +146,7 @@ export class UrlImportError extends Error {}
 export type ResolvedCards = z.infer<typeof resolvedSchema>;
 export interface ImportResult {
   entries: z.infer<typeof entrySchema>[];
-  issues: ResolvedCards["issues"];
+  issues: (ImportIssue & ResolvedCards["issues"][number])[];
   format: string;
   missingPrints?: ResolvedCards["missingPrints"];
 }

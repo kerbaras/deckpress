@@ -131,6 +131,7 @@ export const printSettingsSchema = z.object({
   backOffsetXmm: z.number().min(-10).max(10).default(0),
   backOffsetYmm: z.number().min(-10).max(10).default(0),
   backRotationDeg: z.number().min(-180).max(180).default(0),
+  printerProfileId: z.uuid().optional(),
   includeSideboard: z.boolean().default(false),
   includeMaybeboard: z.boolean().default(false),
   skipBasics: z.boolean().default(false),

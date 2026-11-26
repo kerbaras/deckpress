@@ -4,13 +4,55 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import type { ImportResult } from "./api.ts";
+import { api, type ImportResult } from "./api.ts";
 import type { DeckEntry } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
 
 const refused =
   "Moxfield refused the request (HTTP 403): it blocks apps that are not a web browser. In Moxfield, open the deck, choose More › Download / Export, click Copy Plain Text and paste the list here.";
 const url = "https://moxfield.com/decks/DYmpyOwmekecAkPnC3Tjsg";
+
+it.each(["companions", "COMPANION", "Com–panions："])(
+  "does not send the standalone CSV heading %s or other malformed rows to the resolver",
+  async (heading) => {
+    const resolve = vi.fn().mockReturnValue({
+      entries: [],
+      issues: [{ line: 3, input: "1 Typo", message: "Not found" }],
+    });
+    mockIPC((cmd, args) => {
+      if (cmd !== "resolve_cards") throw new Error(`Unexpected ${cmd}`);
+      return resolve(args);
+    });
+    const result = await api.import({
+      text: [
+        "Name,Quantity,Board,Notes",
+        "",
+        "// Board: testing Pool",
+        'Opt,1,Sideboard,"Multiline',
+        'note"',
+        heading,
+        "Negate,1,Board,",
+        "Typo,1,,",
+        "Island,1,,,extra",
+        "Forest",
+        "Spirited Companion,1,Companions,",
+        'Plains,1,,"Unterminated',
+      ].join("\r\n"),
+    });
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(resolve).toHaveBeenCalledWith({
+      lines: [
+        expect.objectContaining({ name: "Opt", zone: "side" }),
+        expect.objectContaining({ name: "Negate", zone: "main" }),
+        expect.objectContaining({ name: "Typo" }),
+        expect.objectContaining({ name: "Spirited Companion", zone: "main" }),
+      ],
+    });
+    expect(result.issues.map(({ line }) => line)).toEqual([
+      7, 8, 9, 10, 11, 12,
+    ]);
+  },
+);
 
 const card = (name: string, quantity: number, zone: DeckEntry["zone"]) => {
   const id = crypto.randomUUID();
@@ -69,6 +111,96 @@ function mockResolver(beforeResolve?: Promise<void>) {
   });
 }
 
+it("reviews a CRLF file with CSV errors, unresolved cards, and warnings separately", async () => {
+  const user = userEvent.setup();
+  const onApply = vi.fn().mockResolvedValue(undefined);
+  const resolve = vi.spyOn(api, "import");
+  mockResolver();
+  render(<ImportPanel existing={0} onApply={onApply} />);
+  await user.click(screen.getByRole("button", { name: "File" }));
+  const text = [
+    "Name,Quantity,Board,Notes",
+    "",
+    "// Board: QA Custom Board",
+    'Opt,1,Side–Board,"A note',
+    "continued",
+    'and finished"',
+    "Companion",
+    "companions",
+    "Com–panions：",
+    "Negate,1,QA Custom Board,",
+    "Lightning Bolt,1,MAIN／BOARD,",
+    "Lurrus of the Dream-Den,1,Companions,",
+    "Spirited Companion,1,Sideboard,",
+    "Island,1,,,extra",
+    "Forest",
+    "Lightnig Bolt,1,,",
+    'Plains,1,,"Unterminated',
+    "note",
+  ].join("\r\n");
+  const file = new File([text], "fixture.csv");
+  file.text = async () => text;
+  await user.upload(screen.getByLabelText(/Choose a decklist/), file);
+  expect(await screen.findByText("Loaded file: fixture.csv")).toBeVisible();
+
+  const status = screen.getByRole("status");
+  const announcements: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records)
+      for (const node of record.addedNodes)
+        if (node.textContent?.startsWith("5 cards resolved."))
+          announcements.push(node.textContent);
+  });
+  observer.observe(status, { childList: true });
+  await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  expect(resolve).toHaveBeenCalledWith({ text });
+  expect(
+    await screen.findByRole("heading", { name: "5 cards resolved" }),
+  ).toHaveFocus();
+  const csvErrors = screen.getByRole("list", { name: "CSV errors" });
+  expect(
+    within(csvErrors)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent),
+  ).toEqual([
+    "Line 14CSV rowToo many fields: expected 4 fields but parsed 5",
+    "Line 15CSV rowToo few fields: expected 4 fields but parsed 1",
+    "Line 17CSV rowQuoted field unterminated",
+  ]);
+  const unresolved = screen.getByRole("list", { name: "Unresolved lines" });
+  expect(within(unresolved).getByRole("listitem")).toHaveTextContent(
+    "Line 161 Lightnig Bolt",
+  );
+  const warnings = screen.getByRole("list", { name: "Imported with warnings" });
+  expect(
+    within(warnings)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent),
+  ).toEqual([
+    "Line 10QA Custom BoardUnrecognized board; imported to Mainboard",
+    "Line 12CompanionsUnrecognized board; imported to Mainboard",
+  ]);
+  expect(announcements).toEqual([
+    "5 cards resolved. 1 line needs review. 3 CSV errors. 2 warnings.",
+  ]);
+  observer.disconnect();
+
+  await user.click(screen.getByRole("button", { name: "Add 5 cards to deck" }));
+  expect(status).toHaveTextContent("Saved 5 cards to this deck.");
+  expect(
+    onApply.mock.calls[0]?.[0].entries.map((entry: DeckEntry) => [
+      entry.card.name,
+      entry.zone,
+    ]),
+  ).toEqual([
+    ["Opt", "side"],
+    ["Negate", "main"],
+    ["Lightning Bolt", "main"],
+    ["Lurrus of the Dream-Den", "main"],
+    ["Spirited Companion", "side"],
+  ]);
+});
+
 it("offers the paste fallback and a retry when a deck URL is refused", async () => {
   const user = userEvent.setup();
   let calls = 0;
@@ -98,7 +230,9 @@ it("offers the paste fallback and a retry when a deck URL is refused", async () 
   expect(alert).toHaveTextContent("Copy Plain Text");
   expect(status).toBeEmptyDOMElement();
   expect(screen.getByLabelText("Public deck URL")).toHaveValue(url);
-  expect(screen.getByRole("button", { name: "Retry URL" })).toHaveFocus();
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Retry URL" })).toHaveFocus(),
+  );
 
   await user.keyboard("{Enter}");
   expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 403");
@@ -159,9 +293,11 @@ it("reviews a partial list by line and board, then saves without moving focus", 
   expect(status).toHaveTextContent("Resolving cards…");
   resolution.resolve();
 
-  expect(
-    await screen.findByRole("heading", { name: "7 cards resolved" }),
-  ).toHaveFocus();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("heading", { name: "7 cards resolved" }),
+    ).toHaveFocus(),
+  );
   expect(screen.getByRole("status")).toHaveTextContent(
     "7 cards resolved. 1 line needs review.",
   );
@@ -228,6 +364,70 @@ it("reviews a partial list by line and board, then saves without moving focus", 
   expect(onApply).toHaveBeenCalledTimes(2);
 });
 
+it.each([false, true])(
+  "shows board warnings separately from unresolved lines (mixed: %s)",
+  async (mixed) => {
+    const user = userEvent.setup();
+    const onApply = vi
+      .fn<(result: ImportResult, replace: boolean) => Promise<void>>()
+      .mockResolvedValue();
+    mockResolver();
+    render(<ImportPanel existing={0} onApply={onApply} />);
+    const status = screen.getByRole("status");
+    await user.click(screen.getByLabelText("Decklist"));
+    await user.paste(
+      `Name,Quantity,Board\n\n// Board: Custom\nNegate,1,testing Pool${mixed ? "\nLightnig Bolt,1,Deck" : ""}`,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Resolve on Scryfall" }),
+    );
+
+    const warnings = await screen.findByRole("list", {
+      name: "Imported with warnings",
+    });
+    expect(warnings).toBeVisible();
+    expect(warnings).toHaveTextContent("Line 4");
+    expect(warnings).toHaveTextContent("testing Pool");
+    expect(warnings).toHaveTextContent(
+      "Unrecognized board; imported to Mainboard",
+    );
+    expect(
+      screen.getByRole("heading", { name: "1 card resolved" }),
+    ).toHaveFocus();
+    expect(status).toHaveTextContent(
+      `1 card resolved. ${mixed ? "1 line needs" : "No lines need"} review. 1 warning.`,
+    );
+    const unresolved = screen.queryByRole("list", { name: "Unresolved lines" });
+    const guidance = screen.queryByText(
+      /correct these lines and resolve again/i,
+    );
+    if (mixed) {
+      expect(unresolved).toHaveTextContent("1 Lightnig Bolt");
+      expect(unresolved).not.toHaveTextContent("testing Pool");
+      expect(guidance).toBeVisible();
+    } else {
+      expect(unresolved).not.toBeInTheDocument();
+      expect(guidance).not.toBeInTheDocument();
+    }
+
+    await user.click(
+      screen.getByRole("button", { name: "Add 1 card to deck" }),
+    );
+    expect(status).toHaveTextContent("Saved 1 card to this deck.");
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entries: [
+          expect.objectContaining({
+            card: expect.objectContaining({ name: "Negate" }),
+            zone: "main",
+          }),
+        ],
+      }),
+      false,
+    );
+  },
+);
+
 it("keeps the save action disabled when no cards resolve", async () => {
   const user = userEvent.setup();
   mockResolver();
@@ -262,9 +462,11 @@ it("announces a new resolution after a previous save failed", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("Disk full");
 
   await user.click(resolve);
-  expect(
-    await screen.findByRole("heading", { name: "2 cards resolved" }),
-  ).toHaveFocus();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("heading", { name: "2 cards resolved" }),
+    ).toHaveFocus(),
+  );
   expect(screen.getByRole("status")).toHaveTextContent(
     "2 cards resolved. No lines need review.",
   );

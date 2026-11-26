@@ -71,6 +71,7 @@ import {
   ErrorNotice,
   Loading,
   ManaPips,
+  StatusRegion,
   useTask,
 } from "./ui.tsx";
 
@@ -264,11 +265,7 @@ function Wizard({
         )}
         {step !== "cards" ? (
           <>
-            <span
-              className="hint builder-action-note"
-              id={actionNoteId}
-              role="status"
-            >
+            <span className="hint builder-action-note" id={actionNoteId}>
               {stop && `${stop}.`}
             </span>
             <button
@@ -304,6 +301,9 @@ function Wizard({
           </>
         )}
       </PageToolbar>
+      <StatusRegion label="Deck builder blocker" coalesce>
+        {stop && `${stop}.`}
+      </StatusRegion>
       <div className="page-content builder">
         <ErrorNotice error={task.error} />
         {step === "format" && <FormatStep {...stepProps} />}

@@ -1,6 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api, type BuilderFormat, type BuilderSpec } from "./api.ts";
@@ -311,7 +318,12 @@ it.each(["format", "theme"])(
       choice === "format"
         ? step("Format")
         : screen.getByRole("button", { name: "Back" });
-    expect(screen.getByText(blocker)).toBeVisible();
+    expect(
+      screen.getByText(blocker, { selector: ".builder-action-note" }),
+    ).toBeVisible();
+    const status = screen.getByRole("status", { name: "Deck builder blocker" });
+    await waitFor(() => expect(status).toHaveTextContent(blocker));
+    const announcement = status.firstChild;
     expect(precedingButton).toBeEnabled();
     precedingButton.focus();
     await user.tab();
@@ -319,6 +331,7 @@ it.each(["format", "theme"])(
     expect(next).toHaveAttribute("aria-disabled", "true");
     expect(next).toHaveAccessibleDescription(blocker);
     await user.keyboard("{Enter} ");
+    expect(status.firstChild).toBe(announcement);
     expect(
       step(choice === "format" ? "Format" : "Style & theme").closest("li"),
     ).toHaveAttribute("aria-current", "step");
