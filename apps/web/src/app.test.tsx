@@ -1041,13 +1041,35 @@ it.each([
   async (job) => {
     const user = userEvent.setup();
     const create = vi.fn();
+    const recoveryDeck = {
+      ...deck,
+      entries: [
+        {
+          ...entry,
+          id: "238aacf8-01a2-4e63-a43a-e42eb1abc32c",
+          quantity: 1,
+          card: { ...entry.card, name: "Forest" },
+        },
+        { ...entry, quantity: 1 },
+      ],
+      printSettings: printSettingsSchema.parse({
+        columns: 1,
+        rows: 1,
+        calibrationPage: false,
+      }),
+    };
     mockIPC((cmd) => {
       if (cmd === "list_jobs") return [job];
       if (cmd === "list_decks") return [deck];
       if (cmd === "get_deck")
-        return job.failureTarget?.kind === "upscaleModel"
-          ? { ...deck, printSettings: { ...deck.printSettings, upscale: true } }
-          : deck;
+        return job.failureTarget?.kind === "card"
+          ? recoveryDeck
+          : job.failureTarget?.kind === "upscaleModel"
+            ? {
+                ...deck,
+                printSettings: { ...deck.printSettings, upscale: true },
+              }
+            : deck;
       if (cmd === "create_job") return create();
       return [];
     });
@@ -1072,11 +1094,20 @@ it.each([
       `Opening Print setup for ${deck.name}.`,
     );
     if (job.failureTarget?.kind === "card") {
-      const preview = screen.getByRole("group", { name: /^Print preview,/ });
+      expect(screen.getByText("Page 2 of 2 · Sheet 2 · front")).toBeVisible();
+      const preview = screen.getByRole("img", { name: /^Print preview,/ });
       expect(screen.getByText("Lightning Bolt:")).toBeVisible();
       const highlightedCard = preview.querySelector(".print-failed-card");
       expect(highlightedCard).toBeInTheDocument();
-      expect(highlightedCard).toHaveFocus();
+      const print = screen.getByRole("checkbox", {
+        name: "Print Lightning Bolt",
+      });
+      expect(print).toHaveFocus();
+      expect(print).toHaveClass("blocker-focus");
+      expect(print).toBeChecked();
+      expect(print).toHaveAccessibleDescription(
+        "Lightning Bolt: Uploaded image not found",
+      );
     } else if (job.failureTarget?.kind === "upscaleModel") {
       expect(
         screen.getByRole("combobox", { name: "Model" }),

@@ -124,6 +124,20 @@ const freeLayoutControls = new Set([
   "guideOffsetMm",
 ]);
 
+function revealAndFocus(target: HTMLElement) {
+  for (let parent = target.parentElement; parent; parent = parent.parentElement)
+    if (parent instanceof HTMLDetailsElement) parent.open = true;
+  target.focus({ preventScroll: true });
+  if (target !== document.activeElement) return;
+  target.classList.add("blocker-focus");
+  target.addEventListener(
+    "blur",
+    () => target.classList.remove("blocker-focus"),
+    { once: true },
+  );
+  target.scrollIntoView?.({ block: "nearest" });
+}
+
 export function PrintSetup({
   deck,
   failure,
@@ -174,24 +188,7 @@ export function PrintSetup({
       jump.key === "upscaleModel"
         ? modelControl.current
         : document.getElementById(`${controlPrefix}-${jump.key}`);
-    if (!target) return;
-    for (
-      let parent = target.parentElement;
-      parent;
-      parent = parent.parentElement
-    )
-      if (parent instanceof HTMLDetailsElement) parent.open = true;
-    target.focus({ preventScroll: true });
-    if (target !== document.activeElement) return;
-    target.classList.add("blocker-focus");
-    target.addEventListener(
-      "blur",
-      () => target.classList.remove("blocker-focus"),
-      {
-        once: true,
-      },
-    );
-    target.scrollIntoView?.({ block: "nearest" });
+    if (target) revealAndFocus(target);
   }, [controlPrefix, jump]);
   useEffect(() => {
     const timer = setTimeout(() => setPreviewSettings(settings), 250);
@@ -205,6 +202,13 @@ export function PrintSetup({
     onChange({ ...deck, printSettings: settings });
     setPage(0);
   };
+  const setExcluded = (id: string, excluded: boolean) =>
+    onChange({
+      ...deck,
+      entries: deck.entries.map((entry) =>
+        entry.id === id ? { ...entry, excluded } : entry,
+      ),
+    });
   let layout: ReturnType<typeof createLayout> | null = null;
   let layoutError: unknown = null;
   try {
@@ -293,7 +297,7 @@ export function PrintSetup({
     : [];
   const target = failure?.failureTarget;
   const recoveryHeading = useRef<HTMLHeadingElement>(null);
-  const recoveryCard = useRef<SVGRectElement>(null);
+  const recoveryCard = useRef<HTMLInputElement>(null);
   const recoveryModelLabel = useRef<HTMLLabelElement>(null);
   const focusedTarget = useRef<typeof target>(undefined);
   const failedCard =
@@ -314,11 +318,15 @@ export function PrintSetup({
       return;
     }
     focusedTarget.current = target;
+    if (!failedModel && recoveryCard.current) {
+      revealAndFocus(recoveryCard.current);
+      return;
+    }
     const element = failedModel
       ? modelDisabled
         ? recoveryModelLabel.current
         : modelControl.current
-      : recoveryCard.current;
+      : null;
     (element ?? recoveryHeading.current)?.focus();
   }, [target, failedModel, modelDisabled]);
   const failedCardIndex = selectedCards.findIndex(
@@ -368,10 +376,6 @@ export function PrintSetup({
         .map(({ entry }) => entry.card.name),
     ),
   ];
-  const recoveryCardIndex =
-    back === failedBack
-      ? pageCards.findIndex((entry) => entry.id === failedCard?.id)
-      : -1;
   const arts = [
     ...new Map(
       selectedCards
@@ -1224,16 +1228,18 @@ export function PrintSetup({
                   id={controlId("excluded-card")}
                   type="checkbox"
                   checked={!excludedCard.excluded}
+                  ref={
+                    excludedCard.id === failedCard?.id
+                      ? recoveryCard
+                      : undefined
+                  }
+                  aria-describedby={
+                    excludedCard.id === failedCard?.id
+                      ? "print-failure"
+                      : undefined
+                  }
                   onChange={(event) => {
-                    const excluded = !event.target.checked;
-                    onChange({
-                      ...deck,
-                      entries: deck.entries.map((entry) =>
-                        entry.id === excludedCard.id
-                          ? { ...entry, excluded }
-                          : entry,
-                      ),
-                    });
+                    setExcluded(excludedCard.id, !event.target.checked);
                     setPage(0);
                     document.getElementById(controlId("inclusion"))?.focus();
                   }}
@@ -1450,6 +1456,20 @@ export function PrintSetup({
               >
                 <ArrowRight size={15} />
               </button>
+              {failedCard && failedCard.id !== excludedCard?.id && (
+                <label className="check-label">
+                  <input
+                    ref={recoveryCard}
+                    type="checkbox"
+                    aria-describedby="print-failure"
+                    checked={!failedCard.excluded}
+                    onChange={(event) =>
+                      setExcluded(failedCard.id, !event.target.checked)
+                    }
+                  />
+                  Print {failedCard.card.name}
+                </label>
+              )}
             </div>
             <div
               className="proof-canvas"
@@ -1468,7 +1488,7 @@ export function PrintSetup({
                     width: `min(100%, calc(var(--proof-height) * ${layout.width / layout.height}), ${(650 * layout.width) / layout.height}px)`,
                   }}
                   viewBox={`0 0 ${layout.width} ${layout.height}`}
-                  role={recoveryCardIndex >= 0 ? "group" : "img"}
+                  role="img"
                   aria-label={`Print preview, ${sheetName}, ${layout.columns} columns by ${layout.rows} rows`}
                   aria-description={
                     fallbackNames.length
@@ -1594,27 +1614,6 @@ export function PrintSetup({
                         {entry.id === failedCard?.id && back === failedBack && (
                           <rect
                             className="print-failed-card"
-                            ref={
-                              index === recoveryCardIndex
-                                ? recoveryCard
-                                : undefined
-                            }
-                            tabIndex={
-                              index === recoveryCardIndex ? -1 : undefined
-                            }
-                            role={
-                              index === recoveryCardIndex ? "img" : undefined
-                            }
-                            aria-label={
-                              index === recoveryCardIndex
-                                ? entry.card.name
-                                : undefined
-                            }
-                            aria-describedby={
-                              index === recoveryCardIndex
-                                ? "print-failure"
-                                : undefined
-                            }
                             {...slot.trim}
                             fill="none"
                             stroke="var(--danger-line)"
