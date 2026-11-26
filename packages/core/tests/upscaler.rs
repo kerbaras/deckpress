@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::models::{PrintSettings, Provider};
 use deckpress_core::upscaler::manifest::{
     default_model_id, sha256_file, specs, ModelKind, ModelManager,
 };
-use deckpress_core::upscaler::preview::{compare, CropResult};
+use deckpress_core::upscaler::preview::{compare, compare_models, CropResult};
 use deckpress_core::upscaler::tiling::{feather, positions, reflect, TiledUpscaler};
 use deckpress_core::upscaler::{CancelToken, TileModel, Upscaler, UpscalerInfo};
 use image::RgbImage;
@@ -98,7 +99,7 @@ fn comparison_renders_lanczos_and_each_installed_upscaler() {
         image::Rgb([value, value, value])
     });
     let png = deckpress_core::raster::encode_png(&scan).unwrap();
-    let models = compare(&png, &art, &settings, &manager).unwrap();
+    let models = compare(&png, &art, &settings, &manager, &CancelToken::default()).unwrap();
     let ids: Vec<_> = models
         .iter()
         .map(|model| model.model_id.as_deref())
@@ -129,6 +130,42 @@ fn comparison_renders_lanczos_and_each_installed_upscaler() {
     assert_ne!(outputs[0], outputs[2]);
 }
 
+#[test]
+fn comparison_cancels_during_inference_without_loading_later_models() {
+    struct CancellingModel;
+    impl Upscaler for CancellingModel {
+        fn info(&self) -> UpscalerInfo {
+            Nearest.info()
+        }
+
+        fn upscale(
+            &self,
+            image: &RgbImage,
+            cancel: &CancelToken,
+            _: &mut dyn FnMut(usize, usize),
+        ) -> AppResult<RgbImage> {
+            cancel.cancel();
+            Ok(image.clone())
+        }
+    }
+
+    let png = deckpress_core::raster::encode_png(&RgbImage::new(32, 48)).unwrap();
+    let cancel = CancelToken::default();
+    let result = compare_models(
+        &png,
+        &common::art(0.0, Provider::Scryfall),
+        &PrintSettings::default(),
+        ["first".into(), "second".into()],
+        |id| {
+            assert_eq!(id, "first", "loaded a model after cancellation");
+            Ok(Arc::new(CancellingModel))
+        },
+        &cancel,
+    );
+    assert!(cancel.is_cancelled());
+    assert!(matches!(result, Err(AppError::Cancelled)));
+}
+
 /// Nearest-neighbour 2x "model" with a batch of 2, used to validate tiling.
 struct Nearest;
 
@@ -151,7 +188,7 @@ impl TileModel for Nearest {
             execution_provider: "test".into(),
         }
     }
-    fn run(&mut self, input: &[f32]) -> AppResult<Vec<f32>> {
+    fn run(&mut self, input: &[f32], _cancel: &CancelToken) -> AppResult<Vec<f32>> {
         let (t, s) = (16usize, 2usize);
         let mut out = vec![0f32; input.len() * s * s];
         for n in 0..self.batch() {

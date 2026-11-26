@@ -292,8 +292,8 @@ export function App() {
               />
             ) : route === "jobs" ? (
               <PrintJobs active={activeJobs} />
-            ) : route === "settings" ? (
-              <LocalSettings />
+            ) : route === "settings" || route === "settings/models" ? (
+              <LocalSettings focusModels={route === "settings/models"} />
             ) : route === "sources" ? (
               <Sources />
             ) : route === "discover" ? (
@@ -488,7 +488,11 @@ function PrintJobs({ active }: { active: number }) {
   );
 }
 
-function LocalSettings() {
+function LocalSettings({ focusModels }: { focusModels: boolean }) {
+  const modelsHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (focusModels) modelsHeading.current?.focus();
+  }, [focusModels]);
   const query = useQuery({
     queryKey: ["settings"],
     queryFn: ({ signal }) => api.settings(signal),
@@ -522,7 +526,9 @@ function LocalSettings() {
         />
         <section className="panel settings-card">
           <div className="section-heading">
-            <h2>Local AI upscaling</h2>
+            <h2 ref={modelsHeading} tabIndex={-1}>
+              Local AI upscaling
+            </h2>
             <span className={`badge ${loaded ? "official" : ""}`}>
               {loaded
                 ? `Loaded · ${loaded.executionProvider}`

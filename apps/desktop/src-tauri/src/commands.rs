@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
@@ -22,9 +22,10 @@ use deckpress_core::providers::MpcArtwork;
 use deckpress_core::style::{StyleReport, StyleRequest};
 use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
 use deckpress_core::upscaler::preview::{self, ModelCrop};
-use deckpress_core::upscaler::UpscalerInfo;
+use deckpress_core::upscaler::{CancelToken, UpscalerInfo};
 
 pub type AppState = deckpress_core::Core;
+pub type Comparisons = Mutex<HashMap<String, CancelToken>>;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,14 +83,56 @@ pub async fn load_model(state: State<'_, AppState>, id: String) -> AppResult<Ups
 }
 
 #[tauri::command]
+pub fn begin_upscale_comparison(comparisons: State<'_, Comparisons>, request_id: String) {
+    comparisons
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .entry(request_id)
+        .or_default();
+}
+
+#[tauri::command]
+pub fn cancel_upscale_comparison(comparisons: State<'_, Comparisons>, request_id: String) {
+    let cancel = comparisons
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .remove(&request_id);
+    if let Some(cancel) = cancel {
+        cancel.cancel();
+    }
+}
+
+#[tauri::command]
 pub async fn compare_upscalers(
     state: State<'_, AppState>,
+    comparisons: State<'_, Comparisons>,
+    request_id: String,
     art: Art,
     settings: PrintSettings,
 ) -> AppResult<Vec<ModelCrop>> {
-    let source = state.images.read(&art.image_url).await?;
-    let models = Arc::clone(&state.models);
-    tokio::task::spawn_blocking(move || preview::compare(&source, &art, &settings, &models)).await?
+    let cancel = comparisons
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .get(&request_id)
+        .cloned()
+        .ok_or(AppError::Cancelled)?;
+    let result = async {
+        let source = state.images.read(&art.image_url).await?;
+        let models = Arc::clone(&state.models);
+        tokio::task::spawn_blocking(move || {
+            preview::compare(&source, &art, &settings, &models, &cancel)
+        })
+        .await?
+    }
+    .await;
+    comparisons
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .remove(&request_id);
+    if matches!(result, Err(AppError::Cancelled)) {
+        log::debug!("Upscale comparison {request_id} cancelled");
+    }
+    result
 }
 
 #[tauri::command]

@@ -9,24 +9,37 @@ pub mod preview;
 pub mod tiling;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 use image::RgbImage;
 use serde::Serialize;
 
 use crate::error::AppResult;
 
-/// Cooperative cancellation shared between a print job and the pipeline.
-#[derive(Debug, Clone, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
+type CancelHook = dyn Fn() + Send + Sync;
+
+#[derive(Default)]
+struct Cancellation {
+    cancelled: AtomicBool,
+    hooks: Mutex<Vec<Weak<CancelHook>>>,
+}
+
+/// Cooperative cancellation for print and preview inference.
+#[derive(Clone, Default)]
+pub struct CancelToken(Arc<Cancellation>);
 
 impl CancelToken {
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        if !self.0.cancelled.swap(true, Ordering::SeqCst) {
+            let mut hooks = self.0.hooks.lock().unwrap_or_else(|err| err.into_inner());
+            for hook in hooks.drain(..).filter_map(|hook| hook.upgrade()) {
+                hook();
+            }
+        }
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.0.cancelled.load(Ordering::SeqCst)
     }
 
     pub fn check(&self) -> AppResult<()> {
@@ -35,6 +48,15 @@ impl CancelToken {
         } else {
             Ok(())
         }
+    }
+
+    fn on_cancel(&self, hook: impl Fn() + Send + Sync + 'static) -> AppResult<Arc<CancelHook>> {
+        let mut hooks = self.0.hooks.lock().unwrap_or_else(|err| err.into_inner());
+        self.check()?;
+        let hook: Arc<CancelHook> = Arc::new(hook);
+        hooks.retain(|hook| hook.strong_count() != 0);
+        hooks.push(Arc::downgrade(&hook));
+        Ok(hook)
     }
 }
 
@@ -71,5 +93,5 @@ pub trait TileModel: Send {
 
     /// `input` is NCHW `f32` in `0..=1` with `N == batch()`. Returns NCHW
     /// output with spatial dimensions multiplied by `scale()`.
-    fn run(&mut self, input: &[f32]) -> AppResult<Vec<f32>>;
+    fn run(&mut self, input: &[f32], cancel: &CancelToken) -> AppResult<Vec<f32>>;
 }

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type CropPreview, type ModelStatus } from "./api.ts";
 import { type DeckEntry, frontArt, type PrintSettings } from "./core/index.ts";
-import { ErrorNotice, useTask } from "./ui.tsx";
+import { ErrorNotice } from "./ui.tsx";
 import "./upscale-comparison.css";
 
 function modelLabel(model: ModelStatus) {
@@ -34,13 +34,16 @@ export function UpscaleComparison({
   activeModel: string | null | undefined;
   onChoose: (model: string | null) => void;
 }) {
-  const task = useTask();
+  const active = useRef<{ key: string; controller: AbortController } | null>(
+    null,
+  );
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ key: string; error: unknown }>();
   const [entryId, setEntryId] = useState("");
   const [result, setResult] = useState<{
     key: string;
     previews: CropPreview[];
   }>();
-  const [requestedKey, setRequestedKey] = useState("");
   const selected = entries.find((entry) => entry.id === entryId) ?? entries[0];
   const art = selected ? frontArt(selected) : null;
   const sourceKey = JSON.stringify([
@@ -52,6 +55,7 @@ export function UpscaleComparison({
     models.filter((model) => model.installed).map((model) => model.id),
   ]);
   const previews = result?.key === sourceKey ? result.previews : null;
+  const busy = busyKey === sourceKey;
   const methods = [
     { id: null, label: "Lanczos", installed: true },
     ...models.map((model) => ({
@@ -60,13 +64,40 @@ export function UpscaleComparison({
       installed: model.installed,
     })),
   ];
-  const compare = () => {
+  useEffect(() => {
+    return () => {
+      const request = active.current;
+      if (request?.key === sourceKey) request.controller.abort();
+    };
+  }, [sourceKey]);
+  const cancel = () => {
+    active.current?.controller.abort();
+    active.current = null;
+    setBusyKey(null);
+  };
+  const compare = async () => {
     if (!art) return;
-    setRequestedKey(sourceKey);
-    void task.run(async () => {
-      const previews = await api.compareUpscalers(art, settings);
-      setResult({ key: sourceKey, previews });
-    });
+    active.current?.controller.abort();
+    const controller = new AbortController();
+    const request = { key: sourceKey, controller };
+    active.current = request;
+    setBusyKey(sourceKey);
+    setFailure(undefined);
+    try {
+      const previews = await api.compareUpscalers(
+        art,
+        settings,
+        controller.signal,
+      );
+      if (!controller.signal.aborted) setResult({ key: sourceKey, previews });
+    } catch (error) {
+      if (!controller.signal.aborted) setFailure({ key: sourceKey, error });
+    } finally {
+      if (active.current === request) {
+        active.current = null;
+        setBusyKey(null);
+      }
+    }
   };
 
   return (
@@ -81,8 +112,10 @@ export function UpscaleComparison({
               Comparison card
               <select
                 value={selected?.id}
-                disabled={task.busy}
-                onChange={(event) => setEntryId(event.target.value)}
+                onChange={(event) => {
+                  cancel();
+                  setEntryId(event.target.value);
+                }}
               >
                 {entries.map((entry) => (
                   <option key={entry.id} value={entry.id}>
@@ -92,22 +125,27 @@ export function UpscaleComparison({
                 ))}
               </select>
             </label>
-            <button type="button" disabled={task.busy} onClick={compare}>
-              {task.busy ? "Rendering crops…" : "Render text crops"}
+            <button type="button" onClick={() => void compare()}>
+              {busy ? "Restart render" : "Render text crops"}
             </button>
+            {busy && (
+              <button type="button" onClick={cancel}>
+                Cancel render
+              </button>
+            )}
           </div>
           <p className="hint">
             1:1 crops at native 4× output. Times exclude model loading. Results
             sample the lower part of the scan, not the final print DPI.
           </p>
-          {task.busy && (
+          {busy && (
             <p role="status" className="hint">
               Rendering installed models on this device…
             </p>
           )}
           <ErrorNotice
-            error={requestedKey === sourceKey ? task.error : null}
-            retry={compare}
+            error={failure?.key === sourceKey ? failure.error : null}
+            retry={() => void compare()}
           />
           <div className="upscale-crops">
             {methods.map(({ id, label, installed }) => {
@@ -135,13 +173,13 @@ export function UpscaleComparison({
                         height={crop.height}
                         alt={`${label} text crop`}
                       />
+                    ) : !installed ? (
+                      <a href="#/settings/models">Download in Settings</a>
                     ) : (
                       <span className="hint">
                         {preview && "error" in preview
                           ? preview.error
-                          : installed
-                            ? "No crop yet"
-                            : "Download in Settings"}
+                          : "No crop yet"}
                       </span>
                     )}
                   </div>

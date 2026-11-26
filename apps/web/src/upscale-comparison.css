@@ -1,6 +1,6 @@
 .upscale-comparison {
-  padding: 14px 18px;
-  margin-bottom: 16px;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
 }
 .upscale-comparison summary {
   font-weight: 600;
@@ -8,17 +8,17 @@
 }
 .upscale-comparison-controls {
   align-items: end;
-  margin-top: 14px;
+  margin-top: var(--space-3);
 }
 .upscale-crops {
   display: flex;
-  gap: 14px;
+  gap: var(--space-3);
   overflow-x: auto;
-  padding: 4px 2px 6px;
+  padding: var(--space-1) var(--space-1) var(--space-2);
 }
 .upscale-crop {
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
   width: 224px;
   flex: none;
 }
@@ -26,7 +26,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .upscale-crop-image {
   display: grid;
@@ -39,8 +39,8 @@
 .upscale-crop-image img {
   display: block;
 }
-.upscale-crop-image .hint {
-  margin: 8px;
+.upscale-crop-image :is(.hint, a) {
+  margin: var(--space-2);
 }
 .upscale-crop button[aria-pressed="true"] {
   border-color: var(--accent);

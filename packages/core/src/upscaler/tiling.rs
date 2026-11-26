@@ -138,7 +138,8 @@ impl<M: TileModel> Upscaler for TiledUpscaler<M> {
                 let (from, to) = (0, n * tile_len);
                 input.copy_within(from..from + tile_len, to);
             }
-            let output = model.run(&input)?;
+            let output = model.run(&input, cancel)?;
+            cancel.check()?;
             if output.len() < out_len * chunk.len() {
                 return Err(AppError::internal(format!(
                     "Model returned {} values, expected at least {}",

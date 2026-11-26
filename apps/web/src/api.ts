@@ -385,8 +385,31 @@ export const api = {
   downloadModel: (id: string) =>
     command("download_model", z.array(modelStatusSchema), { id }),
   loadModel: (id: string) => command("load_model", upscalerInfoSchema, { id }),
-  compareUpscalers: (art: Art, settings: PrintSettings) =>
-    command("compare_upscalers", z.array(cropPreviewSchema), { art, settings }),
+  compareUpscalers: async (
+    art: Art,
+    settings: PrintSettings,
+    signal: AbortSignal,
+  ) => {
+    const requestId = crypto.randomUUID();
+    const cancel = () =>
+      invoke<void>("cancel_upscale_comparison", { requestId });
+    await invoke<void>("begin_upscale_comparison", { requestId });
+    if (signal.aborted) {
+      await cancel();
+      return [];
+    }
+    const onAbort = () => void cancel().catch(console.error);
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await command("compare_upscalers", z.array(cropPreviewSchema), {
+        requestId,
+        art,
+        settings,
+      });
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  },
   preferences: (_signal?: AbortSignal) =>
     command("preferences", preferencesSchema),
   savePreference: (id: string, value: ArtPreference) =>

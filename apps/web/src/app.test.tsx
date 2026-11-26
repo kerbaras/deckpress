@@ -458,6 +458,8 @@ it("compares the selected scan and restores the chosen print model after saving"
       case "save_deck":
         stored = deckSchema.parse((args as { deck: unknown }).deck);
         return stored;
+      case "begin_upscale_comparison":
+        return null;
       case "compare_upscalers":
         calls.push(args);
         return [null, compactModel.id, animeModel.id].map((modelId) => ({
@@ -507,6 +509,95 @@ it("compares the selected scan and restores the chosen print model after saving"
   expect(screen.getByLabelText("Use local AI upscaling")).toBeChecked();
   await user.click(screen.getByRole("button", { name: "Use Lanczos" }));
   expect(screen.getByLabelText("Use local AI upscaling")).not.toBeChecked();
+});
+
+it("cancels comparison requests on cancel, restart and navigation out of print setup", async () => {
+  const user = userEvent.setup();
+  const started: unknown[] = [];
+  const cancelled: unknown[] = [];
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [deck];
+      case "get_deck":
+        return deck;
+      case "begin_upscale_comparison":
+        return null;
+      case "compare_upscalers":
+        started.push((args as { requestId: string }).requestId);
+        return new Promise(() => {});
+      case "cancel_upscale_comparison":
+        cancelled.push((args as { requestId: string }).requestId);
+        return null;
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Print setup" }));
+  await user.click(screen.getByText("Compare upscale models"));
+  const renderCrops = () =>
+    user.click(screen.getByRole("button", { name: "Render text crops" }));
+  await renderCrops();
+  await waitFor(() => expect(started).toHaveLength(1));
+  await user.click(screen.getByRole("button", { name: "Cancel render" }));
+  await waitFor(() => expect(cancelled).toEqual(started));
+  await renderCrops();
+  await waitFor(() => expect(started).toHaveLength(2));
+  await user.click(screen.getByRole("button", { name: "Restart render" }));
+  await waitFor(() => expect(started).toHaveLength(3));
+  expect(cancelled).toEqual(started.slice(0, 2));
+  await user.click(screen.getByRole("button", { name: "Deck editor" }));
+  await waitFor(() => expect(cancelled).toEqual(started));
+  expect(new Set(started).size).toBe(3);
+  expect(screen.queryByText("Compare upscale models")).not.toBeInTheDocument();
+});
+
+it("opens Settings Models from the missing-model link using the keyboard", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.settings).mockResolvedValue({
+    ...(await api.settings()),
+    models: [
+      compactModel,
+      {
+        ...compactModel,
+        id: "realesrgan-x4plus",
+        tier: "quality",
+        installed: false,
+      },
+    ],
+  });
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  mockIPC((cmd) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [deck];
+      case "get_deck":
+        return deck;
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Print setup" }));
+  await user.click(screen.getByText("Compare upscale models"));
+  await user.click(screen.getByLabelText("Comparison card"));
+  await user.tab();
+  await user.tab();
+  await user.tab();
+  await user.tab();
+  const link = await screen.findByRole("link", {
+    name: "Download in Settings",
+  });
+  expect(link).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("heading", { name: "Local AI upscaling" }),
+  ).toHaveFocus();
+  expect(window.location.hash).toBe("#/settings/models");
 });
 
 it("keeps the original scan while selecting art for one copy and saving a personal rating", async () => {
