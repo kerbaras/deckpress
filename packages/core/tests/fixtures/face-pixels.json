@@ -1,0 +1,65 @@
+[
+  {
+    "widthMm": 63,
+    "heightMm": 88,
+    "bleedMm": 1,
+    "dpi": 300,
+    "width": 768,
+    "height": 1063,
+    "bleed": 12
+  },
+  {
+    "widthMm": 63,
+    "heightMm": 88,
+    "bleedMm": 1,
+    "dpi": 800,
+    "width": 2047,
+    "height": 2835,
+    "bleed": 31
+  },
+  {
+    "widthMm": 63,
+    "heightMm": 88,
+    "bleedMm": 1,
+    "dpi": 1200,
+    "width": 3071,
+    "height": 4252,
+    "bleed": 47
+  },
+  {
+    "widthMm": 63.5,
+    "heightMm": 88.9,
+    "bleedMm": 1,
+    "dpi": 300,
+    "width": 774,
+    "height": 1074,
+    "bleed": 12
+  },
+  {
+    "widthMm": 63.5,
+    "heightMm": 88.9,
+    "bleedMm": 1,
+    "dpi": 800,
+    "width": 2063,
+    "height": 2863,
+    "bleed": 31
+  },
+  {
+    "widthMm": 63.5,
+    "heightMm": 88.9,
+    "bleedMm": 1,
+    "dpi": 1200,
+    "width": 3094,
+    "height": 4294,
+    "bleed": 47
+  },
+  {
+    "widthMm": 62.992,
+    "heightMm": 87.96866666666666,
+    "bleedMm": 0.625,
+    "dpi": 300,
+    "width": 759,
+    "height": 1054,
+    "bleed": 7
+  }
+]

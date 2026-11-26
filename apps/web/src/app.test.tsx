@@ -118,6 +118,12 @@ const deck: Deck = {
   printSettings: printSettingsSchema.parse({}),
 };
 
+/** Stands in for the Rust `export_file_name` command. */
+const exportFileName = (args: unknown) => {
+  const { deckName, suffix } = args as { deckName: string; suffix: string };
+  return `${deckName}${suffix}`;
+};
+
 function renderWithClient(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -317,6 +323,7 @@ it("imports an MPC Autofill order without changing image IDs and exports it thro
       stored = deckSchema.parse((args as { deck: Deck }).deck);
       return stored;
     }
+    if (cmd === "export_file_name") return exportFileName(args);
     if (cmd === "plugin:dialog|save") return "/chosen/burn.xml";
     if (cmd === "save_mpc_xml") return saveMpcXml(args);
     if (cmd === "resolve_cards")
@@ -534,6 +541,100 @@ it("shows the model download error and retries the same model", async () => {
   ]);
 });
 
+it.each([
+  [0, "0 PNG files"],
+  [1, "1 PNG file"],
+  [2, "2 PNG files"],
+])("counts %i PNG files on the job card", async (pages, label) => {
+  const job: PrintJob = {
+    id,
+    deckId: id,
+    deckName: "Burn",
+    status: "completed",
+    completed: pages,
+    total: pages,
+    message: "Ready",
+    createdAt: deck.createdAt,
+    fileName: "Burn-800dpi-png.zip",
+    bytes: 0,
+    pages,
+    calibrationPage: false,
+    format: "png",
+  };
+  mockIPC((cmd) => (cmd === "list_jobs" ? [job] : []));
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  expect(await screen.findByText(label, { exact: true })).toBeVisible();
+});
+
+it("announces PNG export phases once, naming skipped faces on completion", async () => {
+  const user = userEvent.setup();
+  const queued: PrintJob = {
+    id,
+    deckId: id,
+    deckName: "Burn",
+    status: "queued",
+    completed: 0,
+    total: 3,
+    message: "Queued · PNG files",
+    createdAt: deck.createdAt,
+    fileName: "Burn-800dpi-png.zip",
+    bytes: 0,
+    pages: 0,
+    calibrationPage: false,
+    format: "png",
+  };
+  let jobs = [queued];
+  mockIPC((cmd) => (cmd === "list_jobs" ? jobs : []));
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  const status = screen.getByRole("status", {
+    name: "Print job announcements",
+  });
+  const alert = screen.getByRole("alert", { name: "Print job failures" });
+  await waitFor(() =>
+    expect(status).toHaveTextContent(/^PNG export for Burn queued\.$/),
+  );
+  const refresh = screen.getByRole("button", { name: "Refresh print jobs" });
+
+  const message =
+    "2 PNG files ready · 1 face without art skipped: Bolt back (sheet 1, slot 1)";
+  const completed: PrintJob = {
+    ...queued,
+    status: "completed",
+    completed: 3,
+    pages: 2,
+    message,
+  };
+  jobs = [completed];
+  await user.click(refresh);
+  expect(await screen.findByText(message)).toBeVisible();
+  expect(status).toHaveTextContent(
+    `PNG export for Burn started and completed: ${message}`,
+  );
+  const announcement = status.firstChild;
+  await user.click(refresh);
+  expect(status.firstChild).toBe(announcement);
+  expect(alert).toBeEmptyDOMElement();
+
+  jobs = [
+    completed,
+    {
+      ...queued,
+      id: "338aacf8-01a2-4e63-a43a-e42eb1abc32c",
+      status: "failed",
+      message: "None of the selected faces have art to export",
+    },
+  ];
+  await user.click(refresh);
+  await waitFor(() =>
+    expect(alert).toHaveTextContent(
+      "PNG export for Burn started and failed: None of the selected faces have art to export",
+    ),
+  );
+  expect(status.firstChild).toBe(announcement);
+});
+
 it("announces print job phases once, leaving polling ticks in the progress control", async () => {
   const user = userEvent.setup();
   const queued: PrintJob = {
@@ -549,6 +650,7 @@ it("announces print job phases once, leaving polling ticks in the progress contr
     bytes: 0,
     pages: 1,
     calibrationPage: false,
+    format: "pdf",
   };
   const oldJob: PrintJob = {
     ...queued,
@@ -669,6 +771,7 @@ it.each([
       bytes: 0,
       pages: 0,
       calibrationPage: false,
+      format: "pdf",
     };
     let job = queued;
     mockIPC((cmd) => (cmd === "list_jobs" ? [job] : []));
@@ -2298,6 +2401,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
     bytes: 0,
     pages: 1,
     calibrationPage: true,
+    format: "pdf",
   });
   function PrintHarness() {
     const [value, setValue] = useState({
@@ -2356,6 +2460,14 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   expect(createJob).toHaveBeenCalledWith(
     id,
     expect.objectContaining({ dpi: 300, columns: 0 }),
+    "pdf",
+  );
+  await user.click(screen.getByRole("button", { name: "Export PNGs" }));
+  await waitFor(() => expect(jobs).toHaveBeenCalledTimes(2));
+  expect(createJob).toHaveBeenLastCalledWith(
+    id,
+    expect.objectContaining({ dpi: 300, columns: 0 }),
+    "png",
   );
 });
 
@@ -2367,6 +2479,7 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
     .mockReturnValueOnce("/chosen/burn.svg");
   const saveTemplate = vi.fn();
   mockIPC((cmd, args) => {
+    if (cmd === "export_file_name") return exportFileName(args);
     if (cmd === "plugin:dialog|save") return saveDialog(args);
     if (cmd === "save_cut_template") return saveTemplate(args);
   });

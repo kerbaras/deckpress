@@ -21,6 +21,7 @@ import {
   mpcArtworkSchema,
   mpcXmlFormat,
   type PrinterProfileInput,
+  type PrintJob,
   type PrintSettings,
   parseDecklist,
   printerProfileSchema,
@@ -522,8 +523,11 @@ export const api = {
     return artSchema.parse(data);
   },
   jobs: (_signal?: AbortSignal) => command("list_jobs", z.array(jobSchema)),
-  createJob: (deckId: string, settings: PrintSettings) =>
-    command("create_job", jobSchema, { deckId, settings }),
+  createJob: (
+    deckId: string,
+    settings: PrintSettings,
+    format: PrintJob["format"] = "pdf",
+  ) => command("create_job", jobSchema, { deckId, settings, format }),
   cancelJob: (id: string) => command("cancel_job", jobSchema, { id }),
   openPdf: (id: string) => command("open_pdf", nothing, { id }),
   revealPdf: (id: string) => command("reveal_pdf", nothing, { id }),
@@ -612,11 +616,15 @@ export function confirmAction(
   });
 }
 
+/** Same byte-capped deck-name stem as the PDF and PNG ZIP job file names. */
+const exportFileName = (deck: Deck, suffix: string) =>
+  command("export_file_name", z.string(), { deckName: deck.name, suffix });
+
 /** Deck backup through the native save dialog; resolves false when cancelled. */
 export async function downloadJson(deck: Deck): Promise<boolean> {
   const destination = await save({
     title: "Back up deck",
-    defaultPath: `${deck.name.replace(/[^\w-]+/g, "-")}.deckpress.json`,
+    defaultPath: await exportFileName(deck, ".deckpress.json"),
     filters: [{ name: "Deckpress backup", extensions: ["json"] }],
   });
   if (!destination) return false;
@@ -630,7 +638,7 @@ export async function downloadJson(deck: Deck): Promise<boolean> {
 export async function downloadCutTemplate(deck: Deck): Promise<string | null> {
   const destination = await save({
     title: "Save cut template",
-    defaultPath: `${deck.name.replace(/[^\w-]+/g, "-")}-cut-template.svg`,
+    defaultPath: await exportFileName(deck, "-cut-template.svg"),
     filters: [{ name: "SVG cut template", extensions: ["svg"] }],
   });
   if (!destination) return null;
@@ -645,7 +653,7 @@ export async function downloadMpcXml(deck: Deck): Promise<boolean> {
   const contents = await exportMpcXml(deck.entries, lookupMpcArtwork);
   const destination = await save({
     title: "Export MPC Autofill XML",
-    defaultPath: `${deck.name.replace(/[^\w-]+/g, "-")}.xml`,
+    defaultPath: await exportFileName(deck, ".xml"),
     filters: [{ name: mpcXmlFormat, extensions: ["xml"] }],
   });
   if (!destination) return false;

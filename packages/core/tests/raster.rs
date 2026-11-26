@@ -382,13 +382,9 @@ fn rasterizes_to_physical_size_plus_bleed_without_upscaling() {
         &mut |_, _| {},
     )
     .unwrap();
-    let bleed = mm_to_pixels(1.0, 300);
     assert_eq!(
         out.image.dimensions(),
-        (
-            mm_to_pixels(63.0, 300) + 2 * bleed,
-            mm_to_pixels(88.0, 300) + 2 * bleed
-        )
+        (mm_to_pixels(65.0, 300), mm_to_pixels(90.0, 300))
     );
     assert!(!out.upscaled);
 }

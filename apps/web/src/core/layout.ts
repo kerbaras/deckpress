@@ -4,6 +4,18 @@ import { createScmLayout, type ScmSheet } from "./scm.ts";
 export const mmToPt = (mm: number) => (mm * 72) / 25.4;
 export const mmToPixels = (mm: number, dpi: number) =>
   Math.round((mm * dpi) / 25.4);
+/** Mirrors `layout::face_pixels`: trim + 2 × bleed is rounded once. */
+export const facePixels = (
+  widthMm: number,
+  heightMm: number,
+  bleedMm: number,
+  dpi: number,
+) => {
+  const bleed = mmToPixels(bleedMm, dpi);
+  const trim = (mm: number) =>
+    Math.max(0, mmToPixels(mm + 2 * bleedMm, dpi) - 2 * bleed);
+  return { trimWidth: trim(widthMm), trimHeight: trim(heightMm), bleed };
+};
 export interface Rect {
   x: number;
   y: number;

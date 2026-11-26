@@ -1,4 +1,6 @@
-use deckpress_core::layout::{create_layout, duplex_slot, fit_sheet_label, mm_to_pt, sheet_label};
+use deckpress_core::layout::{
+    create_layout, duplex_slot, face_pixels, fit_sheet_label, mm_to_pt, sheet_label, FacePixels,
+};
 use deckpress_core::models::{Backs, Guides, Paper, PrintSettings};
 use serde::Deserialize;
 
@@ -159,4 +161,36 @@ fn long_edge_duplex_mirrors_horizontally_on_portrait_paper() {
     let back = duplex_slot(&first, &layout, &settings);
     assert!((back.rect.x - (layout.width - first.rect.x - first.rect.width)).abs() < 1e-9);
     assert!((back.rect.y - first.rect.y).abs() < 1e-9);
+}
+
+#[test]
+fn face_pixels_round_trim_plus_bleed_once_from_the_shared_vectors() {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Case {
+        width_mm: f64,
+        height_mm: f64,
+        bleed_mm: f64,
+        dpi: u32,
+        width: u32,
+        height: u32,
+        bleed: u32,
+    }
+
+    let cases: Vec<Case> = serde_json::from_str(include_str!("fixtures/face-pixels.json")).unwrap();
+    for case in cases {
+        let pixels = face_pixels(case.width_mm, case.height_mm, case.bleed_mm, case.dpi);
+        assert_eq!(
+            pixels,
+            FacePixels {
+                trim_width: case.width - 2 * case.bleed,
+                trim_height: case.height - 2 * case.bleed,
+                bleed: case.bleed,
+            },
+            "{} x {} mm at {} DPI",
+            case.width_mm,
+            case.height_mm,
+            case.dpi
+        );
+    }
 }

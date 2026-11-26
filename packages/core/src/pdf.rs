@@ -211,7 +211,12 @@ fn font() -> AppResult<Font> {
     Font::new(FONT.into(), 0).ok_or_else(|| AppError::internal("Bundled font failed to load"))
 }
 
-fn raster_key(source: &[u8], art: &Art, settings: &PrintSettings, model: &str) -> String {
+pub(crate) fn raster_key(
+    source: &[u8],
+    art: &Art,
+    settings: &PrintSettings,
+    model: &str,
+) -> String {
     let mut hasher = Sha256::new();
     hasher.update(source);
     let params = serde_json::json!([

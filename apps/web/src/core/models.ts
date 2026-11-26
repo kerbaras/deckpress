@@ -190,6 +190,7 @@ export const jobSchema = z.object({
   bytes: z.number(),
   pages: z.number(),
   calibrationPage: z.boolean().default(false),
+  format: z.enum(["pdf", "png"]).default("pdf"),
 });
 export type PrintJob = z.infer<typeof jobSchema>;
 

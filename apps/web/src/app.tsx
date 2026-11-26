@@ -26,7 +26,7 @@ import {
   fetchHealth,
   type ModelStatus,
 } from "./api.ts";
-import type { PrintJob } from "./core/index.ts";
+import { formatCount, type PrintJob } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
 import { importStatus } from "./import-review.tsx";
@@ -401,7 +401,7 @@ function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
   const announceJobs = useCallback((snapshot: PrintJob[], initial = false) => {
     const polite: JobAnnouncement[] = [];
     const failures: JobAnnouncement[] = [];
-    for (const { id, status, deckName, message } of snapshot) {
+    for (const { id, status, deckName, message, format } of snapshot) {
       let statuses = seen.current.get(id);
       if (!statuses) {
         statuses = new Set();
@@ -421,12 +421,15 @@ function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
       if (initial && finished && statuses.size === 1) continue;
       const phase =
         finished && !statuses.has("running") ? `started and ${status}` : status;
+      const subject = `${format === "png" ? "PNG export" : "Print job"} for ${deckName}`;
+      // PNG results name the faces skipped for missing art.
+      const detail =
+        status === "failed" || (status === "completed" && format === "png");
       (status === "failed" ? failures : polite).push({
         key: `${id}:${status}`,
-        text:
-          status === "failed"
-            ? `Print job for ${deckName} ${phase}: ${message}`
-            : `Print job for ${deckName} ${phase}.`,
+        text: detail
+          ? `${subject} ${phase}: ${message}`
+          : `${subject} ${phase}.`,
       });
     }
     if (polite.length || failures.length)
@@ -521,7 +524,11 @@ function PrintJobs({ active }: { active: number }) {
                   )}
                   <div className="job-meta">
                     <span>{prettyDate(job.createdAt)}</span>
-                    <span>{job.pages} PDF pages</span>
+                    <span>
+                      {job.format === "png"
+                        ? formatCount(job.pages, "PNG file")
+                        : `${job.pages} PDF pages`}
+                    </span>
                     {job.bytes > 0 && (
                       <span>{(job.bytes / 1024 / 1024).toFixed(1)} MB</span>
                     )}
@@ -539,15 +546,19 @@ function PrintJobs({ active }: { active: number }) {
                 <div className="job-actions">
                   {job.status === "completed" ? (
                     <>
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={task.busy}
-                        onClick={() => void task.run(() => api.openPdf(job.id))}
-                      >
-                        <Printer size={16} />
-                        Open PDF
-                      </button>
+                      {job.format === "pdf" && (
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={task.busy}
+                          onClick={() =>
+                            void task.run(() => api.openPdf(job.id))
+                          }
+                        >
+                          <Printer size={16} />
+                          Open PDF
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="icon-button"
@@ -559,7 +570,15 @@ function PrintJobs({ active }: { active: number }) {
                             setSaveStatus("");
                             const destination = await save({
                               defaultPath: job.fileName,
-                              filters: [{ name: "PDF", extensions: ["pdf"] }],
+                              filters:
+                                job.format === "png"
+                                  ? [
+                                      {
+                                        name: "ZIP of PNGs",
+                                        extensions: ["zip"],
+                                      },
+                                    ]
+                                  : [{ name: "PDF", extensions: ["pdf"] }],
                             });
                             if (destination) {
                               setSaveStatus(

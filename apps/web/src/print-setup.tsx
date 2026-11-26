@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Download,
   FlipHorizontal2,
+  Images,
   PaintBucket,
   Printer,
   Save,
@@ -20,10 +21,10 @@ import {
   duplexRotation,
   duplexSlot,
   effectivePrintSettings,
+  facePixels,
   fitSheetLabel,
   frontArt,
   MAX_SCM_BLEED_MM,
-  mmToPixels,
   mmToPt,
   type PrintJob,
   type PrintSettings,
@@ -133,6 +134,12 @@ export function PrintSetup({
     layoutError = error;
   }
   const effective = effectivePrintSettings(settings);
+  const trimPixels = facePixels(
+    effective.cardWidthMm,
+    effective.cardHeightMm,
+    effective.bleedMm,
+    settings.dpi,
+  );
   const trimWidth = isScm
     ? Number(effective.cardWidthMm.toFixed(2))
     : effective.cardWidthMm;
@@ -231,10 +238,10 @@ export function PrintSetup({
         ? `sheet: ${currentPage + 1}, template: ${layout.scm.name}`
         : sheetLabel(settings, deck.name, currentPage + 1, totalSheets, back);
   const labelPlacement = layout && fitSheetLabel(layout, label);
-  const start = () =>
+  const start = (format: PrintJob["format"]) =>
     void task.run(async () => {
       const saved = await onSave(deck);
-      onJobs(await api.createJob(saved.id, settings));
+      onJobs(await api.createJob(saved.id, settings, format));
     });
   return (
     <div className="print-workspace px-6 py-4">
@@ -277,9 +284,18 @@ export function PrintSetup({
         )}
         <button
           type="button"
+          title="One print-ready PNG per card face, in a ZIP"
+          disabled={!valid || task.busy}
+          onClick={() => start("png")}
+        >
+          <Images size={16} />
+          Export PNGs
+        </button>
+        <button
+          type="button"
           className="primary"
           disabled={!valid || task.busy}
-          onClick={start}
+          onClick={() => start("pdf")}
         >
           <Download size={16} />
           {task.busy ? "Queuing…" : "Generate PDF"}
@@ -1217,8 +1233,7 @@ export function PrintSetup({
                 <div>
                   <dt>Raster per card, without bleed</dt>
                   <dd className="mono">
-                    {mmToPixels(effective.cardWidthMm, settings.dpi)} ×{" "}
-                    {mmToPixels(effective.cardHeightMm, settings.dpi)} px
+                    {trimPixels.trimWidth} × {trimPixels.trimHeight} px
                   </dd>
                 </div>
                 <div>
@@ -1251,7 +1266,7 @@ export function PrintSetup({
                 type="button"
                 className="primary wide"
                 disabled={!valid || task.busy}
-                onClick={start}
+                onClick={() => start("pdf")}
               >
                 <Download size={16} />
                 Generate PDF
