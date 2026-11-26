@@ -10,6 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
+import printPageCounts from "../../../packages/core/tests/fixtures/print-page-counts.json";
 import { api } from "./api.ts";
 import { App } from "./app.tsx";
 import { ArtPicker, filterArt } from "./art-picker.tsx";
@@ -833,9 +834,25 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   for (const button of screen.getAllByRole("button", { name: "Generate PDF" }))
     expect(button).toBeDisabled();
   await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
-  expect(
-    screen.getByRole("img", { name: /Print preview, A4, 3 columns by 3 rows/ }),
-  ).toBeVisible();
+  const proof = screen.getByRole("img", {
+    name: /Print preview, A4, 3 columns by 3 rows/,
+  });
+  expect(proof).toBeVisible();
+  const loading = within(proof).getAllByText("Preparing preview…")[0];
+  expect(loading).toHaveAttribute("fill", "var(--preview-loading-text)");
+  expect(loading?.previousElementSibling).toHaveAttribute(
+    "fill",
+    "var(--paper)",
+  );
+  const image = proof.querySelector("image");
+  expect(image).not.toBeNull();
+  if (image) fireEvent.error(image);
+  const error = within(proof).getByText("Image failed to load");
+  expect(error).toHaveAttribute("fill", "var(--preview-error-text)");
+  expect(error.previousElementSibling).toHaveAttribute(
+    "fill",
+    "var(--preview-error-bg)",
+  );
   await user.click(
     screen.getAllByRole("button", { name: "Generate PDF" })[0] as HTMLElement,
   );
@@ -849,6 +866,66 @@ it("blocks an impossible sheet and exports the saved settings after correction",
     id,
     expect.objectContaining({ dpi: 300, columns: 0 }),
   );
+});
+
+it("saves a cut template by keyboard and only shows export in Free layout", async () => {
+  const user = userEvent.setup();
+  const saveDialog = vi
+    .fn()
+    .mockReturnValueOnce(null)
+    .mockReturnValueOnce("/chosen/burn.svg");
+  const saveTemplate = vi.fn();
+  mockIPC((cmd, args) => {
+    if (cmd === "plugin:dialog|save") return saveDialog(args);
+    if (cmd === "save_cut_template") return saveTemplate(args);
+  });
+  function PrintHarness() {
+    const [value, setValue] = useState(deck);
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  const button = screen.getByRole("button", {
+    name: "Export cut template (SVG)",
+  });
+  await user.tab();
+  expect(button).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(saveDialog).toHaveBeenCalledWith({
+    options: expect.objectContaining({
+      defaultPath: "Burn-cut-template.svg",
+      filters: [{ name: "SVG cut template", extensions: ["svg"] }],
+    }),
+  });
+  expect(saveTemplate).not.toHaveBeenCalled();
+  await user.click(button);
+  await waitFor(() =>
+    expect(saveTemplate).toHaveBeenCalledWith({
+      destination: "/chosen/burn.svg",
+      settings: deck.printSettings,
+    }),
+  );
+  const mode = screen.getByRole("combobox", { name: "Layout mode" });
+  await user.selectOptions(mode, "scm");
+  const template = screen.getByRole("combobox", {
+    name: "Silhouette Cameo template",
+  });
+  await user.selectOptions(template, "a4:borderless");
+  expect(template).toHaveValue("a4:borderless");
+  expect(
+    screen.queryByRole("button", { name: "Export cut template (SVG)" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText("Use the SCM .studio3 cut template.")).toBeVisible();
+  await user.selectOptions(mode, "free");
+  expect(
+    screen.getByRole("button", { name: "Export cut template (SVG)" }),
+  ).toBeVisible();
 });
 
 it("shows the selected trim and warns when bleed exceeds half the gap", async () => {
@@ -879,6 +956,40 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
   await user.clear(gap);
   await user.type(gap, "2");
   expect(screen.queryByText(/Bleed exceeds half the gap/)).toBeNull();
+});
+
+it.each(printPageCounts)("shows the PDF page count for $name", (fixture) => {
+  const { quantity, settings, cardSheets, pdfPages, calibrationPages } =
+    fixture;
+  renderWithClient(
+    <PrintSetup
+      deck={{
+        ...deck,
+        entries: quantity ? [{ ...entry, quantity }] : [],
+        printSettings: printSettingsSchema.parse(settings),
+      }}
+      onChange={() => {}}
+      onSave={async (value) => value}
+      onJobs={() => {}}
+    />,
+  );
+  const summary = screen.getByText(/^Trim [\d.]+ × [\d.]+ mm/);
+  const sheets = `${cardSheets} card ${cardSheets === 1 ? "sheet" : "sheets"}`;
+  const pages = `${pdfPages} PDF ${pdfPages === 1 ? "page" : "pages"}`;
+  expect(summary).toHaveTextContent(`${sheets} · ${pages}`);
+  if (calibrationPages) {
+    expect(summary).toHaveTextContent(
+      `(includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`,
+    );
+  } else {
+    expect(summary).not.toHaveTextContent(/calibration/);
+  }
+  for (const button of screen.getAllByRole("button", {
+    name: "Generate PDF",
+  })) {
+    if (cardSheets) expect(button).toBeEnabled();
+    else expect(button).toBeDisabled();
+  }
 });
 
 it("clamps SCM bleed visibly and previews the selected registration template", async () => {
@@ -1036,6 +1147,41 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
   expect(
     screen.queryByRole("link", { name: "SCM cutting templates" }),
   ).toBeNull();
+});
+
+it("exposes the active library format and keeps filters available with the sidebar closed", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  mockIPC(() => ({ status: "ok", service: "@deckpress/desktop" }));
+  renderWithClient(<App />);
+
+  const all = await screen.findByRole("button", {
+    name: /^All/,
+    pressed: true,
+  });
+  const modern = await screen.findByRole("button", {
+    name: /^Modern/,
+    pressed: false,
+  });
+  await user.click(modern);
+  expect(all).toHaveAttribute("aria-pressed", "false");
+  expect(modern).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(screen.getByRole("button", { name: "Show sidebar" })).toBeVisible();
+  expect(
+    screen.queryByRole("navigation", { name: "Main navigation" }),
+  ).toBeNull();
+  expect(
+    screen.getByRole("searchbox", { name: "Search decks, formats, cards" }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: /^Modern/, pressed: true }),
+  ).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Show sidebar" }));
+  expect(
+    screen.getByRole("navigation", { name: "Main navigation" }),
+  ).toBeVisible();
 });
 
 it("keeps a failed library request visible and lets the user retry", async () => {

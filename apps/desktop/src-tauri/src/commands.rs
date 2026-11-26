@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
 
+use deckpress_core::cut_svg::build_cut_svg;
 use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, ExternalDeck};
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::UploadInput;
@@ -355,6 +356,16 @@ pub async fn save_pdf(
         return Err(AppError::user("Save the export as a .pdf file"));
     }
     Ok(tokio::fs::copy(source, destination).await?)
+}
+
+#[tauri::command]
+pub async fn save_cut_template(destination: String, settings: PrintSettings) -> AppResult<()> {
+    let destination = PathBuf::from(destination);
+    if destination.extension().and_then(|e| e.to_str()) != Some("svg") {
+        return Err(AppError::user("Save the cut template as an .svg file"));
+    }
+    let svg = build_cut_svg(&settings)?;
+    Ok(tokio::fs::write(destination, svg).await?)
 }
 
 /// Writes user-visible text (deck backups) to a path the save dialog returned.

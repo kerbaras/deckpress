@@ -268,411 +268,421 @@ function ArtSession({
   const showCommunity = !official && (provider === "all" || provider === "mpc");
   return (
     <div className="art-studio">
-      <div className="studio-toolbar">
-        <div className="heading-group">
-          <h2>{original?.name ?? entry.card.name}</h2>
-          <span className="badge mono">×{entry.quantity}</span>
-        </div>
-        <div className="segmented">
-          <button
-            type="button"
-            aria-pressed={face === 0}
-            onClick={() => setFace(0)}
-          >
-            Front
-          </button>
-          <button
-            type="button"
-            aria-pressed={face === 1}
-            onClick={() => setFace(1)}
-          >
-            Back
-          </button>
-        </div>
-        <div className="spacer" />
-        {face === 0 && candidate && deck.entries.length > 1 && (
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Match art style across the deck (beta)"
-            title="Match art style across the deck (beta)"
-            disabled={task.busy}
-            onClick={() => setStyleMatch(true)}
-          >
-            <Sparkles size={15} />
-          </button>
-        )}
-        <button
-          type="button"
-          className="icon-button"
-          aria-label="Previous card"
-          disabled={index === 0 || task.busy}
-          onClick={() => navigate(-1)}
-        >
-          <ArrowLeft size={15} />
-        </button>
-        <span className="mono muted">
-          {index + 1} / {deck.entries.length}
-        </span>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label="Next card"
-          disabled={index === deck.entries.length - 1 || task.busy}
-          onClick={() => navigate(1)}
-        >
-          <ArrowRight size={15} />
-        </button>
-        <label className="inline-label">
-          Apply to
-          <select
-            value={scope}
-            onChange={(event) => setScope(event.target.value)}
-          >
-            <option value="entry">All {entry.quantity} copies here</option>
-            {entry.quantity > 1 && <option value="one">One copy only</option>}
-            {sameCard.length > 1 && (
-              <option value="deck">All {cardCount} across deck</option>
-            )}
-          </select>
-        </label>
-        <button type="button" disabled={task.busy} onClick={() => apply(false)}>
-          Apply
-        </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={task.busy}
-          onClick={() => apply(true)}
-        >
-          {task.busy
-            ? "Saving…"
-            : index === deck.entries.length - 1
-              ? "Apply & save"
-              : "Apply & next"}
-          <ArrowRight size={15} />
-        </button>
-      </div>
-      <ErrorNotice error={task.error} />
-      {styleMatch && candidate && (
-        <StyleMatch
-          deck={deck}
-          entry={entry}
-          reference={candidate}
-          onClose={() => setStyleMatch(false)}
-          onApply={onApply}
-        />
-      )}
-      <div className="comparison">
-        <Monitor label="Original" art={original} zoom={zoom} />
-        <Monitor label="Selected" art={candidate} zoom={zoom} selected>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Reset to original art"
-            title="Reset to original art"
-            disabled={candidate?.id === original?.id}
-            onClick={() => setCandidate(original)}
-          >
-            <RotateCcw size={14} />
-          </button>
-        </Monitor>
-      </div>
-      <div className="comparison-controls">
-        <label className="inline-label">
-          <ZoomIn size={15} />
-          Linked zoom
-          <input
-            type="range"
-            min="1"
-            max="2.5"
-            step="0.25"
-            value={zoom}
-            onChange={(event) => setZoom(Number(event.target.value))}
-          />
-          <span className="mono">{Math.round(zoom * 100)}%</span>
-        </label>
-        <span className="hint">
-          Original scans stay untouched. Scroll inside either monitor to inspect
-          details.
-        </span>
-        <div className="spacer" />
-        {candidate && (
-          <>
+      <div className="art-studio-scroll">
+        <div className="studio-toolbar">
+          <div className="heading-group">
+            <h2>{original?.name ?? entry.card.name}</h2>
+            <span className="badge mono">×{entry.quantity}</span>
+          </div>
+          <div className="segmented">
             <button
               type="button"
-              className={preference.favorite ? "favorite active" : "favorite"}
-              aria-pressed={preference.favorite}
-              disabled={task.busy}
-              onClick={() => savePreference({ favorite: !preference.favorite })}
+              aria-pressed={face === 0}
+              onClick={() => setFace(0)}
             >
-              <Heart
-                size={15}
-                fill={preference.favorite ? "currentColor" : "none"}
-              />
-              Favorite
+              Front
             </button>
-            <label className="inline-label">
-              Your rating
-              <select
-                aria-label="Your rating"
-                value={preference.rating}
-                disabled={task.busy}
-                onChange={(event) =>
-                  savePreference({ rating: Number(event.target.value) })
-                }
-              >
-                <option value={0}>Unrated</option>
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <option value={value} key={value}>
-                    {value} / 5
-                  </option>
-                ))}
-              </select>
-            </label>
-            <PersonalTags
-              key={candidate.id}
-              value={preference.tags}
+            <button
+              type="button"
+              aria-pressed={face === 1}
+              onClick={() => setFace(1)}
+            >
+              Back
+            </button>
+          </div>
+          <div className="spacer" />
+          {face === 0 && candidate && deck.entries.length > 1 && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Match art style across the deck (beta)"
+              title="Match art style across the deck (beta)"
               disabled={task.busy}
-              save={(value) => savePreference({ tags: value })}
-            />
-          </>
-        )}
-      </div>
-      <section className="art-browser">
-        <div className="section-heading">
-          <h3>Find your edition</h3>
-          <span className="hint">
-            Ratings and popularity are from your local library, not community
-            votes.
+              onClick={() => setStyleMatch(true)}
+            >
+              <Sparkles size={15} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Previous card"
+            disabled={index === 0 || task.busy}
+            onClick={() => navigate(-1)}
+          >
+            <ArrowLeft size={15} />
+          </button>
+          <span className="mono muted">
+            {index + 1} / {deck.entries.length}
           </span>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Next card"
+            disabled={index === deck.entries.length - 1 || task.busy}
+            onClick={() => navigate(1)}
+          >
+            <ArrowRight size={15} />
+          </button>
+          <label className="inline-label">
+            Apply to
+            <select
+              value={scope}
+              onChange={(event) => setScope(event.target.value)}
+            >
+              <option value="entry">All {entry.quantity} copies here</option>
+              {entry.quantity > 1 && <option value="one">One copy only</option>}
+              {sameCard.length > 1 && (
+                <option value="deck">All {cardCount} across deck</option>
+              )}
+            </select>
+          </label>
+          <button
+            type="button"
+            disabled={task.busy}
+            onClick={() => apply(false)}
+          >
+            Apply
+          </button>
+          <button
+            type="button"
+            className="primary"
+            disabled={task.busy}
+            onClick={() => apply(true)}
+          >
+            {task.busy
+              ? "Saving…"
+              : index === deck.entries.length - 1
+                ? "Apply & save"
+                : "Apply & next"}
+            <ArrowRight size={15} />
+          </button>
         </div>
-        <div className="toolbar">
-          <SearchField
-            value={search}
-            onChange={setSearch}
-            label="Search set, artist, creator or tag"
+        <ErrorNotice error={task.error} />
+        {styleMatch && candidate && (
+          <StyleMatch
+            deck={deck}
+            entry={entry}
+            reference={candidate}
+            onClose={() => setStyleMatch(false)}
+            onApply={onApply}
           />
-          <div className="segmented provider-tabs">
-            {[
-              ["all", "All"],
-              ["scryfall", "Scryfall"],
-              ["mpc", "MPC Autofill"],
-              ["upload", "My uploads"],
-            ].map(([value, label]) => (
+        )}
+        <div className="comparison">
+          <Monitor label="Original" art={original} zoom={zoom} />
+          <Monitor label="Selected" art={candidate} zoom={zoom} selected>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Reset to original art"
+              title="Reset to original art"
+              disabled={candidate?.id === original?.id}
+              onClick={() => setCandidate(original)}
+            >
+              <RotateCcw size={14} />
+            </button>
+          </Monitor>
+        </div>
+        <div className="comparison-controls">
+          <label className="inline-label">
+            <ZoomIn size={15} />
+            Linked zoom
+            <input
+              type="range"
+              min="1"
+              max="2.5"
+              step="0.25"
+              value={zoom}
+              onChange={(event) => setZoom(Number(event.target.value))}
+            />
+            <span className="mono">{Math.round(zoom * 100)}%</span>
+          </label>
+          <span className="hint">
+            Original scans stay untouched. Scroll inside either monitor to
+            inspect details.
+          </span>
+          <div className="spacer" />
+          {candidate && (
+            <>
               <button
                 type="button"
-                key={value}
-                aria-pressed={provider === value && !official}
-                onClick={() => {
-                  setProvider(value ?? "all");
-                  setOfficial(false);
-                  setArtist("");
-                  setTag("");
-                }}
+                className={preference.favorite ? "favorite active" : "favorite"}
+                aria-pressed={preference.favorite}
+                disabled={task.busy}
+                onClick={() =>
+                  savePreference({ favorite: !preference.favorite })
+                }
               >
-                {label}
+                <Heart
+                  size={15}
+                  fill={preference.favorite ? "currentColor" : "none"}
+                />
+                Favorite
+              </button>
+              <label className="inline-label">
+                Your rating
+                <select
+                  aria-label="Your rating"
+                  value={preference.rating}
+                  disabled={task.busy}
+                  onChange={(event) =>
+                    savePreference({ rating: Number(event.target.value) })
+                  }
+                >
+                  <option value={0}>Unrated</option>
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <option value={value} key={value}>
+                      {value} / 5
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <PersonalTags
+                key={candidate.id}
+                value={preference.tags}
+                disabled={task.busy}
+                save={(value) => savePreference({ tags: value })}
+              />
+            </>
+          )}
+        </div>
+        <section className="art-browser">
+          <div className="section-heading">
+            <h3>Find your edition</h3>
+            <span className="hint">
+              Ratings and popularity are from your local library, not community
+              votes.
+            </span>
+          </div>
+          <div className="toolbar">
+            <SearchField
+              value={search}
+              onChange={setSearch}
+              label="Search set, artist, creator or tag"
+            />
+            <div className="segmented provider-tabs">
+              {[
+                ["all", "All"],
+                ["scryfall", "Scryfall"],
+                ["mpc", "MPC Autofill"],
+                ["upload", "My uploads"],
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  aria-pressed={provider === value && !official}
+                  onClick={() => {
+                    setProvider(value ?? "all");
+                    setOfficial(false);
+                    setArtist("");
+                    setTag("");
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="check-label official-toggle">
+              <input
+                type="checkbox"
+                checked={official}
+                onChange={(event) => setOfficial(event.target.checked)}
+              />
+              Official only
+            </label>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Upload your own art"
+              title="Upload your own art"
+              onClick={() => setUpload(true)}
+            >
+              <Upload size={15} />
+            </button>
+          </div>
+          <div className="toolbar filter-toolbar">
+            <label className="inline-label">
+              Sort
+              <select
+                aria-label="Sort art"
+                value={sort}
+                onChange={(event) => setSort(event.target.value)}
+              >
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="rating">Your highest rated</option>
+                <option value="popular">Popular in your decks</option>
+                <option value="dpi">Highest resolution</option>
+                <option value="artist">Artist A–Z</option>
+              </select>
+            </label>
+            <select
+              aria-label="Filter artist or creator"
+              value={artist}
+              onChange={(event) => setArtist(event.target.value)}
+            >
+              <option value="">Any artist / creator</option>
+              {artists.map((value) => (
+                <option key={value}>{value}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter art tag"
+              value={tag}
+              onChange={(event) => setTag(event.target.value)}
+            >
+              <option value="">Any tag</option>
+              {tags.map((value) => (
+                <option key={value}>{value}</option>
+              ))}
+            </select>
+            <select
+              aria-label="Minimum art DPI"
+              value={dpi}
+              onChange={(event) => setDpi(Number(event.target.value))}
+            >
+              <option value={0}>Any resolution</option>
+              <option value={600}>600+ DPI</option>
+              <option value={1200}>1200+ DPI</option>
+            </select>
+            <button
+              type="button"
+              className={favorites ? "chip active" : "chip"}
+              aria-pressed={favorites}
+              onClick={() => setFavorites(!favorites)}
+            >
+              <Heart size={13} />
+              Favorites
+            </button>
+            <div className="spacer" />
+            <span className="hint">
+              {shown.length} matches in loaded results
+            </span>
+          </div>
+          <ErrorNotice error={prefs.error} retry={() => void prefs.refetch()} />
+          {showPrints && (
+            <ErrorNotice
+              error={prints.error}
+              retry={() => void prints.refetch()}
+            />
+          )}
+          {showCommunity && (
+            <ErrorNotice
+              error={community.error}
+              retry={() => void community.refetch()}
+            />
+          )}
+          <ErrorNotice
+            error={uploads.error}
+            retry={() => void uploads.refetch()}
+          />
+          {((showPrints && prints.isFetching && !prints.data) ||
+            (showCommunity && community.isFetching && !community.data)) && (
+            <Loading>Finding editions…</Loading>
+          )}
+          <div className="art-grid">
+            {shown.map((art) => (
+              <button
+                type="button"
+                className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
+                key={art.id}
+                aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}`}
+                aria-pressed={candidate?.id === art.id}
+                onClick={() => setCandidate(art)}
+              >
+                <span className="art-option-image">
+                  <CardImage
+                    url={art.thumbnailUrl}
+                    name={`${art.name}, ${art.source}`}
+                  />
+                  {candidate?.id === art.id ? (
+                    <span className="image-label">
+                      <Check size={11} />
+                      Selected
+                    </span>
+                  ) : original?.id === art.id ? (
+                    <span className="image-label original-label">Original</span>
+                  ) : null}
+                  {personal.preferences[art.id]?.favorite && (
+                    <Heart
+                      className="image-heart"
+                      size={15}
+                      fill="currentColor"
+                    />
+                  )}
+                </span>
+                <strong>
+                  {art.source}
+                  {art.collectorNumber ? ` · ${art.collectorNumber}` : ""}
+                </strong>
+                <span className="muted truncate">{art.artist}</span>
+                <div className="art-option-meta">
+                  <span
+                    className={`badge ${art.provider === "scryfall" ? "official" : ""}`}
+                  >
+                    {art.provider === "scryfall"
+                      ? "Official"
+                      : art.provider === "mpc"
+                        ? "Community"
+                        : "Upload"}
+                  </span>
+                  <span className="mono muted">{art.dpi} dpi</span>
+                </div>
+                {personal.preferences[art.id]?.rating ? (
+                  <small className="accent">
+                    Your rating {personal.preferences[art.id]?.rating}/5
+                  </small>
+                ) : null}
               </button>
             ))}
           </div>
-          <label className="check-label official-toggle">
-            <input
-              type="checkbox"
-              checked={official}
-              onChange={(event) => setOfficial(event.target.checked)}
-            />
-            Official only
-          </label>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Upload your own art"
-            title="Upload your own art"
-            onClick={() => setUpload(true)}
-          >
-            <Upload size={15} />
-          </button>
-        </div>
-        <div className="toolbar filter-toolbar">
-          <label className="inline-label">
-            Sort
-            <select
-              aria-label="Sort art"
-              value={sort}
-              onChange={(event) => setSort(event.target.value)}
-            >
-              <option value="newest">Newest</option>
-              <option value="oldest">Oldest</option>
-              <option value="rating">Your highest rated</option>
-              <option value="popular">Popular in your decks</option>
-              <option value="dpi">Highest resolution</option>
-              <option value="artist">Artist A–Z</option>
-            </select>
-          </label>
-          <select
-            aria-label="Filter artist or creator"
-            value={artist}
-            onChange={(event) => setArtist(event.target.value)}
-          >
-            <option value="">Any artist / creator</option>
-            {artists.map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-          <select
-            aria-label="Filter art tag"
-            value={tag}
-            onChange={(event) => setTag(event.target.value)}
-          >
-            <option value="">Any tag</option>
-            {tags.map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-          <select
-            aria-label="Minimum art DPI"
-            value={dpi}
-            onChange={(event) => setDpi(Number(event.target.value))}
-          >
-            <option value={0}>Any resolution</option>
-            <option value={600}>600+ DPI</option>
-            <option value={1200}>1200+ DPI</option>
-          </select>
-          <button
-            type="button"
-            className={favorites ? "chip active" : "chip"}
-            aria-pressed={favorites}
-            onClick={() => setFavorites(!favorites)}
-          >
-            <Heart size={13} />
-            Favorites
-          </button>
-          <div className="spacer" />
-          <span className="hint">{shown.length} matches in loaded results</span>
-        </div>
-        <ErrorNotice error={prefs.error} retry={() => void prefs.refetch()} />
-        {showPrints && (
-          <ErrorNotice
-            error={prints.error}
-            retry={() => void prints.refetch()}
-          />
-        )}
-        {showCommunity && (
-          <ErrorNotice
-            error={community.error}
-            retry={() => void community.refetch()}
-          />
-        )}
-        <ErrorNotice
-          error={uploads.error}
-          retry={() => void uploads.refetch()}
-        />
-        {((showPrints && prints.isFetching && !prints.data) ||
-          (showCommunity && community.isFetching && !community.data)) && (
-          <Loading>Finding editions…</Loading>
-        )}
-        <div className="art-grid">
-          {shown.map((art) => (
-            <button
-              type="button"
-              className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
-              key={art.id}
-              aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}`}
-              aria-pressed={candidate?.id === art.id}
-              onClick={() => setCandidate(art)}
-            >
-              <span className="art-option-image">
-                <CardImage
-                  url={art.thumbnailUrl}
-                  name={`${art.name}, ${art.source}`}
-                />
-                {candidate?.id === art.id ? (
-                  <span className="image-label">
-                    <Check size={11} />
-                    Selected
-                  </span>
-                ) : original?.id === art.id ? (
-                  <span className="image-label original-label">Original</span>
-                ) : null}
-                {personal.preferences[art.id]?.favorite && (
-                  <Heart
-                    className="image-heart"
-                    size={15}
-                    fill="currentColor"
-                  />
-                )}
-              </span>
-              <strong>
-                {art.source}
-                {art.collectorNumber ? ` · ${art.collectorNumber}` : ""}
-              </strong>
-              <span className="muted truncate">{art.artist}</span>
-              <div className="art-option-meta">
-                <span
-                  className={`badge ${art.provider === "scryfall" ? "official" : ""}`}
-                >
-                  {art.provider === "scryfall"
-                    ? "Official"
-                    : art.provider === "mpc"
-                      ? "Community"
-                      : "Upload"}
-                </span>
-                <span className="mono muted">{art.dpi} dpi</span>
-              </div>
-              {personal.preferences[art.id]?.rating ? (
-                <small className="accent">
-                  Your rating {personal.preferences[art.id]?.rating}/5
-                </small>
-              ) : null}
-            </button>
-          ))}
-        </div>
-        {!shown.length && !prints.isFetching && !community.isFetching && (
-          <div className="empty-state">
-            <h3>No matching art</h3>
-            <p>
-              Clear a filter, load more results, or upload an image for this{" "}
-              {face ? "back" : "front"}.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setSearch("");
-                setArtist("");
-                setTag("");
-                setDpi(0);
-                setFavorites(false);
-              }}
-            >
-              Clear filters
-            </button>
+          {!shown.length && !prints.isFetching && !community.isFetching && (
+            <div className="empty-state">
+              <h3>No matching art</h3>
+              <p>
+                Clear a filter, load more results, or upload an image for this{" "}
+                {face ? "back" : "front"}.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setArtist("");
+                  setTag("");
+                  setDpi(0);
+                  setFavorites(false);
+                }}
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+          <div className="load-more">
+            {showPrints && prints.hasNextPage && (
+              <button
+                type="button"
+                disabled={prints.isFetching}
+                onClick={() => void prints.fetchNextPage()}
+              >
+                Load more Scryfall prints · {prints.data?.pages[0]?.total} total
+              </button>
+            )}
+            {showCommunity && community.hasNextPage && (
+              <button
+                type="button"
+                disabled={community.isFetching}
+                onClick={() => void community.fetchNextPage()}
+              >
+                Load more MPC art · {community.data?.pages[0]?.total} total
+              </button>
+            )}
+            <span className="hint">
+              Filters and sorting apply to loaded results. MPC creators are not
+              necessarily the original artists.
+            </span>
           </div>
-        )}
-        <div className="load-more">
-          {showPrints && prints.hasNextPage && (
-            <button
-              type="button"
-              disabled={prints.isFetching}
-              onClick={() => void prints.fetchNextPage()}
-            >
-              Load more Scryfall prints · {prints.data?.pages[0]?.total} total
-            </button>
-          )}
-          {showCommunity && community.hasNextPage && (
-            <button
-              type="button"
-              disabled={community.isFetching}
-              onClick={() => void community.fetchNextPage()}
-            >
-              Load more MPC art · {community.data?.pages[0]?.total} total
-            </button>
-          )}
-          <span className="hint">
-            Filters and sorting apply to loaded results. MPC creators are not
-            necessarily the original artists.
-          </span>
-        </div>
-      </section>
+        </section>
+      </div>
       <nav className="filmstrip" aria-label="Deck card navigator">
         {deck.entries.map((item, i) => (
           <button

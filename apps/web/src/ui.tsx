@@ -77,7 +77,7 @@ export function SearchField({
 }) {
   return (
     <div className="search">
-      <Search size={16} aria-hidden="true" />
+      <Search className="size-icon stroke-icon" aria-hidden="true" />
       <input
         ref={ref}
         type="search"

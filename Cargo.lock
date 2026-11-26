@@ -1065,6 +1065,7 @@ dependencies = [
  "lopdf",
  "ndarray",
  "ort",
+ "quick-xml",
  "reqwest",
  "rusqlite",
  "serde",

@@ -29,9 +29,13 @@ export function ImportPanel({
   const [resolvedMode, setResolvedMode] = useState<Mode>("paste");
   const [replace, setReplace] = useState(false);
   const [saved, setSaved] = useState<number | null>(null);
-  const [urlError, setUrlError] = useState<string | null>(null);
+  const [urlError, setUrlError] = useState<{
+    message: string;
+    fromRetry: boolean;
+  } | null>(null);
   const [focusPaste, setFocusPaste] = useState(false);
   const decklist = useRef<HTMLTextAreaElement>(null);
+  const urlInput = useRef<HTMLInputElement>(null);
   const retry = useRef<HTMLButtonElement>(null);
   const task = useTask();
   const save = useTask();
@@ -52,9 +56,11 @@ export function ImportPanel({
     setFocusPaste(false);
   }, [focusPaste, mode]);
   useEffect(() => {
-    if (urlError) retry.current?.focus();
-  }, [urlError]);
-  const resolve = () =>
+    if (!urlError || busy) return;
+    if (urlError.fromRetry) urlInput.current?.focus();
+    else retry.current?.focus();
+  }, [urlError, busy]);
+  const resolve = (source: "resolve" | "retry") =>
     void task.run(async () => {
       reset();
       try {
@@ -64,14 +70,14 @@ export function ImportPanel({
         setResolvedMode(mode);
       } catch (error) {
         if (!(error instanceof UrlImportError)) throw error;
-        setUrlError(error.message);
+        setUrlError({ message: error.message, fromRetry: source === "retry" });
       }
     });
   return (
     <section className="panel import-panel">
       <div className="section-heading">
         <h3>
-          <ListPlus size={17} />
+          <ListPlus className="size-icon stroke-icon" />
           Import cards
         </h3>
         <span className="badge">Auto-detect</span>
@@ -95,6 +101,7 @@ export function ImportPanel({
             <label className="field">
               Public deck URL
               <input
+                ref={urlInput}
                 type="url"
                 placeholder="Moxfield or Archidekt link"
                 value={url}
@@ -165,7 +172,7 @@ export function ImportPanel({
           type="button"
           className="wide"
           disabled={mode === "url" ? !url.trim() : !text.trim()}
-          onClick={resolve}
+          onClick={() => resolve("resolve")}
         >
           {task.busy
             ? mpc
@@ -179,8 +186,8 @@ export function ImportPanel({
       <ErrorNotice error={task.error} />
       {urlError && mode === "url" && (
         <div className="notice error import-url-error" role="alert">
-          <AlertCircle size={17} />
-          <span>{urlError}</span>
+          <AlertCircle className="size-icon shrink-0 stroke-icon" />
+          <span>{urlError.message}</span>
           <div className="actions">
             <button
               type="button"
@@ -192,7 +199,12 @@ export function ImportPanel({
               <ClipboardPaste size={15} />
               Paste exported list
             </button>
-            <button ref={retry} type="button" disabled={busy} onClick={resolve}>
+            <button
+              ref={retry}
+              type="button"
+              disabled={busy}
+              onClick={() => resolve("retry")}
+            >
               <RotateCw size={15} />
               Retry URL
             </button>
@@ -220,7 +232,7 @@ export function ImportPanel({
           }
         />
       )}
-      <p className="import-status" role="status">
+      <p className="import-status text-meta text-muted" role="status">
         {saved === null && result ? (
           <span className="sr-only">{importStatus(result, saved)}</span>
         ) : (

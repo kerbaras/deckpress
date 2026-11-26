@@ -11,7 +11,7 @@ import {
   UnfoldHorizontal,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, previewSrc } from "./api.ts";
+import { api, downloadCutTemplate, previewSrc } from "./api.ts";
 import {
   type Art,
   backArt,
@@ -25,6 +25,7 @@ import {
   mmToPixels,
   type PrintSettings,
   printableEntries,
+  printPageCount,
   printSettingsSchema,
   type ScmTemplate,
   scmCardLabel,
@@ -98,6 +99,7 @@ export function PrintSetup({
     queryFn: ({ signal }) => api.settings(signal),
   });
   const task = useTask();
+  const cutTemplateTask = useTask();
   const [page, setPage] = useState(0);
   const [back, setBack] = useState(false);
   const [trim, setTrim] = useState(false);
@@ -143,6 +145,10 @@ export function PrintSetup({
     ? Math.min(settings.pageTo, totalSheets)
     : totalSheets;
   const selectedSheets = Math.max(0, last - first);
+  const { pdfPages, calibrationPages } = printPageCount(
+    selectedSheets,
+    effective,
+  );
   const models = system.data?.models ?? [];
   const selectedModel =
     models.find((model) => model.id === settings.upscaleModel) ??
@@ -188,17 +194,35 @@ export function PrintSetup({
       onJobs();
     });
   return (
-    <div className="print-workspace">
+    <div className="print-workspace px-6 py-4">
       <div className="print-title toolbar">
         <div>
           <h2>Print setup</h2>
-          <p className="muted">Physical dimensions first. No hidden scaling.</p>
+          <p className="text-meta text-muted">
+            Physical dimensions first. No hidden scaling.
+          </p>
         </div>
         <div className="spacer" />
         <span className="mono muted">
-          Trim {trimWidth} × {trimHeight} mm · {selectedSheets} sheets ·{" "}
-          {selectedSheets * (effective.backs === "none" ? 1 : 2)} PDF pages
+          Trim {trimWidth} × {trimHeight} mm · {selectedSheets} card{" "}
+          {selectedSheets === 1 ? "sheet" : "sheets"} · {pdfPages} PDF{" "}
+          {pdfPages === 1 ? "page" : "pages"}
+          {calibrationPages > 0 &&
+            ` (includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`}
         </span>
+        {isScm ? (
+          <span className="muted">Use the SCM .studio3 cut template.</span>
+        ) : (
+          <button
+            type="button"
+            disabled={!layout || cutTemplateTask.busy}
+            onClick={() =>
+              void cutTemplateTask.run(() => downloadCutTemplate(deck))
+            }
+          >
+            Export cut template (SVG)
+          </button>
+        )}
         <button
           type="button"
           className="primary"
@@ -210,6 +234,7 @@ export function PrintSetup({
         </button>
       </div>
       <ErrorNotice error={task.error ?? layoutError} />
+      <ErrorNotice error={cutTemplateTask.error} />
       <div className="print-layout">
         <div className="print-controls">
           <div className="panel presets">
@@ -377,7 +402,11 @@ export function PrintSetup({
                 {layout?.scm && (
                   <>
                     <h3>Fixed by template</h3>
-                    <dl className="my-0" aria-live="polite" aria-atomic="true">
+                    <dl
+                      className="scm-template-details"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
                       <div>
                         <dt>Paper & orientation</dt>
                         <dd>
@@ -415,12 +444,12 @@ export function PrintSetup({
                     {template.variant === "borderless" &&
                       (template.paper === "a3" ||
                         template.paper === "arch_b") && (
-                        <p className="hint">
+                        <p className="my-0 text-meta text-warning-ink">
                           SCM does not publish a cut file for this borderless
                           layout.
                         </p>
                       )}
-                    <p className="hint">
+                    <p className="my-0 text-meta text-muted">
                       Registration marks replace crop guides. Template spacing
                       replaces free margins and gaps. Duplex uses long-edge
                       alignment.
@@ -1257,8 +1286,19 @@ function ProofImage({
   const [loaded, setLoaded] = useState(false);
   return failed ? (
     <g>
-      <rect x={x} y={y} width={width} height={height} fill="#f4dedb" />
-      <text x={x + 8} y={y + height / 2} fill="#8c2323" fontSize={10}>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill="var(--preview-error-bg)"
+      />
+      <text
+        x={x + 8}
+        y={y + height / 2}
+        fill="var(--preview-error-text)"
+        fontSize={10}
+      >
         Image failed to load
       </text>
     </g>
@@ -1276,9 +1316,17 @@ function ProofImage({
         onError={() => setFailed(true)}
       />
       {!loaded && (
-        <text x={x + 8} y={y + height / 2} fill="#cccccc" fontSize={9}>
-          Preparing preview…
-        </text>
+        <>
+          <rect x={x} y={y} width={width} height={height} fill="var(--paper)" />
+          <text
+            x={x + 8}
+            y={y + height / 2}
+            fill="var(--preview-loading-text)"
+            fontSize={9}
+          >
+            Preparing preview…
+          </text>
+        </>
       )}
     </g>
   );

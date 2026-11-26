@@ -62,6 +62,7 @@ pub fn run() {
             commands::open_pdf,
             commands::reveal_pdf,
             commands::save_pdf,
+            commands::save_cut_template,
             commands::save_text,
             commands::save_mpc_xml,
             commands::open_data_dir,
