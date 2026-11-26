@@ -449,6 +449,9 @@ pre {
 .toolbar-trail > * {
   flex-shrink: 0;
 }
+.toolbar-trail:has(.save-state) {
+  min-width: min-content;
+}
 .toolbar-title {
   margin: 0;
   min-width: 0;
@@ -495,16 +498,28 @@ pre {
   color: var(--text);
 }
 .save-state {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
+  flex-shrink: 1;
   gap: var(--space-1);
   font-size: var(--type-meta);
   line-height: var(--leading-meta);
   color: var(--success-text);
-  margin-right: 4px;
+  margin-right: var(--space-1);
 }
 .save-state.unsaved {
   color: var(--accent);
+}
+.save-state svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+  stroke-width: var(--icon-stroke);
+}
+.save-state span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .window-controls {
   display: flex;
@@ -2505,8 +2520,7 @@ progress::-webkit-progress-value {
     gap: 20px;
     grid-template-columns: 260px minmax(0, 1fr);
   }
-  .toolbar-subtitle .mono,
-  .save-state {
+  .toolbar-subtitle .mono {
     display: none;
   }
   .card-groups {

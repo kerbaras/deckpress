@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Check,
+  CircleAlert,
   Download,
   FileCode,
   Image,
@@ -173,6 +174,8 @@ function DeckWorkspace({
     }
   };
   const dirty = deck !== saved;
+  const saveStatus = dirty ? "Unsaved changes" : "Saved";
+  const SaveStatusIcon = dirty ? CircleAlert : Check;
   const saveChanges = () =>
     void task.run(async () => {
       await commit(deck);
@@ -239,16 +242,12 @@ function DeckWorkspace({
         <span
           className={dirty ? "save-state unsaved" : "save-state"}
           role="status"
+          aria-label={saveStatus}
+          title={saveStatus}
           data-tauri-drag-region
         >
-          {dirty ? (
-            "Unsaved changes"
-          ) : (
-            <>
-              <Check size={13} aria-hidden="true" />
-              Saved
-            </>
-          )}
+          <SaveStatusIcon aria-hidden="true" />
+          <span data-tauri-drag-region>{saveStatus}</span>
         </span>
         <button
           ref={saveButton}

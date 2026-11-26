@@ -293,6 +293,34 @@ it("keeps focus in the editor when saving with Ctrl+S", async () => {
   expect(document.activeElement).toBe(search);
 });
 
+it("names the save status and exposes its tooltip when switching to Print setup with unsaved changes", async () => {
+  mockIPC((cmd) => {
+    if (cmd === "list_decks") return [deck];
+    if (cmd === "get_deck") return deck;
+    return [];
+  });
+  const user = userEvent.setup();
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  expect(await screen.findByRole("status", { name: "Saved" })).toHaveAttribute(
+    "title",
+    "Saved",
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Edit card quantities" }),
+  );
+  fireEvent.change(
+    screen.getByRole("spinbutton", { name: "Copies of Lightning Bolt" }),
+    {
+      target: { value: "5" },
+    },
+  );
+  await user.click(screen.getByRole("button", { name: "Print setup" }));
+  expect(
+    screen.getByRole("status", { name: "Unsaved changes" }),
+  ).toHaveAttribute("title", "Unsaved changes");
+});
+
 it("imports an MPC Autofill order without changing image IDs and exports it through the save dialog", async () => {
   const art = { ...community, id: "mpc:front_id" };
   const back = { ...community, id: "mpc:back_id" };
