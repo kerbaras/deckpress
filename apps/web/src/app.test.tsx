@@ -1256,8 +1256,9 @@ it("debounces match announcements and does not repeat an unchanged count", async
       onApply={vi.fn()}
     />,
   );
-  const status = await screen.findByText("2 matches in loaded results", {
-    selector: '[role="status"]',
+  const status = screen.getByRole("status", { name: "Art match count" });
+  await within(status).findByText("2 matches in loaded results", {
+    exact: true,
   });
   const search = screen.getByRole("searchbox", {
     name: "Search set, artist, creator or tag",

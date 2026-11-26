@@ -60,10 +60,8 @@ export function ArtPicker(props: {
       <StatusRegion label="Art match count">
         {matchCount !== null && matchSummary(matchCount)}
       </StatusRegion>
-      <StatusRegion label="Art apply status">
-        {applied.sequence > 0 && (
-          <span key={applied.sequence}>Applied: {applied.printing}</span>
-        )}
+      <StatusRegion label="Art apply status" announcementId={applied.sequence}>
+        {applied.sequence > 0 && `Applied: ${applied.printing}`}
       </StatusRegion>
       <ArtSession
         key={`${entry.id}:${face}`}

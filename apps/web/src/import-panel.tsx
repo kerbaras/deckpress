@@ -282,12 +282,10 @@ export function ImportPanel({
           }}
         />
       )}
-      <StatusRegion className="import-status text-meta text-muted">
-        {status && (busy || saved === null) ? (
-          <span className="sr-only">{status}</span>
-        ) : (
-          status
-        )}
+      <StatusRegion
+        className={`import-status text-meta text-muted${status && (busy || saved === null) ? " sr-only" : ""}`}
+      >
+        {status}
       </StatusRegion>
     </section>
   );

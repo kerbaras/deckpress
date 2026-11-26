@@ -10,7 +10,7 @@ import {
   Save,
   UnfoldHorizontal,
 } from "lucide-react";
-import { type ReactElement, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, downloadCutTemplate, previewSrc } from "./api.ts";
 import {
   type Art,
@@ -108,8 +108,10 @@ export function PrintSetup({
   });
   const task = useTask();
   const cutTemplateTask = useTask();
-  const [cutTemplateStatus, setCutTemplateStatus] =
-    useState<ReactElement | null>(null);
+  const [cutTemplateStatus, setCutTemplateStatus] = useState({
+    path: "",
+    id: 0,
+  });
   const [page, setPage] = useState(0);
   const [trim, setTrim] = useState(false);
   const [presetMessage, setPresetMessage] = useState("");
@@ -251,10 +253,10 @@ export function PrintSetup({
             disabled={!layout || cutTemplateTask.busy}
             onClick={() =>
               void cutTemplateTask.run(async () => {
-                setCutTemplateStatus(null);
+                setCutTemplateStatus(({ id }) => ({ path: "", id }));
                 const path = await downloadCutTemplate(deck);
                 if (path)
-                  setCutTemplateStatus(<>Cut template saved to {path}</>);
+                  setCutTemplateStatus(({ id }) => ({ path, id: id + 1 }));
               })
             }
           >
@@ -274,10 +276,12 @@ export function PrintSetup({
       <ErrorNotice error={task.error ?? layoutError} />
       <ErrorNotice error={cutTemplateTask.error} />
       <StatusRegion
-        className={cutTemplateStatus ? "notice success" : "sr-only"}
+        className={cutTemplateStatus.path ? "notice success" : "sr-only"}
         label="Cut template export status"
+        announcementId={cutTemplateStatus.id}
       >
-        {cutTemplateStatus}
+        {cutTemplateStatus.path &&
+          `Cut template saved to ${cutTemplateStatus.path}`}
       </StatusRegion>
       <UpscaleComparison
         entries={entries}

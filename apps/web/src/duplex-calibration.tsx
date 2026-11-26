@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Crosshair, Download } from "lucide-react";
-import { type ReactElement, useState } from "react";
+import { useState } from "react";
 import { api, confirmAction } from "./api.ts";
 import type { PrinterProfileInput, PrintSettings } from "./core/index.ts";
 import { ErrorNotice, StatusRegion, useTask } from "./ui.tsx";
@@ -80,7 +80,7 @@ export function DuplexCalibration({
   const task = useTask();
   const [selectedId, select] = useState("");
   const [name, setName] = useState("");
-  const [status, setStatus] = useState<ReactElement | null>(null);
+  const [status, setStatus] = useState({ text: "", id: 0 });
   const profiles = query.data ?? [];
   const selected = profiles.find((profile) => profile.id === selectedId);
   const flip = backs === "short-edge" ? "short" : "long";
@@ -89,9 +89,11 @@ export function DuplexCalibration({
     backOffsetYmm: settings.backOffsetYmm,
     backRotationDeg: settings.backRotationDeg,
   };
+  const announce = (text: string) =>
+    setStatus(({ id }) => ({ text, id: text ? id + 1 : id }));
   const saveProfile = (id: string | null) =>
     void task.run(async () => {
-      setStatus(null);
+      announce("");
       const input: PrinterProfileInput = { name: name.trim(), ...corrections };
       const profile = await api.savePrinterProfile(id, input);
       client.setQueryData<typeof profiles>(profileKey, (previous = []) => [
@@ -100,12 +102,8 @@ export function DuplexCalibration({
       ]);
       select(profile.id);
       setName(profile.name);
-      setStatus(
-        id === null ? (
-          <>Printer profile saved.</>
-        ) : (
-          <>Printer profile updated.</>
-        ),
+      announce(
+        id === null ? "Printer profile saved." : "Printer profile updated.",
       );
     });
   const canSave = !task.busy && query.isSuccess && name.trim().length > 0;
@@ -140,7 +138,7 @@ export function DuplexCalibration({
             );
             select(profile?.id ?? "");
             setName(profile?.name ?? "");
-            setStatus(null);
+            announce("");
             if (profile) {
               onChange({
                 backOffsetXmm: profile.backOffsetXmm,
@@ -189,7 +187,7 @@ export function DuplexCalibration({
               disabled={task.busy}
               onClick={() =>
                 void task.run(async () => {
-                  setStatus(null);
+                  announce("");
                   if (
                     !(await confirmAction(
                       `Delete “${selected.name}”?`,
@@ -205,9 +203,7 @@ export function DuplexCalibration({
                   );
                   select("");
                   setName("");
-                  setStatus(
-                    <>Printer profile deleted. Current correction kept.</>,
-                  );
+                  announce("Printer profile deleted. Current correction kept.");
                 })
               }
             >
@@ -221,9 +217,9 @@ export function DuplexCalibration({
         disabled={task.busy}
         onClick={() =>
           void task.run(async () => {
-            setStatus(null);
+            announce("");
             if (await api.exportDuplexCalibration(settings)) {
-              setStatus(<>Duplex calibration sheet saved.</>);
+              announce("Duplex calibration sheet saved.");
             }
           })
         }
@@ -236,10 +232,11 @@ export function DuplexCalibration({
         the back crosses line up with the front rings, then save your profile.
       </p>
       <StatusRegion
-        className={status ? "hint" : "sr-only"}
+        className={status.text ? "hint" : "sr-only"}
         label="Duplex calibration status"
+        announcementId={status.id}
       >
-        {status}
+        {status.text}
       </StatusRegion>
       <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       <ErrorNotice error={task.error} />

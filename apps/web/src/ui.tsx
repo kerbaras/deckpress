@@ -1,7 +1,6 @@
 import { AlertCircle, ImageOff, LoaderCircle, Search, X } from "lucide-react";
 import {
-  Fragment,
-  isValidElement,
+  Children,
   type KeyboardEvent,
   type ReactNode,
   type Ref,
@@ -77,19 +76,27 @@ export function StatusRegion({
   children,
   className = "sr-only",
   label,
+  announcementId,
 }: {
   children: ReactNode;
   className?: string;
   label?: string;
+  announcementId?: string | number | undefined;
 }) {
-  const message =
-    typeof children === "string" ||
-    (isValidElement(children) && children.type === Fragment)
-      ? children
-      : null;
-  const [announcement, setAnnouncement] = useState({ message, sequence: 0 });
-  if (message !== announcement.message) {
-    setAnnouncement({ message, sequence: announcement.sequence + 1 });
+  const [announcement, setAnnouncement] = useState({
+    children,
+    announcementId,
+    sequence: 0,
+  });
+  if (
+    !Object.is(children, announcement.children) ||
+    !Object.is(announcementId, announcement.announcementId)
+  ) {
+    setAnnouncement({
+      children,
+      announcementId,
+      sequence: announcement.sequence + 1,
+    });
   }
   return (
     <p
@@ -98,13 +105,11 @@ export function StatusRegion({
       aria-atomic="true"
       aria-label={label}
     >
-      {message ? (
+      {Children.toArray(children).some((child) => child !== "") && (
         // biome-ignore lint/a11y/useSemanticElements: Expose the inline announcement as a child in WebKitGTK's accessibility tree.
         <span key={announcement.sequence} role="group">
-          {message}
+          {children}
         </span>
-      ) : (
-        children
       )}
     </p>
   );
