@@ -453,6 +453,7 @@ it("announces print job phases once, leaving polling ticks in the progress contr
     fileName: "burn.pdf",
     bytes: 0,
     pages: 1,
+    calibrationPage: false,
   };
   const oldJob: PrintJob = {
     ...queued,
@@ -572,6 +573,7 @@ it.each([
       fileName: "burn.pdf",
       bytes: 0,
       pages: 0,
+      calibrationPage: false,
     };
     let job = queued;
     mockIPC((cmd) => (cmd === "list_jobs" ? [job] : []));
