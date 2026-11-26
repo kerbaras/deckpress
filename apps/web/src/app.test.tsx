@@ -222,6 +222,72 @@ it("suggests related tokens and saves them in the tokens zone only when added", 
   expect(saveDeck).toHaveBeenCalledWith(
     expect.objectContaining({ entries: [entry, token] }),
   );
+  expect(document.activeElement).toBe(
+    screen.getByRole("heading", { name: "Burn", level: 1 }),
+  );
+});
+
+it.each(["Save changes", "body"])(
+  "focuses the deck heading when Ctrl+S saves from %s",
+  async (start) => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "decks").mockResolvedValue([deck]);
+    vi.spyOn(api, "deck").mockResolvedValue(deck);
+    const save = vi
+      .spyOn(api, "saveDeck")
+      .mockImplementation(async (next) => next);
+    renderWithClient(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Edit card quantities" }),
+    );
+    const print = screen.getByRole("checkbox", {
+      name: "Print Lightning Bolt",
+    });
+    await user.click(print);
+    const button = screen.getByRole("button", { name: "Save changes" });
+    expect(button).toBeEnabled();
+    if (start === "body") print.blur();
+    else button.focus();
+    expect(document.activeElement).toBe(
+      start === "body" ? document.body : button,
+    );
+
+    await user.keyboard("{Control>}s{/Control}");
+
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ entries: [{ ...entry, excluded: true }] }),
+    );
+    expect(button).toBeDisabled();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Burn", level: 1 }),
+    );
+  },
+);
+
+it("keeps focus in the editor when saving with Ctrl+S", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  vi.spyOn(api, "deck").mockResolvedValue(deck);
+  const save = vi
+    .spyOn(api, "saveDeck")
+    .mockImplementation(async (next) => next);
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Edit card quantities" }),
+  );
+  await user.click(
+    screen.getByRole("checkbox", { name: "Print Lightning Bolt" }),
+  );
+  const search = screen.getByRole("searchbox", { name: "Find a card" });
+  await user.type(search, "Bolt");
+  await user.keyboard("{Control>}s{/Control}");
+  expect(save).toHaveBeenCalledWith(
+    expect.objectContaining({ entries: [{ ...entry, excluded: true }] }),
+  );
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  expect(document.activeElement).toBe(search);
 });
 
 it("imports an MPC Autofill order without changing image IDs and exports it through the save dialog", async () => {
@@ -404,6 +470,10 @@ it("creates a deck, imports resolved cards, and reopens the saved project", asyn
   expect(
     await screen.findByRole("button", { name: "Imported and saved" }),
   ).toHaveAttribute("aria-disabled", "true");
+  const heading = screen.getByRole("heading", { name: "Burn", level: 1 });
+  expect(heading).toBeVisible();
+  expect(heading).toHaveAttribute("tabindex", "-1");
+  expect(document.activeElement).toBe(heading);
   await user.click(screen.getByRole("button", { name: "Back to decks" }));
   await user.click(await screen.findByRole("button", { name: "Open Burn" }));
   expect(

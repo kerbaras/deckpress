@@ -67,6 +67,7 @@ function readSidebar(): boolean {
 
 export function App() {
   const [route, setRoute] = useState(routeFromHash);
+  const [importedDeckId, setImportedDeckId] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(readSidebar);
   const [newDeckRequest, setNewDeckRequest] = useState(0);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
@@ -100,6 +101,9 @@ export function App() {
     window.location.hash = `/${next}`;
     return true;
   };
+  const openImportedDeck = async (id: string) => {
+    if (await navigate(`decks/${id}`)) setImportedDeckId(id);
+  };
   useEffect(() => {
     const change = async () => {
       const next = routeFromHash();
@@ -112,6 +116,7 @@ export function App() {
         return;
       }
       routeRef.current = next;
+      setImportedDeckId((id) => (deckRoute(next) === id ? id : undefined));
       setRoute(next);
       const main = document.getElementById("main");
       if (main) main.scrollTop = 0;
@@ -286,6 +291,7 @@ export function App() {
               <Workspace
                 key={deckId}
                 id={deckId}
+                focusHeading={importedDeckId === deckId}
                 onDirty={onDirty}
                 onBack={() => void navigate("decks")}
                 onJobs={() => void navigate("jobs", true)}
@@ -297,7 +303,7 @@ export function App() {
             ) : route === "sources" ? (
               <Sources />
             ) : route === "discover" ? (
-              <DeckSearch open={(id) => void navigate(`decks/${id}`)} />
+              <DeckSearch open={openImportedDeck} />
             ) : route === "builder" ? (
               <DeckBuilder
                 onDirty={onDirty}
@@ -307,6 +313,7 @@ export function App() {
             ) : (
               <Library
                 open={(id) => void navigate(`decks/${id}`)}
+                openImported={openImportedDeck}
                 createRequest={newDeckRequest}
                 onCreateHandled={() => setNewDeckRequest(0)}
                 onBuild={() => void navigate("builder")}

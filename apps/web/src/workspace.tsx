@@ -43,11 +43,13 @@ import {
 
 export function Workspace({
   id,
+  focusHeading,
   onBack,
   onDirty,
   onJobs,
 }: {
   id: string;
+  focusHeading: boolean;
   onBack: () => void;
   onDirty: (dirty: boolean) => void;
   onJobs: () => void;
@@ -70,6 +72,7 @@ export function Workspace({
   return (
     <DeckWorkspace
       initial={query.data}
+      focusHeading={focusHeading}
       onBack={onBack}
       onDirty={onDirty}
       onJobs={onJobs}
@@ -106,11 +109,13 @@ const views = [
 
 function DeckWorkspace({
   initial,
+  focusHeading,
   onBack,
   onDirty,
   onJobs,
 }: {
   initial: Deck;
+  focusHeading: boolean;
   onBack: () => void;
   onDirty: (dirty: boolean) => void;
   onJobs: () => void;
@@ -122,8 +127,13 @@ function DeckWorkspace({
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
   const task = useTask();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
   const saving = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
+  useEffect(() => {
+    if (focusHeading) heading.current?.focus();
+  }, [focusHeading]);
   useEffect(() => {
     onDirty(deck !== saved);
     return () => onDirty(false);
@@ -146,12 +156,21 @@ function DeckWorkspace({
     }
   };
   const dirty = deck !== saved;
+  const saveChanges = () =>
+    void task.run(async () => {
+      await commit(deck);
+      if (
+        document.activeElement === saveButton.current ||
+        document.activeElement === document.body
+      )
+        heading.current?.focus();
+    });
   useEffect(() => {
     if (!dirty) return;
     const shortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        if (!task.busy) void task.run(() => commit(deck));
+        saveChanges();
       }
     };
     window.addEventListener("keydown", shortcut);
@@ -167,6 +186,7 @@ function DeckWorkspace({
     <fieldset className={`workspace workspace-${view}`} disabled={isSaving}>
       <PageToolbar
         title={deck.name}
+        titleRef={heading}
         subtitle={
           <>
             <span className="badge" data-tauri-drag-region>
@@ -214,12 +234,13 @@ function DeckWorkspace({
           )}
         </span>
         <button
+          ref={saveButton}
           type="button"
           className={dirty ? "primary" : "quiet"}
           disabled={task.busy || !dirty}
           aria-keyshortcuts="Control+S Meta+S"
           title="Save changes (Ctrl+S)"
-          onClick={() => void task.run(() => commit(deck))}
+          onClick={saveChanges}
         >
           <Save size={15} />
           Save changes
@@ -268,6 +289,7 @@ function DeckWorkspace({
                     ? [...(replace ? [] : deck.entries), ...result.entries]
                     : mergeImport(deck.entries, result.entries, replace),
               });
+              heading.current?.focus();
             }}
           />
           <DeckCards deck={deck} onChange={setDeck} onArt={selectArt} />

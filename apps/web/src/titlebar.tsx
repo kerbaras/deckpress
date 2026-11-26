@@ -10,6 +10,7 @@ import {
 import {
   createContext,
   type ReactNode,
+  type Ref,
   useContext,
   useEffect,
   useState,
@@ -84,12 +85,14 @@ export const ToolbarSlotProvider = ToolbarSlot.Provider;
  */
 export function PageToolbar({
   title,
+  titleRef,
   subtitle,
   leading,
   center,
   children,
 }: {
   title: string;
+  titleRef?: Ref<HTMLHeadingElement>;
   subtitle?: ReactNode;
   /** Navigation controls before the title, such as a back button. */
   leading?: ReactNode;
@@ -104,7 +107,12 @@ export function PageToolbar({
     <>
       <div className="toolbar-lead" data-tauri-drag-region>
         {leading}
-        <h1 className="toolbar-title" data-tauri-drag-region>
+        <h1
+          ref={titleRef}
+          tabIndex={titleRef ? -1 : undefined}
+          className="toolbar-title"
+          data-tauri-drag-region
+        >
           {title}
         </h1>
         {subtitle && (
