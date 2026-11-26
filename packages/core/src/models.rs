@@ -90,6 +90,8 @@ pub struct DeckEntry {
     pub card: Card,
     pub quantity: u32,
     pub zone: Zone,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
     #[serde(default)]
     pub selected_art: Option<Art>,
     #[serde(default)]
@@ -256,6 +258,8 @@ pub struct PrintSettings {
     pub back_offset_xmm: f64,
     pub back_offset_ymm: f64,
     pub back_rotation_deg: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub printer_profile_id: Option<String>,
     pub include_sideboard: bool,
     pub include_maybeboard: bool,
     pub skip_basics: bool,
@@ -311,6 +315,7 @@ impl Default for PrintSettings {
             back_offset_xmm: 0.0,
             back_offset_ymm: 0.0,
             back_rotation_deg: 0.0,
+            printer_profile_id: None,
             include_sideboard: false,
             include_maybeboard: false,
             skip_basics: false,
@@ -435,6 +440,8 @@ pub struct ImportLine {
     pub quantity: u32,
     pub name: String,
     pub zone: Zone,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
     #[serde(default)]
     pub set: String,
     #[serde(default)]

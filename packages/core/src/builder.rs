@@ -1287,6 +1287,7 @@ pub fn plan_fill(
                 card: ranked[index].card.clone(),
                 quantity,
                 zone: Zone::Main,
+                board: None,
                 selected_art: None,
                 selected_back: None,
                 excluded: false,
@@ -1740,6 +1741,7 @@ impl Builder {
                     quantity: *quantity,
                     name: name.to_string(),
                     zone: Zone::Main,
+                    board: None,
                     set: set.to_string(),
                     collector_number: String::new(),
                 })

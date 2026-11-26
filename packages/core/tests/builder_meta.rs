@@ -243,6 +243,7 @@ async fn atraxa_counters_midrange_resembles_popular_atraxa_lists() {
         card: commander,
         quantity: 1,
         zone: Zone::Commander,
+        board: None,
         selected_art: None,
         selected_back: None,
         excluded: false,

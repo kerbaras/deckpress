@@ -89,7 +89,7 @@ it("applies, creates, updates and deletes profiles and exports the current corre
     target: { value: "Photo paper" },
   });
   fireEvent.change(rotation, { target: { value: "0.24" } });
-  await user.click(screen.getByRole("button", { name: "Save new profile" }));
+  await user.click(screen.getByRole("button", { name: "Save as profile" }));
   await screen.findByRole("option", { name: "Photo paper" });
   const correction = {
     backOffsetXmm: 1.25,
@@ -148,6 +148,162 @@ it("applies, creates, updates and deletes profiles and exports the current corre
     "Duplex calibration sheet saved.",
     "Duplex calibration sheet saved.",
   ]);
+});
+
+it("restores the selected id even with equal profiles and updates only that id after editing", async () => {
+  const profile = {
+    id: "642f6d09-ae39-469b-980f-4ad95b52f3af",
+    name: "Office laser",
+    backOffsetXmm: 1.25,
+    backOffsetYmm: -0.5,
+    backRotationDeg: -0.3,
+  };
+  const duplicate = {
+    ...profile,
+    id: "281d5f22-7f96-44c6-a06a-13ba60cba389",
+    name: "Duplicate",
+  };
+  const other = {
+    ...profile,
+    id: "63e7451c-9dcc-4159-9ad2-f8e1b3b04b8b",
+    name: "Other",
+    backRotationDeg: 0.24,
+  };
+  const ipc = vi.fn((command, args) => {
+    if (command === "list_printer_profiles") return [duplicate, other, profile];
+    if (command === "save_printer_profile")
+      return { ...args.input, id: args.id };
+  });
+  mockIPC(ipc);
+  let persistedSettings = printSettingsSchema.parse({
+    backOffsetXmm: profile.backOffsetXmm,
+    backOffsetYmm: profile.backOffsetYmm,
+    backRotationDeg: profile.backRotationDeg,
+  });
+  function Harness() {
+    const [settings, setSettings] = useState(persistedSettings);
+    return (
+      <DuplexCalibration
+        settings={settings}
+        backs={settings.backs}
+        onChange={(patch) => {
+          persistedSettings = { ...settings, ...patch };
+          setSettings(persistedSettings);
+        }}
+      />
+    );
+  }
+  const mount = () =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Harness />
+      </QueryClientProvider>,
+    );
+  const user = userEvent.setup();
+  const before = mount();
+  await screen.findByRole("option", { name: profile.name });
+  const picker = () =>
+    screen.getByRole("combobox", { name: "Printer profile" });
+  expect(picker()).toHaveValue("");
+  expect(
+    screen.queryByRole("button", { name: "Update profile" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  await user.selectOptions(picker(), profile.id);
+  expect(persistedSettings.printerProfileId).toBe(profile.id);
+  before.unmount();
+
+  mount();
+  await screen.findByRole("option", { name: profile.name });
+  expect(picker()).toHaveValue(profile.id);
+  expect(screen.getByRole("textbox", { name: "Profile name" })).toHaveValue(
+    profile.name,
+  );
+  const rotation = screen.getByRole("spinbutton", { name: /Back rotation/ });
+  fireEvent.change(rotation, { target: { value: "0.24" } });
+  expect(picker()).toHaveDisplayValue("Custom correction");
+  expect(screen.getByRole("button", { name: "Save as profile" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Update profile" })).toBeEnabled();
+  fireEvent.blur(rotation);
+  await user.selectOptions(picker(), profile.id);
+  expect(picker()).toHaveValue(profile.id);
+  expect(rotation).toHaveValue(-0.3);
+  fireEvent.change(rotation, { target: { value: "0.24" } });
+  await user.click(screen.getByRole("button", { name: "Update profile" }));
+  expect(
+    ipc.mock.calls.filter(([command]) => command === "save_printer_profile"),
+  ).toEqual([
+    [
+      "save_printer_profile",
+      {
+        id: profile.id,
+        input: {
+          name: profile.name,
+          backOffsetXmm: 1.25,
+          backOffsetYmm: -0.5,
+          backRotationDeg: 0.24,
+        },
+      },
+    ],
+  ]);
+  expect(picker()).toHaveValue(profile.id);
+  await user.selectOptions(picker(), "");
+  expect(persistedSettings.printerProfileId).toBeUndefined();
+  expect(rotation).toHaveValue(0.24);
+  expect(
+    screen.queryByRole("button", { name: "Update profile" }),
+  ).not.toBeInTheDocument();
+});
+
+it("announces a deleted stored profile once and keeps the saved correction", async () => {
+  const profiles = Promise.withResolvers<[]>();
+  mockIPC((command) => {
+    if (command === "list_printer_profiles") return profiles.promise;
+  });
+  function Harness() {
+    const [settings, setSettings] = useState(() =>
+      printSettingsSchema.parse({
+        printerProfileId: "642f6d09-ae39-469b-980f-4ad95b52f3af",
+        backOffsetXmm: 1.25,
+      }),
+    );
+    return (
+      <DuplexCalibration
+        settings={settings}
+        backs={settings.backs}
+        onChange={(patch) =>
+          setSettings((current) => ({ ...current, ...patch }))
+        }
+      />
+    );
+  }
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <Harness />
+    </QueryClientProvider>,
+  );
+  const status = screen.getByRole("status", {
+    name: "Duplex calibration status",
+  });
+  expect(status).toBeEmptyDOMElement();
+  profiles.resolve([]);
+  const message = await screen.findByText(
+    "Printer profile deleted. Current correction kept.",
+  );
+  expect(message).toBeVisible();
+  expect(message).toBe(status.firstElementChild);
+  expect(
+    screen.getByRole("combobox", { name: "Printer profile" }),
+  ).toHaveDisplayValue("Custom correction");
+  expect(
+    screen.queryByRole("button", { name: "Update profile" }),
+  ).not.toBeInTheDocument();
+  const offset = screen.getByRole("spinbutton", {
+    name: /Back horizontal offset/,
+  });
+  expect(offset).toHaveValue(1.25);
+  fireEvent.change(offset, { target: { value: "1.5" } });
+  expect(status.firstElementChild).toBe(message);
 });
 
 it("announces a failed calibration export only as an alert", async () => {

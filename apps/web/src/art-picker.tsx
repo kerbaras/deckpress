@@ -47,6 +47,7 @@ export function ArtPicker(props: {
   entry: DeckEntry;
   onSelect: (id: string) => void;
   onApply: (deck: Deck) => Promise<Deck>;
+  onPreviewChange?: (changed: boolean) => void;
 }) {
   const { entry, onSelect } = props;
   const [activeFace, setActiveFace] = useState({
@@ -189,6 +190,7 @@ function ArtSession({
   heading,
   onMatchSummary,
   onApplied,
+  onPreviewChange,
 }: {
   deck: Deck;
   entry: DeckEntry;
@@ -200,6 +202,7 @@ function ArtSession({
   heading: React.Ref<HTMLHeadingElement>;
   onMatchSummary: (summary: string) => void;
   onApplied: (printing: string) => void;
+  onPreviewChange?: (changed: boolean) => void;
 }) {
   const client = useQueryClient();
   const original = entry.card.faces[face] ?? null;
@@ -207,6 +210,10 @@ function ArtSession({
   const saved = savedArt(entry);
   const [candidate, setCandidate] = useState<Art | null>(saved);
   const changed = candidate?.id !== saved?.id;
+  useEffect(() => {
+    onPreviewChange?.(changed);
+    return () => onPreviewChange?.(false);
+  }, [changed, onPreviewChange]);
   const originalIsSaved = original?.id === saved?.id;
   const previewingOriginal = changed && candidate?.id === original?.id;
   const showSavedMonitor = changed && !originalIsSaved;
@@ -905,7 +912,7 @@ function ArtSession({
       </nav>
       {pending && (
         <DiscardPreview
-          switchingFace={"face" in pending}
+          leaving={"face" in pending ? "face" : "card"}
           onStay={() => setPending(null)}
           onDiscard={() => {
             setPending(null);
@@ -934,25 +941,34 @@ function ArtSession({
   );
 }
 
-function DiscardPreview({
-  switchingFace,
+const previewExit = {
+  card: "move to another card",
+  face: "switch faces",
+  studio: "leave Art studio",
+};
+
+export function DiscardPreview({
+  leaving,
   onStay,
   onDiscard,
+  focusFallback,
 }: {
-  switchingFace: boolean;
+  leaving: keyof typeof previewExit;
   onStay: () => void;
   onDiscard: () => void;
+  focusFallback?: () => void;
 }) {
   return (
     <Modal
       title="Discard art preview?"
-      description={`This preview hasn’t been applied. Discard it to ${switchingFace ? "switch faces" : "move to another card"}. Your saved art won’t change.`}
+      description={`This preview hasn’t been applied. Discard it to ${previewExit[leaving]}. Your saved art won’t change.`}
       onClose={onStay}
       showClose={false}
+      focusFallback={focusFallback}
     >
       <div className="modal-actions">
         <button type="button" className="primary" onClick={onStay}>
-          {switchingFace ? "Keep preview" : "Stay"}
+          {leaving === "card" ? "Stay" : "Keep preview"}
         </button>
         <button type="button" onClick={onDiscard}>
           Discard

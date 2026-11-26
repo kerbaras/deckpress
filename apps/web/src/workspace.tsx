@@ -58,12 +58,16 @@ export function Workspace({
   focusHeading,
   onBack,
   onDirty,
+  onPreviewChange,
+  confirmArtExit,
   onJobs,
 }: {
   id: string;
   focusHeading: boolean;
-  onBack: () => void;
+  onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
+  onPreviewChange: (changed: boolean) => void;
+  confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
   const query = useQuery({
@@ -87,6 +91,8 @@ export function Workspace({
       focusHeading={focusHeading}
       onBack={onBack}
       onDirty={onDirty}
+      onPreviewChange={onPreviewChange}
+      confirmArtExit={confirmArtExit}
       onJobs={onJobs}
     />
   );
@@ -96,7 +102,7 @@ function BackButton({
   onBack,
   disabled,
 }: {
-  onBack: () => void;
+  onBack: (trigger: HTMLButtonElement) => void;
   disabled?: boolean;
 }) {
   return (
@@ -106,7 +112,7 @@ function BackButton({
       aria-label="Back to decks"
       title="Back to decks"
       disabled={disabled}
-      onClick={onBack}
+      onClick={(event) => onBack(event.currentTarget)}
     >
       <ArrowLeft size={16} />
     </button>
@@ -124,12 +130,16 @@ function DeckWorkspace({
   focusHeading,
   onBack,
   onDirty,
+  onPreviewChange,
+  confirmArtExit,
   onJobs,
 }: {
   initial: Deck;
   focusHeading: boolean;
-  onBack: () => void;
+  onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
+  onPreviewChange: (changed: boolean) => void;
+  confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
   const client = useQueryClient();
@@ -244,7 +254,14 @@ function DeckWorkspace({
                 disabled={isSaving || (id !== "edit" && !deck.entries.length)}
                 aria-current={view === id ? "page" : undefined}
                 title={name}
-                onClick={() => setView(id)}
+                onClick={async (event) => {
+                  if (view === "art" && id !== "art") {
+                    const exit = confirmArtExit(event.currentTarget);
+                    if (exit === false || (exit !== true && !(await exit)))
+                      return;
+                  }
+                  setView(id);
+                }}
               >
                 <Icon size={15} aria-hidden="true" />
                 <span>{name}</span>
@@ -342,6 +359,7 @@ function DeckWorkspace({
           entry={selected}
           onSelect={setSelectedId}
           onApply={commit}
+          onPreviewChange={onPreviewChange}
         />
       )}
       {view === "print" && (
@@ -439,6 +457,12 @@ function DeckWorkspace({
   );
 }
 
+function boardKey(zone: DeckEntry["zone"], board?: string) {
+  return board === undefined || board === zoneNames[zone]
+    ? zone
+    : JSON.stringify([zone, board]);
+}
+
 function DeckCards({
   deck,
   onChange,
@@ -449,7 +473,7 @@ function DeckCards({
   onArt: (entry: DeckEntry) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [zone, setZone] = useState<DeckEntry["zone"]>("main");
+  const [selectedBoard, setSelectedBoard] = useState("main");
   const [group, setGroup] = useState("mana");
   const [display, setDisplay] = useState("stacks");
   const [error, setError] = useState<unknown>(null);
@@ -467,9 +491,26 @@ function DeckCards({
     } else
       setError(new Error(parsed.error.issues[0]?.message ?? "Invalid deck"));
   };
+  const boards = new Map(
+    zones.map((zone) => [
+      boardKey(zone),
+      { zone, board: undefined as string | undefined, count: 0 },
+    ]),
+  );
+  for (const { zone, board, quantity } of deck.entries) {
+    const key = boardKey(zone, board);
+    const existing = boards.get(key);
+    if (existing) existing.count += quantity;
+    else boards.set(key, { zone, board, count: quantity });
+  }
+  const orderedBoards = [...boards].sort(
+    ([, left], [, right]) =>
+      zones.indexOf(left.zone) - zones.indexOf(right.zone),
+  );
+  const activeBoard = boards.has(selectedBoard) ? selectedBoard : "main";
   const entries = deck.entries.filter(
     (entry) =>
-      entry.zone === zone &&
+      boardKey(entry.zone, entry.board) === activeBoard &&
       entry.card.name.toLowerCase().includes(search.toLowerCase()),
   );
   const groups = new Map<string, DeckEntry[]>();
@@ -507,22 +548,20 @@ function DeckCards({
           }
           setError(null);
           onChange(next.data);
-          setZone("tokens");
+          setSelectedBoard("tokens");
           setSearch("");
         }}
       />
       <div className="toolbar zone-toolbar">
-        {zones.map((value) => (
+        {orderedBoards.map(([key, { zone, board, count }]) => (
           <button
             type="button"
-            key={value}
-            className={value === zone ? "chip active" : "chip"}
-            onClick={() => setZone(value)}
+            key={key}
+            className={key === activeBoard ? "chip active" : "chip"}
+            onClick={() => setSelectedBoard(key)}
           >
-            {zoneNames[value]}
-            <span>
-              {countCards(deck.entries.filter((entry) => entry.zone === value))}
-            </span>
+            {board ?? zoneNames[zone]}
+            <span>{count}</span>
           </button>
         ))}
       </div>
@@ -619,16 +658,19 @@ function DeckCards({
               />
               <select
                 aria-label={`Board for ${entry.card.name}`}
-                value={entry.zone}
-                onChange={(event) =>
-                  update(entry.id, {
-                    zone: event.target.value as DeckEntry["zone"],
-                  })
-                }
+                value={boardKey(entry.zone, entry.board)}
+                onChange={(event) => {
+                  const target = boards.get(event.target.value);
+                  if (target)
+                    update(entry.id, {
+                      zone: target.zone,
+                      board: target.board,
+                    });
+                }}
               >
-                {zones.map((value) => (
-                  <option value={value} key={value}>
-                    {zoneNames[value]}
+                {orderedBoards.map(([key, { zone, board }]) => (
+                  <option value={key} key={key}>
+                    {board ?? zoneNames[zone]}
                   </option>
                 ))}
               </select>

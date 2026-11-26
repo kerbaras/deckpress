@@ -33,7 +33,9 @@ export interface WindowState extends WindowChrome {
 }
 
 /** Platform chrome plus the live window state the shell styles react to. */
-export function useWindowState(): WindowState {
+export function useWindowState(
+  confirmClose: () => boolean | Promise<boolean>,
+): WindowState {
   const [chrome, setChrome] = useState<WindowChrome>(defaultWindowChrome);
   const [focused, setFocused] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
@@ -66,11 +68,16 @@ export function useWindowState(): WindowState {
     void syncFullscreen();
     track(current.onFocusChanged(({ payload }) => setFocused(payload)));
     track(current.onResized(() => void syncFullscreen()));
+    track(
+      current.onCloseRequested(async (event) => {
+        if (!(await confirmClose())) event.preventDefault();
+      }),
+    );
     return () => {
       live = false;
       for (const stop of stops) stop();
     };
-  }, []);
+  }, [confirmClose]);
   return { ...chrome, focused, fullscreen };
 }
 
@@ -248,7 +255,10 @@ function WindowControls() {
         className="close"
         aria-label="Close window"
         title="Close"
-        onClick={run((window) => window.close())}
+        onClick={(event) => {
+          event.currentTarget.focus();
+          run((window) => window.close())();
+        }}
       >
         <X size={15} />
       </button>

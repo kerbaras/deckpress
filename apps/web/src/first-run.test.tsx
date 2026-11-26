@@ -210,7 +210,7 @@ it("saves an imported list with the chosen name and format", async () => {
     name: "Burn",
     level: 1,
   });
-  expect(document.activeElement).toBe(heading);
+  await waitFor(() => expect(document.activeElement).toBe(heading));
   expect(
     await screen.findByRole("button", { name: "Back to decks" }),
   ).toBeVisible();

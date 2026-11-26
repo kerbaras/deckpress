@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Crosshair, Download } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, confirmAction } from "./api.ts";
 import type { PrinterProfileInput, PrintSettings } from "./core/index.ts";
 import { ErrorNotice, StatusRegion, useTask } from "./ui.tsx";
@@ -78,17 +78,35 @@ export function DuplexCalibration({
   });
   const client = useQueryClient();
   const task = useTask();
-  const [selectedId, select] = useState("");
-  const [name, setName] = useState("");
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [status, setStatus] = useState({ text: "", id: 0 });
+  const announcedMissingId = useRef<string | undefined>(undefined);
   const profiles = query.data ?? [];
-  const selected = profiles.find((profile) => profile.id === selectedId);
   const flip = backs === "short-edge" ? "short" : "long";
   const corrections = {
     backOffsetXmm: settings.backOffsetXmm,
     backOffsetYmm: settings.backOffsetYmm,
     backRotationDeg: settings.backRotationDeg,
   };
+  const profileToEdit = profiles.find(
+    (profile) => profile.id === settings.printerProfileId,
+  );
+  const selected =
+    profileToEdit &&
+    fields.every(({ key }) => profileToEdit[key] === corrections[key])
+      ? profileToEdit
+      : undefined;
+  const missingId =
+    query.isSuccess && !profileToEdit ? settings.printerProfileId : undefined;
+  useEffect(() => {
+    if (missingId && missingId !== announcedMissingId.current)
+      setStatus(({ id }) => ({
+        text: "Printer profile deleted. Current correction kept.",
+        id: id + 1,
+      }));
+    announcedMissingId.current = missingId;
+  }, [missingId]);
+  const name = nameDraft ?? profileToEdit?.name ?? "";
   const announce = (text: string) =>
     setStatus(({ id }) => ({ text, id: text ? id + 1 : id }));
   const saveProfile = (id: string | null) =>
@@ -100,8 +118,8 @@ export function DuplexCalibration({
         profile,
         ...previous.filter((item) => item.id !== profile.id),
       ]);
-      select(profile.id);
-      setName(profile.name);
+      if (id === null) onChange({ printerProfileId: profile.id });
+      setNameDraft(null);
       announce(
         id === null ? "Printer profile saved." : "Printer profile updated.",
       );
@@ -136,16 +154,18 @@ export function DuplexCalibration({
             const profile = profiles.find(
               (item) => item.id === event.target.value,
             );
-            select(profile?.id ?? "");
-            setName(profile?.name ?? "");
+            setNameDraft(null);
             announce("");
-            if (profile) {
-              onChange({
-                backOffsetXmm: profile.backOffsetXmm,
-                backOffsetYmm: profile.backOffsetYmm,
-                backRotationDeg: profile.backRotationDeg,
-              });
+            if (!profile) {
+              onChange({ printerProfileId: undefined });
+              return;
             }
+            onChange({
+              printerProfileId: profile.id,
+              backOffsetXmm: profile.backOffsetXmm,
+              backOffsetYmm: profile.backOffsetYmm,
+              backRotationDeg: profile.backRotationDeg,
+            });
           }}
         >
           <option value="">Custom correction</option>
@@ -162,7 +182,7 @@ export function DuplexCalibration({
           value={name}
           placeholder="e.g. Home printer · heavy stock"
           maxLength={100}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => setNameDraft(event.target.value)}
         />
       </label>
       <div className="toolbar">
@@ -171,14 +191,14 @@ export function DuplexCalibration({
           disabled={!canSave}
           onClick={() => saveProfile(null)}
         >
-          Save new profile
+          Save as profile
         </button>
-        {selected && (
+        {profileToEdit && (
           <>
             <button
               type="button"
               disabled={!canSave}
-              onClick={() => saveProfile(selected.id)}
+              onClick={() => saveProfile(profileToEdit.id)}
             >
               Update profile
             </button>
@@ -190,20 +210,18 @@ export function DuplexCalibration({
                   announce("");
                   if (
                     !(await confirmAction(
-                      `Delete “${selected.name}”?`,
+                      `Delete “${profileToEdit.name}”?`,
                       "Delete profile",
                     ))
                   )
                     return;
-                  await api.deletePrinterProfile(selected.id);
+                  await api.deletePrinterProfile(profileToEdit.id);
                   client.setQueryData<typeof profiles>(
                     profileKey,
                     (previous = []) =>
-                      previous.filter((item) => item.id !== selected.id),
+                      previous.filter((item) => item.id !== profileToEdit.id),
                   );
-                  select("");
-                  setName("");
-                  announce("Printer profile deleted. Current correction kept.");
+                  setNameDraft(null);
                 })
               }
             >

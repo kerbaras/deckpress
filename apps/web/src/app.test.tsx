@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { runInNewContext } from "node:vm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { mockIPC } from "@tauri-apps/api/mocks";
+import { emit, TauriEvent } from "@tauri-apps/api/event";
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import {
   act,
   fireEvent,
@@ -14,6 +15,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
+import legacyBackup from "../../../packages/core/tests/fixtures/deck-backup-before-board-names.json";
 import printPageCounts from "../../../packages/core/tests/fixtures/print-page-counts.json";
 import { api, type StyleReport } from "./api.ts";
 import { App } from "./app.tsx";
@@ -457,6 +459,87 @@ it("shows the pending save status until the save fails or succeeds", async () =>
   successfulSave.resolve({ ...deck, entries: [{ ...entry, quantity: 5 }] });
   await expectStatus("Saved");
 });
+
+it.each([false, true])(
+  "restores a deck JSON backup (named boards: %s)",
+  async (named) => {
+    const user = userEvent.setup();
+    const restoredId = "221c934a-dc11-4c97-88ff-ff467375a521";
+    const original = deckSchema.parse(legacyBackup);
+    if (named) {
+      original.entries.push({
+        ...entry,
+        zone: "maybe",
+        board: "Considering",
+      });
+    }
+    let restored: Deck | undefined;
+    const saveText = vi.fn();
+    mockIPC((cmd, args) => {
+      if (cmd === "list_decks")
+        return restored ? [original, restored] : [original];
+      if (cmd === "get_deck")
+        return (args as { id: string }).id === restoredId ? restored : original;
+      if (cmd === "export_file_name") return exportFileName(args);
+      if (cmd === "plugin:dialog|save") return "/chosen/deck.deckpress.json";
+      if (cmd === "save_text") return saveText(args);
+      if (cmd === "create_deck") {
+        restored = deckSchema.parse({
+          ...(args as { deck: Deck }).deck,
+          id: restoredId,
+        });
+        return restored;
+      }
+      return [];
+    });
+    renderWithClient(<App />);
+    let contents = JSON.stringify(legacyBackup);
+    if (named) {
+      await user.click(
+        await screen.findByRole("button", { name: "Open Legacy backup" }),
+      );
+      await user.click(
+        await screen.findByRole("button", { name: "Back up deck as JSON" }),
+      );
+      await waitFor(() => expect(saveText).toHaveBeenCalledOnce());
+      [{ contents }] = saveText.mock.calls[0] as [{ contents: string }];
+      expect(JSON.parse(contents).entries).toEqual(original.entries);
+      await user.click(screen.getByRole("button", { name: "Decks" }));
+    }
+    const file = new File([contents], "deck.deckpress.json", {
+      type: "application/json",
+    });
+    Object.defineProperty(file, "text", { value: async () => contents });
+    await user.upload(
+      await screen.findByLabelText("Restore a deck from a JSON backup"),
+      file,
+    );
+    await waitFor(() =>
+      expect(window.location.hash).toBe(`#/decks/${restoredId}`),
+    );
+    expect(restored?.entries).toEqual(original.entries);
+    await user.click(
+      await screen.findByRole("button", { name: "Edit card quantities" }),
+    );
+    await user.click(screen.getByRole("button", { name: /Maybeboard\s*2/ }));
+    expect(screen.getByRole("button", { name: /^Opt/ })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /^Lightning Bolt/ }),
+    ).not.toBeInTheDocument();
+    if (named) {
+      await user.click(screen.getByRole("button", { name: /Considering\s*4/ }));
+      expect(
+        screen.getByRole("button", { name: /^Lightning Bolt/ }),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: /^Opt/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("combobox", { name: "Board for Lightning Bolt" }),
+      ).toHaveDisplayValue("Considering");
+    }
+  },
+);
 
 it("imports an MPC Autofill order without changing image IDs and exports it through the save dialog", async () => {
   const art = { ...community, id: "mpc:front_id" };
@@ -1305,9 +1388,11 @@ it("opens Settings Models from the missing-model link using the keyboard", async
   });
   expect(link).toHaveFocus();
   await user.keyboard("{Enter}");
-  expect(
-    await screen.findByRole("heading", { name: "Local AI upscaling" }),
-  ).toHaveFocus();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("heading", { name: "Local AI upscaling" }),
+    ).toHaveFocus(),
+  );
   expect(window.location.hash).toBe("#/settings/models");
 });
 
@@ -1407,6 +1492,180 @@ function mockPickerArt(prints = [original, alternate, community]) {
       total: provider === "scryfall" ? prints.length : 0,
     }));
 }
+
+const secondArtDeck = {
+  ...deck,
+  id: "053d7e52-19e2-451c-a568-0b49c2adc544",
+  name: "Second deck",
+};
+
+async function openArtStudio(user: ReturnType<typeof userEvent.setup>) {
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  mockPickerArt([original, alternate]);
+  vi.spyOn(api, "decks").mockResolvedValue([deck, secondArtDeck]);
+  vi.spyOn(api, "deck").mockImplementation(async (deckId) =>
+    deckId === id ? deck : secondArtDeck,
+  );
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Art studio" }));
+  return screen.findByRole("button", previewButton);
+}
+
+it.each([
+  [
+    "Deck editor",
+    () => screen.findByRole("searchbox", { name: "Find a card" }),
+  ],
+  ["Print setup", () => screen.findByRole("button", { name: "Export PNGs" })],
+  [
+    "Back to decks",
+    () => screen.findByRole("heading", { name: "Decks", level: 1 }),
+  ],
+  [
+    "Second deck",
+    () => screen.findByRole("heading", { name: "Second deck", level: 1 }),
+  ],
+  [
+    "Print jobs",
+    () => screen.findByRole("heading", { name: "Print jobs", level: 1 }),
+  ],
+  ["Decks", () => screen.findByRole("heading", { name: "Decks", level: 1 })],
+  [
+    "Art sources",
+    () => screen.findByRole("heading", { name: "Art sources", level: 1 }),
+  ],
+  [
+    "Discover",
+    () => screen.findByRole("heading", { name: "Discover decks", level: 1 }),
+  ],
+  [
+    "Deck builder",
+    () => screen.findByRole("heading", { name: "Deck builder", level: 1 }),
+  ],
+  [
+    "Settings",
+    () => screen.findByRole("heading", { name: "Settings", level: 1 }),
+  ],
+] as const)("guards the %s exit from Art studio", async (name, destination) => {
+  const user = userEvent.setup();
+  const preview = await openArtStudio(user);
+  await user.click(preview);
+  const trigger = await screen.findByRole("button", { name });
+  await user.click(trigger);
+  const prompt = screen.getByRole("dialog", promptName);
+  expect(prompt).toHaveAccessibleDescription(/leave Art studio/);
+  const keep = within(prompt).getByRole("button", { name: "Keep preview" });
+  const discard = within(prompt).getByRole("button", { name: "Discard" });
+  discard.focus();
+  await user.tab();
+  expect(keep).toHaveFocus();
+  await user.click(keep);
+  expect(prompt).not.toBeInTheDocument();
+  expect(trigger).toHaveFocus();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(trigger);
+  fireEvent(
+    screen.getByRole("dialog", promptName),
+    new Event("cancel", { cancelable: true }),
+  );
+  expect(trigger).toHaveFocus();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(trigger);
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  expect(await destination()).toBeVisible();
+  expect(preview).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  expect(
+    name === "Back to decks" ? screen.getByRole("main") : trigger,
+  ).toHaveFocus();
+});
+
+it("keeps, then discards a preview when Tauri requests window close", async () => {
+  const user = userEvent.setup();
+  const commands = vi.fn((command: string) =>
+    command === "plugin:window|is_fullscreen" ? false : [],
+  );
+  mockWindows("main");
+  mockIPC(commands, { shouldMockEvents: true });
+  const preview = await openArtStudio(user);
+  await user.click(preview);
+
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  await user.click(screen.getByRole("button", { name: "Keep preview" }));
+  expect(preview).toHaveFocus();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+  expect(commands).not.toHaveBeenCalledWith("plugin:window|destroy", {
+    label: "main",
+  });
+
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  await waitFor(() =>
+    expect(commands).toHaveBeenCalledWith("plugin:window|destroy", {
+      label: "main",
+    }),
+  );
+});
+
+it("navigates immediately when there is no preview to discard", async () => {
+  const user = userEvent.setup();
+  await openArtStudio(user);
+  await user.click(screen.getByRole("button", { name: "Deck editor" }));
+  expect(
+    await screen.findByRole("searchbox", { name: "Find a card" }),
+  ).toBeVisible();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Art studio" }));
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  expect(
+    await screen.findByRole("heading", { name: "Decks", level: 1 }),
+  ).toBeVisible();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+});
+
+it("protects the preview on hash navigation and Settings shortcut, but not on sidebar toggle", async () => {
+  const user = userEvent.setup();
+  const preview = await openArtStudio(user);
+  await user.click(preview);
+  await user.keyboard("{Control>}b{/Control}");
+  expect(screen.getByRole("button", { name: "Show sidebar" })).toBeVisible();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+  await user.keyboard("{Control>}b{/Control}");
+
+  act(() => {
+    window.history.replaceState(null, "", "#/jobs");
+    window.dispatchEvent(new Event("hashchange"));
+  });
+  const prompt = await screen.findByRole("dialog", promptName);
+  expect(window.location.hash).toBe(`#/decks/${id}`);
+  await user.click(
+    within(prompt).getByRole("button", { name: "Keep preview" }),
+  );
+  expect(preview).toHaveFocus();
+  expect(preview).toHaveAttribute("aria-pressed", "true");
+
+  await user.keyboard("{Control>},{/Control}");
+  await user.click(
+    within(await screen.findByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Settings", level: 1 }),
+  ).toBeVisible();
+  expect(screen.getByRole("main")).toHaveFocus();
+});
 
 it("shows original, saved and preview art separately, even when saved art is outside the results", async () => {
   const user = userEvent.setup();
@@ -2733,6 +2992,10 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   expect(screen.getByRole("alert")).toHaveTextContent("Cards do not fit");
   for (const button of screen.getAllByRole("button", { name: "Generate PDF" }))
     expect(button).toBeDisabled();
+  const columnsLink = screen.getByRole("link", { name: "Adjust columns" });
+  columnsLink.focus();
+  await user.keyboard("{Enter}");
+  expect(screen.getByRole("spinbutton", { name: /^Columns/ })).toHaveFocus();
   await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
   await user.click(screen.getByRole("button", { name: "Next page" }));
   const proof = screen.getByRole("img", {
@@ -2852,6 +3115,64 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
   ).toBeVisible();
 });
 
+it("mounts the print preset status before saving", async () => {
+  const user = userEvent.setup();
+  const store = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation(() => {});
+  renderWithClient(
+    <PrintSetup
+      deck={deck}
+      onChange={vi.fn()}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+    />,
+  );
+  const status = screen.getByRole("status", {
+    name: "Print preset save status",
+  });
+  expect(status).toBeEmptyDOMElement();
+  await user.click(screen.getByRole("button", { name: "Save preset" }));
+  expect(store).toHaveBeenCalledWith(
+    "deckpress.print-preset",
+    JSON.stringify(deck.printSettings),
+  );
+  expect(status).toHaveTextContent(/^Preset saved on this browser$/);
+  const firstMessage = status.firstElementChild;
+  expect(firstMessage).toHaveTextContent("Preset saved on this browser");
+  await user.click(screen.getByRole("button", { name: "Save preset" }));
+  expect(status.firstElementChild).toHaveTextContent(
+    "Preset saved on this browser",
+  );
+  expect(status.firstElementChild).not.toBe(firstMessage);
+});
+
+it("loading an older preset does not retain the previous selection's profile id", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation((key) =>
+    key === "deckpress.print-preset" ? '{"backOffsetXmm":2}' : null,
+  );
+  const change = vi.fn();
+  renderWithClient(
+    <PrintSetup
+      deck={{
+        ...deck,
+        printSettings: { ...deck.printSettings, printerProfileId: id },
+      }}
+      onChange={change}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+    />,
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Print preset" }),
+    "saved",
+  );
+  const loaded = change.mock.lastCall?.[0].printSettings;
+  expect(loaded.backOffsetXmm).toBe(2);
+  expect(loaded.printerProfileId).toBeUndefined();
+});
+
 it("shows the selected trim and warns when bleed exceeds half the gap", async () => {
   const user = userEvent.setup();
   function PrintHarness() {
@@ -2866,7 +3187,21 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
     );
   }
   renderWithClient(<PrintHarness />);
-  expect(screen.getByText(/Trim 63 × 88 mm ·/)).toBeVisible();
+  const summary = within(screen.getByRole("region", { name: "Print summary" }));
+  expect(summary.getByText("A4 · portrait")).toBeVisible();
+  expect(summary.getByText("63 × 88 mm")).toBeVisible();
+  expect(summary.getByText("1 mm per side · Mirror")).toBeVisible();
+  expect(summary.getByText("800 DPI")).toBeVisible();
+  expect(summary.getByText("Fronts only")).toBeVisible();
+  expect(summary.getByText("Main deck · All sheets")).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "Generate PDF" })).toHaveLength(
+    1,
+  );
+  summary.getByRole("button", { name: "Generate PDF" }).focus();
+  await user.tab();
+  expect(screen.getByRole("button", { name: "Next page" })).toHaveFocus();
+  await user.tab({ shift: true });
+  expect(summary.getByRole("button", { name: "Generate PDF" })).toHaveFocus();
   const cardSize = screen.getByLabelText("Card size");
   await user.selectOptions(
     cardSize,
@@ -2874,12 +3209,195 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
       name: "Poker / MPC 63.5 × 88.9 mm (larger than MTG)",
     }),
   );
-  expect(screen.getByText(/Trim 63.5 × 88.9 mm ·/)).toBeVisible();
+  expect(summary.getByText("63.5 × 88.9 mm")).toBeVisible();
   expect(screen.getByText(/Bleed exceeds half the gap/)).toBeVisible();
   const gap = screen.getByRole("spinbutton", { name: /Gap between bleeds/ });
   await user.clear(gap);
   await user.type(gap, "2");
   expect(screen.queryByText(/Bleed exceeds half the gap/)).toBeNull();
+});
+
+it.each([
+  {
+    name: "a range beyond the deck",
+    entries: [entry],
+    settings: { pageFrom: 3 },
+    message: "No sheets in the selected range",
+    action: "Adjust first sheet",
+    role: "spinbutton",
+    control: /^First sheet/,
+  },
+  {
+    name: "a filtered board",
+    entries: [{ ...entry, zone: "side" as const }],
+    settings: {},
+    message: "No printable cards",
+    action: "Review card inclusion",
+    role: "checkbox",
+    control: "Include sideboard",
+  },
+  {
+    name: "an excluded card",
+    entries: [{ ...entry, excluded: true }],
+    settings: {},
+    message: "No printable cards",
+    action: "Include Lightning Bolt",
+    role: "checkbox",
+    control: "Print Lightning Bolt",
+  },
+  {
+    name: "an unavailable selected model",
+    entries: [entry],
+    settings: { upscale: true, upscaleModel: "not-installed" },
+    message: "The selected upscaler is unavailable",
+    action: "Choose an upscaler",
+    role: "combobox",
+    control: "Model",
+  },
+  {
+    name: "an invalid advanced value",
+    entries: [entry],
+    settings: { dpi: 50 },
+    message: "Too small",
+    action: "Go to invalid setting",
+    role: "spinbutton",
+    control: /^Custom resolution/,
+  },
+])("links the export blocker to the control for $name", async (fixture) => {
+  const user = userEvent.setup();
+  function PrintHarness() {
+    const [value, setValue] = useState<Deck>({
+      ...deck,
+      entries: fixture.entries,
+      printSettings: { ...deck.printSettings, ...fixture.settings },
+    });
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async (next) => next}
+        onJobs={() => {}}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  const blockers = screen.getByRole("region", { name: "Export blockers" });
+  const action = await within(blockers).findByRole("link", {
+    name: fixture.action,
+  });
+  expect(blockers).toHaveTextContent(fixture.message);
+  const exportButton = screen.getByRole("button", { name: "Generate PDF" });
+  expect(exportButton).toBeDisabled();
+  action.focus();
+  await user.keyboard("{Enter}");
+  const control = screen.getByRole(fixture.role, { name: fixture.control });
+  expect(control).toHaveFocus();
+  expect(control).toHaveClass("blocker-focus");
+  if (fixture.action === "Include Lightning Bolt") {
+    await user.keyboard(" ");
+    expect(exportButton).toBeEnabled();
+    expect(
+      screen.getByRole("heading", { name: "Include & page range" }),
+    ).toHaveFocus();
+  }
+});
+
+it.each(["width", "height"] as const)(
+  "reveals invalid saved Custom paper %s without navigating or changing paper",
+  async (dimension) => {
+    const user = userEvent.setup();
+    const changes = vi.fn();
+    function PrintHarness() {
+      const [value, setValue] = useState(deck);
+      return (
+        <PrintSetup
+          deck={value}
+          onChange={(next) => {
+            changes(next);
+            setValue(next);
+          }}
+          onSave={async (next) => next}
+          onJobs={() => {}}
+        />
+      );
+    }
+    renderWithClient(<PrintHarness />);
+    const paper = screen.getByRole("combobox", { name: "Paper size" });
+    const label = new RegExp(`^Sheet ${dimension}`);
+    await user.selectOptions(paper, "custom");
+    const input = screen.getByRole("spinbutton", { name: label });
+    await user.clear(input);
+    await user.type(input, "20");
+    await user.selectOptions(paper, "a4");
+    expect(screen.queryByRole("spinbutton", { name: label })).toBeNull();
+    const href = window.location.href;
+    const before = changes.mock.calls.length;
+    await user.click(
+      screen.getByRole("link", { name: "Go to invalid setting" }),
+    );
+    expect(screen.getByRole("spinbutton", { name: label })).toHaveFocus();
+    expect(screen.getByRole("spinbutton", { name: label })).toHaveClass(
+      "blocker-focus",
+    );
+    expect(paper).toHaveValue("a4");
+    expect(window.location.href).toBe(href);
+    expect(changes).toHaveBeenCalledTimes(before);
+  },
+);
+
+it.each([
+  { patch: { guides: "none", guideWidthPt: 0 }, target: /^Line thickness/ },
+  { patch: { guides: "none", guideColor: "invalid" }, target: /^Guide color/ },
+  { patch: { guides: "full", guideLengthMm: 0 }, target: /^Mark length/ },
+  { patch: { guides: "full", guideOffsetMm: -1 }, target: /^Mark offset/ },
+  {
+    patch: { bleedMode: "mirror", bleedColor: "invalid" },
+    target: /^Solid colour/,
+  },
+] as const)(
+  "reveals a conditional advanced control: $target",
+  async ({ patch, target }) => {
+    const user = userEvent.setup();
+    const change = vi.fn();
+    renderWithClient(
+      <PrintSetup
+        deck={{ ...deck, printSettings: { ...deck.printSettings, ...patch } }}
+        onChange={change}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+      />,
+    );
+    await user.click(
+      screen.getByRole("link", { name: "Go to invalid setting" }),
+    );
+    const control = screen.getByLabelText(target);
+    expect(control).toBeVisible();
+    expect(control).toHaveFocus();
+    expect(control.closest("details")).toHaveAttribute("open");
+    expect(change).not.toHaveBeenCalled();
+  },
+);
+
+it("moves pointer-activated blocker focus to Print and clears its ring on blur", async () => {
+  const user = userEvent.setup();
+  renderWithClient(
+    <PrintSetup
+      deck={{ ...deck, entries: [{ ...entry, excluded: true }] }}
+      onChange={vi.fn()}
+      onSave={async (next) => next}
+      onJobs={() => {}}
+    />,
+  );
+  await user.click(
+    screen.getByRole("link", { name: "Include Lightning Bolt" }),
+  );
+  const checkbox = screen.getByRole("checkbox", {
+    name: "Print Lightning Bolt",
+  });
+  expect(checkbox).toHaveFocus();
+  expect(checkbox).toHaveClass("blocker-focus");
+  await user.tab();
+  expect(checkbox).not.toHaveClass("blocker-focus");
 });
 
 it.each(printPageCounts)(
@@ -2900,7 +3418,7 @@ it.each(printPageCounts)(
         onJobs={() => {}}
       />,
     );
-    const summary = screen.getByText(/^Trim [\d.]+ × [\d.]+ mm/);
+    const summary = screen.getByRole("region", { name: "Print summary" });
     const sheets = `${cardSheets} card ${cardSheets === 1 ? "sheet" : "sheets"}`;
     const pages = `${pdfPages} PDF ${pdfPages === 1 ? "page" : "pages"}`;
     expect(summary).toHaveTextContent(`${sheets} · ${pages}`);
@@ -2990,6 +3508,14 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
   expect(bleed).toHaveValue(0.625);
   const backs = screen.getByRole("combobox", { name: "Back pages" });
   expect(backs).toHaveValue("long-edge");
+  const summary = within(screen.getByRole("region", { name: "Print summary" }));
+  expect(summary.getByText("A4 · Standard layout")).toBeVisible();
+  expect(summary.getByText(/mm · locked by template/)).toBeVisible();
+  expect(summary.getByText("0.625 mm per side · Mirror")).toBeVisible();
+  expect(summary.getByText("Duplex · flip long edge")).toBeVisible();
+  expect(
+    screen.queryByRole("spinbutton", { name: /^Card width/ }),
+  ).not.toBeInTheDocument();
   const mode = screen.getByRole("combobox", { name: "Layout mode" });
   await user.selectOptions(mode, "free");
   expect(bleed).toHaveValue(1.4);

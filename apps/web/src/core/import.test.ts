@@ -73,7 +73,29 @@ describe("decklist import", () => {
         collectorNumber: "146",
       },
       { name: "Negate", zone: "side" },
-      { name: "Opt", zone: "main" },
+      { name: "Opt", zone: "main", board: "testing Pool" },
+    ]);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("keeps copies of the same printing on their named boards", () => {
+    const result = parseDecklist(
+      "Maybeboard\n1 Opt\nConsidering\n2 Opt\n1 Opt\nDeck\n// Board: testing Pool\n4 Opt\n\n// regular comment\n1 Shock\nSB: 1 Opt\nDeck\n1 Opt",
+    );
+    expect(
+      result.entries.map(({ name, zone, board, quantity }) => [
+        name,
+        zone,
+        board,
+        quantity,
+      ]),
+    ).toEqual([
+      ["Opt", "maybe", "Maybeboard", 1],
+      ["Opt", "maybe", "Considering", 3],
+      ["Opt", "main", "testing Pool", 4],
+      ["Shock", "main", "testing Pool", 1],
+      ["Opt", "side", undefined, 1],
+      ["Opt", "main", undefined, 1],
     ]);
     expect(result.issues).toEqual([]);
   });
@@ -283,10 +305,24 @@ describe("decklist import", () => {
     const label = "// Board: Side–Board";
     const text = parseDecklist(`Deck\n${label}\n1 Opt`);
     const csv = parseDecklist(`Name,Quantity\n${label}\nOpt,1`);
-    expect(text.entries).toMatchObject([{ name: "Opt", zone: "main" }]);
+    expect(text.entries).toMatchObject([
+      { name: "Opt", zone: "main", board: "Side–Board" },
+    ]);
     expect(csv.entries).toEqual(text.entries);
     expect(text.issues).toEqual([]);
     expect(csv.issues).toEqual([]);
+  });
+
+  it("keeps labeled CSV board comments separate from quoted multiline cells", () => {
+    const parsed = parseDecklist(
+      'Name,Quantity,Notes\r\n// Board: testing Pool\r\nOpt,1,"line one\r\n// Board: not a header"\r\n\r\nShock,1,\r\n// Board: other Pool\r\nOpt,1,',
+    );
+    expect(parsed.entries).toMatchObject([
+      { name: "Opt", board: "testing Pool" },
+      { name: "Shock", board: "testing Pool" },
+      { name: "Opt", board: "other Pool" },
+    ]);
+    expect(parsed.issues).toEqual([]);
   });
 
   it("reads quoted CSV names and MTGO XML without interpreting entities", () => {
