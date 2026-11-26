@@ -1,8 +1,10 @@
 mod common;
 
-use deckpress_core::layout::duplex_slot;
-use deckpress_core::models::{Backs, LayoutMode, PrintSettings, ScmTemplate, ScmVariant, Zone};
-use deckpress_core::pdf::{build_pdf, print_plan, PdfServices};
+use deckpress_core::layout::{duplex_slot, mm_to_pt};
+use deckpress_core::models::{
+    Backs, LayoutMode, Orientation, Paper, PrintSettings, ScmTemplate, ScmVariant, Zone,
+};
+use deckpress_core::pdf::{build_duplex_calibration_pdf, build_pdf, print_plan, PdfServices};
 use deckpress_core::providers::normalize_scryfall;
 use deckpress_core::upscaler::CancelToken;
 use serde::Deserialize;
@@ -73,6 +75,245 @@ fn pdf_page_tree_matches_the_print_setup_counts() {
             "{}",
             case.name
         );
+    }
+}
+
+fn image_matrices(
+    content: &lopdf::content::Content<Vec<lopdf::content::Operation>>,
+) -> Vec<[f64; 6]> {
+    let mut stack = Vec::new();
+    let mut matrix = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+    let mut images = Vec::new();
+    for op in &content.operations {
+        match op.operator.as_str() {
+            "q" => stack.push(matrix),
+            "Q" => matrix = stack.pop().unwrap(),
+            "cm" => {
+                let [a, b, c, d, e, f] = matrix;
+                let [g, h, i, j, k, l] =
+                    std::array::from_fn(|n| f64::from(op.operands[n].as_float().unwrap()));
+                matrix = [
+                    a * g + c * h,
+                    b * g + d * h,
+                    a * i + c * j,
+                    b * i + d * j,
+                    a * k + c * l + e,
+                    b * k + d * l + f,
+                ];
+            }
+            "Do" => images.push(matrix),
+            _ => {}
+        }
+    }
+    images
+}
+
+#[test]
+fn rotates_only_back_art_about_the_sheet_centre_in_free_and_scm_layouts() {
+    let dir = tempfile::tempdir().unwrap();
+    let services = PdfServices {
+        raster_dir: dir.path(),
+        upscaler: None,
+    };
+    let png = common::png(372, 520, [30, 90, 200]);
+    let mut deck = common::deck(1);
+    deck.entries[0].selected_back = Some(common::scryfall_art());
+    for (layout_mode, variant) in [
+        (LayoutMode::Free, ScmVariant::Default),
+        (LayoutMode::Scm, ScmVariant::Default),
+        (LayoutMode::Scm, ScmVariant::Borderless),
+    ] {
+        let settings = PrintSettings {
+            layout_mode,
+            scm_template: ScmTemplate {
+                variant,
+                ..ScmTemplate::default()
+            },
+            backs: Backs::LongEdge,
+            back_offset_xmm: 1.25,
+            back_offset_ymm: -0.75,
+            back_rotation_deg: 3.0,
+            dpi: 150,
+            calibration_page: false,
+            ..PrintSettings::default()
+        };
+        let layout = print_plan(&deck, &settings).unwrap().layout;
+        let output = build_pdf(
+            &deck,
+            &settings,
+            &services,
+            &CancelToken::default(),
+            &mut |_, _, _| {},
+            &mut |_| Ok(png.clone()),
+        )
+        .unwrap();
+        let doc = lopdf::Document::load_mem(&output.bytes).unwrap();
+        let pages = doc.get_pages();
+        for (page, back) in [(1, false), (2, true)] {
+            let content = doc.get_and_decode_page_content(pages[&page]).unwrap();
+            let matrices = image_matrices(&content);
+            assert_eq!(matrices.len(), 1);
+            let [a, b, c, d, e, f] = matrices[0];
+            let first = layout.slots[0];
+            let rect = if back {
+                duplex_slot(&first, &layout, &settings).rect
+            } else {
+                first.rect
+            };
+            let (page_x, page_y) = (layout.width / 2.0, layout.height / 2.0);
+            let x = rect.x + rect.width / 2.0 - page_x;
+            let y = rect.y + rect.height / 2.0 - page_y;
+            let radians = if back { 3.0_f64.to_radians() } else { 0.0 };
+            let (sin, cos) = radians.sin_cos();
+            let sign = if back
+                && layout
+                    .scm
+                    .as_ref()
+                    .is_some_and(|scm| scm.orientation == Orientation::Landscape)
+            {
+                -1.0
+            } else {
+                1.0
+            };
+            for (actual, expected) in [
+                (e + (a + c) / 2.0, page_x + x * cos - y * sin),
+                (f + (b + d) / 2.0, page_y - x * sin - y * cos),
+                (a, sign * rect.width * cos),
+                (b, -sign * rect.width * sin),
+                (c, sign * rect.height * sin),
+                (d, sign * rect.height * cos),
+            ] {
+                assert!(
+                    (actual - expected).abs() < 0.01,
+                    "{layout_mode:?}/{variant:?}, page {page}: {actual} != {expected}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn exports_a_two_sided_duplex_grid_for_scm_and_tiny_custom_paper() {
+    for (settings, duplex, (width, height), targets) in [
+        (
+            PrintSettings {
+                paper: Paper::Custom,
+                custom_width_mm: 40.0,
+                custom_height_mm: 40.0,
+                backs: Backs::ShortEdge,
+                back_offset_xmm: 10.0,
+                back_offset_ymm: 10.0,
+                back_rotation_deg: 45.0,
+                ..PrintSettings::default()
+            },
+            b"DuplexFlipShortEdge".as_slice(),
+            (40.0, 40.0),
+            9,
+        ),
+        (
+            PrintSettings {
+                layout_mode: LayoutMode::Scm,
+                backs: Backs::ShortEdge,
+                ..PrintSettings::default()
+            },
+            b"DuplexFlipLongEdge".as_slice(),
+            (297.0, 210.0),
+            25,
+        ),
+    ] {
+        let bytes = build_duplex_calibration_pdf(&settings).unwrap();
+        let doc = lopdf::Document::load_mem(&bytes).unwrap();
+        let pages = doc.get_pages();
+        assert_eq!(pages.len(), 2);
+        let prefs = doc
+            .catalog()
+            .unwrap()
+            .get(b"ViewerPreferences")
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        assert_eq!(
+            prefs.get(b"PrintScaling").unwrap().as_name().unwrap(),
+            b"None"
+        );
+        assert_eq!(prefs.get(b"Duplex").unwrap().as_name().unwrap(), duplex);
+        for (number, side) in [(1, "Front"), (2, "Back")] {
+            let id = pages[&number];
+            assert!(doc.extract_text(&[number]).unwrap().contains(side));
+            let page = doc.get_dictionary(id).unwrap();
+            let media = page.get(b"MediaBox").unwrap().as_array().unwrap();
+            for (value, extent) in [(2, width), (3, height)] {
+                assert!(
+                    (f64::from(media[value].as_float().unwrap()) - mm_to_pt(extent)).abs() < 0.01
+                );
+            }
+            let content = doc.get_and_decode_page_content(id).unwrap();
+            assert_eq!(
+                content
+                    .operations
+                    .iter()
+                    .filter(|op| op.operator == "l")
+                    .count(),
+                targets * 2
+            );
+            assert_eq!(
+                content
+                    .operations
+                    .iter()
+                    .filter(|op| op.operator == "S")
+                    .count(),
+                targets * if number == 1 { 3 } else { 2 }
+            );
+        }
+    }
+}
+
+#[test]
+fn tiny_print_size_calibration_uses_a_short_physical_ruler() {
+    let dir = tempfile::tempdir().unwrap();
+    let settings = PrintSettings {
+        paper: Paper::Custom,
+        custom_width_mm: 40.0,
+        custom_height_mm: 40.0,
+        card_width_mm: 25.0,
+        card_height_mm: 25.0,
+        margin_mm: 0.0,
+        dpi: 150,
+        ..PrintSettings::default()
+    };
+    let output = build_pdf(
+        &common::deck(1),
+        &settings,
+        &PdfServices {
+            raster_dir: dir.path(),
+            upscaler: None,
+        },
+        &CancelToken::default(),
+        &mut |_, _, _| {},
+        &mut |_| Ok(common::png(256, 256, [30, 90, 200])),
+    )
+    .unwrap();
+    let pdf = lopdf::Document::load_mem(&output.bytes).unwrap();
+    assert!(pdf.extract_text(&[1]).unwrap().contains("20 mm ruler"));
+    let content = pdf
+        .get_and_decode_page_content(pdf.get_pages()[&1])
+        .unwrap();
+    let horizontal = content
+        .operations
+        .windows(2)
+        .find(|pair| pair[0].operator == "m" && pair[1].operator == "l")
+        .unwrap();
+    let value =
+        |op: usize, coord: usize| f64::from(horizontal[op].operands[coord].as_float().unwrap());
+    assert!((value(1, 0) - value(0, 0) - mm_to_pt(20.0)).abs() < 0.01);
+    for op in content
+        .operations
+        .iter()
+        .filter(|op| ["m", "l"].contains(&op.operator.as_str()))
+    {
+        for coord in &op.operands {
+            assert!((0.0..mm_to_pt(40.0)).contains(&f64::from(coord.as_float().unwrap())));
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 import { type PrintSettings, papers, printSettingsSchema } from "./models.ts";
-import { createScmLayout, type ScmSheet, scmDuplexSlot } from "./scm.ts";
+import { createScmLayout, type ScmSheet } from "./scm.ts";
 
 export const mmToPt = (mm: number) => (mm * 72) / 25.4;
 export const mmToPixels = (mm: number, dpi: number) =>
@@ -254,15 +254,34 @@ export function duplexSlot(
   layout: PrintLayout,
   settings: PrintSettings,
 ): Slot {
-  if (layout.scm) return scmDuplexSlot(slot, layout, settings);
   const mirrorX =
-    (settings.backs !== "short-edge") === layout.height >= layout.width;
+    (Boolean(layout.scm) || settings.backs !== "short-edge") ===
+    layout.height >= layout.width;
   const dx = mmToPt(settings.backOffsetXmm);
   const dy = mmToPt(settings.backOffsetYmm);
-  const transform = (rect: Rect): Rect => ({
-    ...rect,
-    x: (mirrorX ? layout.width - rect.x - rect.width : rect.x) + dx,
-    y: (mirrorX ? rect.y : layout.height - rect.y - rect.height) + dy,
-  });
-  return { ...transform(slot), trim: transform(slot.trim) };
+  const first = layout.slots[0] ?? slot;
+  const last = layout.slots.at(-1) ?? slot;
+  const transform = (rect: Rect, first: Rect, last: Rect): Rect => {
+    const right = layout.scm ? first.x + last.x : layout.width - rect.width;
+    const bottom = layout.scm ? first.y + last.y : layout.height - rect.height;
+    return {
+      ...rect,
+      x: (mirrorX ? right - rect.x : rect.x) + dx,
+      y: (mirrorX ? rect.y : bottom - rect.y) + dy,
+    };
+  };
+  return {
+    ...transform(slot, first, last),
+    trim: transform(slot.trim, first.trim, last.trim),
+  };
+}
+
+export function duplexRotation(
+  layout: Pick<PrintLayout, "width" | "height">,
+  settings: PrintSettings,
+): string | undefined {
+  if (settings.backRotationDeg === 0) return undefined;
+  const x = layout.width / 2;
+  const y = layout.height / 2;
+  return `rotate(${settings.backRotationDeg} ${x} ${y})`;
 }

@@ -17,9 +17,10 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
 use crate::layout::{
-    create_layout, duplex_slot, fit_sheet_label, mm_to_pt, sheet_label, PrintLayout, Slot,
+    create_layout, duplex_mirrors_x, duplex_offset, duplex_rotation, duplex_slot, fit_sheet_label,
+    free_page_size, mm_to_pt, sheet_label, PrintLayout, Registration, Slot,
 };
-use crate::models::{Art, Backs, Deck, DeckEntry, PrintSettings};
+use crate::models::{Art, Backs, Deck, DeckEntry, LayoutMode, PrintSettings};
 use crate::raster::{encode_jpeg, parse_hex_color, rasterize};
 use crate::scm;
 use crate::upscaler::{CancelToken, Upscaler};
@@ -287,6 +288,15 @@ fn draw_calibration_page(
     let ink = rgb::Color::new(20, 20, 20);
     let muted = rgb::Color::new(110, 110, 110);
     let margin = mm_to_pt(15.0);
+    if layout.width < mm_to_pt(135.0) || layout.height < mm_to_pt(145.0) {
+        draw_compact_size_calibration(&mut surface, layout, font);
+        surface.finish();
+        page.finish();
+        if matches!(settings.backs, Backs::LongEdge | Backs::ShortEdge) {
+            draw_blank_back(document, layout, font)?;
+        }
+        return Ok(());
+    }
     let mut y = margin;
     let text = |surface: &mut krilla::surface::Surface<'_>,
                 x: f64,
@@ -414,6 +424,69 @@ fn draw_calibration_page(
     Ok(())
 }
 
+fn draw_compact_size_calibration(
+    surface: &mut krilla::surface::Surface<'_>,
+    layout: &PrintLayout,
+    font: &Font,
+) {
+    let ruler_mm = if layout.width >= mm_to_pt(60.0) {
+        50
+    } else {
+        20
+    };
+    draw_fitted_text(
+        surface,
+        font,
+        layout.width,
+        mm_to_pt(6.0),
+        10.0,
+        "Deckpress print-size check",
+    );
+    draw_fitted_text(
+        surface,
+        font,
+        layout.width,
+        mm_to_pt(11.0),
+        8.0,
+        "Print at actual size (100%).",
+    );
+    draw_fitted_text(
+        surface,
+        font,
+        layout.width,
+        mm_to_pt(15.0),
+        8.0,
+        &format!("{ruler_mm} mm ruler, 5 mm ticks"),
+    );
+    let (x, y) = (mm_to_pt(5.0), mm_to_pt(20.0));
+    let ink = rgb::Color::new(20, 20, 20);
+    surface.set_fill(None);
+    surface.set_stroke(Some(stroke(ink, 0.5)));
+    if let Some(path) = line_path(x, y, x + mm_to_pt(f64::from(ruler_mm)), y) {
+        surface.draw_path(&path);
+    }
+    for tick in (0..=ruler_mm).step_by(5) {
+        let tx = x + mm_to_pt(f64::from(tick));
+        if let Some(path) = line_path(tx, y, tx, y + mm_to_pt(3.0)) {
+            surface.draw_path(&path);
+        }
+    }
+    if layout.width >= mm_to_pt(73.0) && layout.height >= mm_to_pt(122.0) {
+        let box_y = mm_to_pt(29.0);
+        if let Some(path) = rect_path(x, box_y, mm_to_pt(63.0), mm_to_pt(88.0)) {
+            surface.draw_path(&path);
+        }
+        draw_fitted_text(
+            surface,
+            font,
+            mm_to_pt(68.0),
+            box_y + mm_to_pt(6.0),
+            8.0,
+            "    63 × 88 mm MTG reference",
+        );
+    }
+}
+
 /// Keeps front/back pairs aligned when the calibration sheet is printed in a
 /// duplex run: its back is a page with a single note.
 fn draw_blank_back(document: &mut Document, layout: &PrintLayout, font: &Font) -> AppResult<()> {
@@ -422,15 +495,13 @@ fn draw_blank_back(document: &mut Document, layout: &PrintLayout, font: &Font) -
             .ok_or_else(|| AppError::user("Paper size is invalid"))?,
     );
     let mut surface = page.surface();
-    let margin = mm_to_pt(15.0);
-    surface.set_fill(Some(fill(rgb::Color::new(110, 110, 110))));
-    surface.draw_text(
-        Point::from_xy(margin as f32, (margin + 9.0) as f32),
-        font.clone(),
+    draw_fitted_text(
+        &mut surface,
+        font,
+        layout.width,
+        mm_to_pt(6.0),
         8.5,
         "Back of the calibration page. Intentionally blank.",
-        false,
-        TextDirection::LeftToRight,
     );
     surface.finish();
     page.finish();
@@ -453,6 +524,139 @@ fn set_print_preferences(bytes: &[u8], backs: Backs) -> Result<Vec<u8>, lopdf::E
     let mut output = Vec::with_capacity(bytes.len());
     pdf.save_to(&mut output)?;
     Ok(output)
+}
+
+pub fn build_duplex_calibration_pdf(settings: &PrintSettings) -> AppResult<Vec<u8>> {
+    settings.validate()?;
+    let (width, height) = if settings.layout_mode == LayoutMode::Scm {
+        let layout = create_layout(settings)?;
+        (layout.width, layout.height)
+    } else {
+        free_page_size(settings)
+    };
+    let backs = match scm::effective_backs(settings) {
+        Backs::ShortEdge => Backs::ShortEdge,
+        _ => Backs::LongEdge,
+    };
+    let font = font()?;
+    let page_settings = PageSettings::from_wh(width as f32, height as f32)
+        .ok_or_else(|| AppError::user("Paper size is invalid"))?;
+    let mut document = Document::new();
+    document.set_metadata(
+        Metadata::new()
+            .title("Deckpress duplex calibration".into())
+            .creator("Deckpress".into()),
+    );
+    let (dx, dy) = duplex_offset(settings);
+    let (cx, cy) = (width / 2.0, height / 2.0);
+    let (span_x, span_y) = (cx - mm_to_pt(12.0), cy - mm_to_pt(12.0));
+    let (sin, cos) = settings.back_rotation_deg.to_radians().sin_cos();
+    let rotated_x = span_x * cos.abs() + span_y * sin.abs();
+    let rotated_y = span_x * sin.abs() + span_y * cos.abs();
+    let correction_x = dx * cos - dy * sin;
+    let correction_y = dx * sin + dy * cos;
+    let clearance = mm_to_pt(5.0);
+    let scale = 1.0_f64
+        .min((cx - correction_x.abs() - clearance) / rotated_x)
+        .min((cy - correction_y.abs() - clearance) / rotated_y);
+    let mirror_x = duplex_mirrors_x(width, height, backs);
+    let rotation = pdf_duplex_rotation(width, height, settings);
+    let steps = if span_x.min(span_y) * scale < mm_to_pt(20.0) {
+        1
+    } else {
+        2
+    };
+    let radius = mm_to_pt(0.9).min(span_x.min(span_y) * scale / f64::from(steps) / 4.0);
+    let ink = rgb::Color::new(20, 20, 20);
+    let flip = if backs == Backs::ShortEdge {
+        "short"
+    } else {
+        "long"
+    };
+
+    for back in [false, true] {
+        let mut page = document.start_page_with(page_settings.clone());
+        let mut surface = page.surface();
+        let side = if back { "Back" } else { "Front" };
+        draw_fitted_text(
+            &mut surface,
+            &font,
+            width,
+            mm_to_pt(4.5),
+            10.0,
+            &format!("Deckpress duplex calibration / {side}"),
+        );
+        draw_fitted_text(
+            &mut surface,
+            &font,
+            width,
+            height - mm_to_pt(3.0),
+            8.0,
+            &format!("Print at actual size (100%) / Flip {flip} edge"),
+        );
+        let back_rotation = rotation.as_ref().filter(|_| back);
+        if let Some(transform) = back_rotation {
+            surface.push_transform(transform);
+        }
+        for row in -steps..=steps {
+            for col in -steps..=steps {
+                let x = cx + f64::from(col) / f64::from(steps) * span_x * scale;
+                let y = cy + f64::from(row) / f64::from(steps) * span_y * scale;
+                let (x, y) = if back {
+                    (
+                        if mirror_x { width - x } else { x } + dx,
+                        if mirror_x { y } else { height - y } + dy,
+                    )
+                } else {
+                    (x, y)
+                };
+                if back {
+                    surface.set_fill(None);
+                    surface.set_stroke(Some(stroke(ink, 0.25)));
+                    let reach = radius * 1.6;
+                    for path in [
+                        line_path(x - reach, y, x + reach, y),
+                        line_path(x, y - reach, x, y + reach),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        surface.draw_path(&path);
+                    }
+                } else {
+                    draw_registration(&mut surface, &Registration { x, y, radius }, ink);
+                }
+            }
+        }
+        if back_rotation.is_some() {
+            surface.pop();
+        }
+        surface.finish();
+        page.finish();
+    }
+    set_print_preferences(&document.finish()?, backs).map_err(AppError::internal)
+}
+
+fn draw_fitted_text(
+    surface: &mut krilla::surface::Surface<'_>,
+    font: &Font,
+    width: f64,
+    y: f64,
+    max_size: f64,
+    text: &str,
+) {
+    let margin = mm_to_pt(3.0);
+    let size = ((width - 2.0 * margin) / (0.6 * text.chars().count() as f64)).min(max_size);
+    surface.set_stroke(None);
+    surface.set_fill(Some(fill(rgb::Color::new(20, 20, 20))));
+    surface.draw_text(
+        Point::from_xy(margin as f32, y as f32),
+        font.clone(),
+        size as f32,
+        text,
+        false,
+        TextDirection::LeftToRight,
+    );
 }
 
 pub fn build_pdf(
@@ -509,11 +713,16 @@ pub fn build_pdf(
     let guide_color = color(&settings.guide_color);
     let page_settings = PageSettings::from_wh(layout.width as f32, layout.height as f32)
         .ok_or_else(|| AppError::user("Paper size is invalid"))?;
+    let back_rotation = pdf_duplex_rotation(layout.width, layout.height, settings);
 
     for side in &sides {
         cancel.check()?;
         let mut page = document.start_page_with(page_settings.clone());
         let mut surface = page.surface();
+        let rotation = back_rotation.as_ref().filter(|_| side.back);
+        if let Some(rotation) = rotation {
+            surface.push_transform(rotation);
+        }
         for (index, entry) in side.entries.iter().enumerate() {
             cancel.check()?;
             let original = layout
@@ -634,6 +843,9 @@ pub fn build_pdf(
                 format!("Placed {completed} of {total} card faces"),
             );
         }
+        if rotation.is_some() {
+            surface.pop();
+        }
         if !side.back {
             surface.set_fill(None);
             surface.set_stroke(Some(stroke(guide_color, settings.guide_width_pt)));
@@ -688,4 +900,9 @@ pub fn build_pdf(
         pages,
         unique_images: embedded.len(),
     })
+}
+
+fn pdf_duplex_rotation(width: f64, height: f64, settings: &PrintSettings) -> Option<Transform> {
+    let [a, b, c, d, e, f] = duplex_rotation(width, height, settings)?.map(|n| n as f32);
+    Some(Transform::from_row(a, b, c, d, e, f))
 }

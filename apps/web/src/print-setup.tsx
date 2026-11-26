@@ -17,6 +17,7 @@ import {
   backArt,
   createLayout,
   type Deck,
+  duplexRotation,
   duplexSlot,
   effectivePrintSettings,
   fitSheetLabel,
@@ -33,6 +34,7 @@ import {
   scmPapers,
   sheetLabel,
 } from "./core/index.ts";
+import { DuplexCalibration } from "./duplex-calibration.tsx";
 import { ErrorNotice, ExternalLink, useTask } from "./ui.tsx";
 
 const paperNames = {
@@ -799,7 +801,7 @@ export function PrintSetup({
                   change({ calibrationPage: event.target.checked })
                 }
               />
-              Add a calibration page with a 50 mm ruler and MTG reference box
+              Add a print-size calibration page
             </label>
             <ErrorNotice
               error={system.error}
@@ -828,29 +830,18 @@ export function PrintSetup({
               </select>
             </label>
             {effective.backs !== "none" && (
-              <>
-                <NumberSetting
-                  label="Back horizontal offset"
-                  min={-10}
-                  max={10}
-                  value={settings.backOffsetXmm}
-                  set={(value) => change({ backOffsetXmm: value })}
-                />
-                <NumberSetting
-                  label="Back vertical offset"
-                  min={-10}
-                  max={10}
-                  value={settings.backOffsetYmm}
-                  set={(value) => change({ backOffsetYmm: value })}
-                />
-                <p className="hint">
-                  Double-faced cards use their reverse face. Other cards use the
-                  Deckpress playtest back unless you choose a back in Art
-                  studio. Separate sheets use long-edge alignment.
-                </p>
-              </>
+              <p className="hint">
+                Double-faced cards use their reverse face. Other cards use the
+                Deckpress playtest back unless you choose a back in Art studio.
+                Separate sheets use long-edge alignment.
+              </p>
             )}
           </section>
+          <DuplexCalibration
+            settings={settings}
+            backs={effective.backs}
+            onChange={change}
+          />
           <section className="panel settings-panel">
             <h3>Include & page range</h3>
             {(
@@ -968,9 +959,14 @@ export function PrintSetup({
                       <g
                         key={`${entry.id}:${slot.x}:${slot.y}`}
                         transform={
-                          back && layout.scm?.orientation === "landscape"
-                            ? `rotate(180 ${slot.x + slot.width / 2} ${slot.y + slot.height / 2})`
-                            : undefined
+                          [
+                            back ? duplexRotation(layout, settings) : undefined,
+                            back && layout.scm?.orientation === "landscape"
+                              ? `rotate(180 ${slot.x + slot.width / 2} ${slot.y + slot.height / 2})`
+                              : undefined,
+                          ]
+                            .filter(Boolean)
+                            .join(" ") || undefined
                         }
                       >
                         <rect

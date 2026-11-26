@@ -20,8 +20,10 @@ import {
   jobSchema,
   mpcArtworkSchema,
   mpcXmlFormat,
+  type PrinterProfileInput,
   type PrintSettings,
   parseDecklist,
+  printerProfileSchema,
 } from "./core/index.ts";
 
 /** Calls a Rust command over Tauri IPC and validates the response shape. */
@@ -430,6 +432,25 @@ export const api = {
   revealPdf: (id: string) => command("reveal_pdf", nothing, { id }),
   savePdf: (id: string, destination: string) =>
     command("save_pdf", z.number(), { id, destination }),
+  printerProfiles: () =>
+    command("list_printer_profiles", z.array(printerProfileSchema)),
+  savePrinterProfile: (id: string | null, input: PrinterProfileInput) =>
+    command("save_printer_profile", printerProfileSchema, { id, input }),
+  deletePrinterProfile: (id: string) =>
+    command("delete_printer_profile", nothing, { id }),
+  exportDuplexCalibration: async (settings: PrintSettings) => {
+    const destination = await save({
+      title: "Save duplex calibration sheet",
+      defaultPath: "deckpress-duplex-calibration.pdf",
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (!destination) return false;
+    await command("save_duplex_calibration", nothing, {
+      settings,
+      destination,
+    });
+    return true;
+  },
   openDataDir: () => command("open_data_dir", nothing),
   searchDecks: (query: DeckQuery, page: number, _signal?: AbortSignal) =>
     command("search_decks", deckSearchPageSchema, { query, page }),

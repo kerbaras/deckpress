@@ -1,8 +1,72 @@
 mod common;
 
 use deckpress_core::error::AppError;
-use deckpress_core::models::{Deck, PrintSettings, Provider};
+use deckpress_core::models::{Deck, PrintSettings, PrinterProfileInput, Provider};
 use deckpress_core::store::Store;
+
+#[test]
+fn printer_profiles_round_trip_across_sqlite_connections() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("deckpress.sqlite");
+    let input = PrinterProfileInput {
+        name: " Home inkjet ".into(),
+        back_offset_xmm: -0.75,
+        back_offset_ymm: 1.25,
+        back_rotation_deg: -0.42,
+    };
+    let profile = Store::open(&path)
+        .unwrap()
+        .save_printer_profile(None, input)
+        .unwrap();
+    assert_eq!(profile.input.name, "Home inkjet");
+    assert_eq!(profile.input.back_offset_xmm, -0.75);
+    assert_eq!(profile.input.back_offset_ymm, 1.25);
+    assert_eq!(profile.input.back_rotation_deg, -0.42);
+    let store = Store::open(&path).unwrap();
+    assert_eq!(
+        store.printer_profiles().unwrap(),
+        std::slice::from_ref(&profile)
+    );
+    let updated = store
+        .save_printer_profile(
+            Some(profile.id.clone()),
+            PrinterProfileInput {
+                name: "Rear feed".into(),
+                back_rotation_deg: 0.15,
+                ..profile.input
+            },
+        )
+        .unwrap();
+    assert_eq!(updated.id, profile.id);
+    assert_eq!(updated.input.name, "Rear feed");
+    assert_eq!(updated.input.back_rotation_deg, 0.15);
+    assert!(store
+        .save_printer_profile(
+            Some(profile.id.clone()),
+            PrinterProfileInput {
+                back_rotation_deg: 181.0,
+                ..updated.input.clone()
+            },
+        )
+        .is_err());
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert_eq!(
+        store.printer_profiles().unwrap(),
+        std::slice::from_ref(&updated)
+    );
+    store.delete_printer_profile(&profile.id).unwrap();
+    assert!(matches!(
+        store.save_printer_profile(Some(profile.id), updated.input),
+        Err(AppError::NotFound(_))
+    ));
+    drop(store);
+    assert!(Store::open(&path)
+        .unwrap()
+        .printer_profiles()
+        .unwrap()
+        .is_empty());
+}
 
 #[test]
 fn creates_lists_and_updates_decks_with_revisions() {
