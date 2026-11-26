@@ -31,6 +31,7 @@ import {
 } from "./print-language.tsx";
 import { StyleMatch } from "./style-match.tsx";
 import {
+  ArtThumbnail,
   CardImage,
   ErrorNotice,
   ExternalLink,
@@ -832,8 +833,8 @@ function ArtSession({
                   onClick={() => setCandidate(art)}
                 >
                   <span className="art-option-image">
-                    <CardImage
-                      url={art.thumbnailUrl}
+                    <ArtThumbnail
+                      art={art}
                       name={`${art.name}, ${art.source}`}
                     />
                     {personal.preferences[art.id]?.favorite && (
@@ -932,7 +933,7 @@ function ArtSession({
             disabled={task.busy}
             onClick={() => navigate(item.id)}
           >
-            <CardImage url={frontArt(item).thumbnailUrl} name="" />
+            <ArtThumbnail art={frontArt(item)} name="" />
             <span>{item.card.name}</span>
             <small>×{item.quantity}</small>
           </button>
@@ -971,10 +972,8 @@ function ArtSession({
           onClose={() => setEditBleed(null)}
           onSaved={(art) => {
             setCandidate((current) => (current?.id === art.id ? art : current));
-            client.setQueryData<Art[]>(
-              ["uploads", entry.card.oracleId],
-              (items) =>
-                items?.map((item) => (item.id === art.id ? art : item)),
+            client.setQueriesData<Art[]>({ queryKey: ["uploads"] }, (items) =>
+              items?.map((item) => (item.id === art.id ? art : item)),
             );
             onUploadEdited?.(art);
             setEditBleed(null);

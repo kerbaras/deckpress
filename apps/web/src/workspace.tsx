@@ -42,7 +42,7 @@ import { PrintSetup } from "./print-setup.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import { TokenSuggestions } from "./token-suggestions.tsx";
 import {
-  CardImage,
+  ArtThumbnail,
   countCards,
   ErrorNotice,
   Loading,
@@ -686,7 +686,7 @@ function DeckCards({
                 className="entry-name"
                 onClick={() => onArt(entry)}
               >
-                <CardImage url={frontArt(entry).thumbnailUrl} name="" />
+                <ArtThumbnail art={frontArt(entry)} name="" />
                 <span>
                   {entry.card.name}
                   <small>{frontArt(entry).source}</small>
@@ -778,8 +778,8 @@ function DeckCards({
                     title={entryLanguageLabel(entry)}
                     onClick={() => onArt(entry)}
                   >
-                    <CardImage
-                      url={frontArt(entry).thumbnailUrl}
+                    <ArtThumbnail
+                      art={frontArt(entry)}
                       name={entry.card.name}
                     />
                     <span className="quantity">{entry.quantity}</span>

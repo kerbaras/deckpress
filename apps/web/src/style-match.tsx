@@ -9,7 +9,13 @@ import {
   formatCount,
   frontArt,
 } from "./core/index.ts";
-import { CardImage, ErrorNotice, Modal, StatusRegion, useTask } from "./ui.tsx";
+import {
+  ArtThumbnail,
+  ErrorNotice,
+  Modal,
+  StatusRegion,
+  useTask,
+} from "./ui.tsx";
 
 /** Printings compared per card; matches the limit enforced in Rust. */
 const MAX_OPTIONS = 80;
@@ -194,7 +200,7 @@ export function StyleMatch({
     >
       <div className="style-match">
         <div className="style-reference">
-          <CardImage url={reference.thumbnailUrl} name={reference.name} />
+          <ArtThumbnail art={reference} name={reference.name} />
           <div>
             <span className="badge">Beta</span>
             <h3>{reference.name}</h3>
@@ -361,7 +367,7 @@ function Review({
           return (
             <div className="style-row" key={match.entryId}>
               <div className="style-current">
-                <CardImage url={current.thumbnailUrl} name={target.card.name} />
+                <ArtThumbnail art={current} name={target.card.name} />
                 <div>
                   <strong>{target.card.name}</strong>
                   <small className="muted style-ellipsis">
@@ -439,7 +445,7 @@ function OptionButton({
       title={`${item.art.artist} · ${item.art.source}\n${item.reasons.join(", ")}`}
       onClick={onClick}
     >
-      <CardImage url={item.art.thumbnailUrl} name={item.art.name} />
+      <ArtThumbnail art={item.art} name={item.art.name} />
       <span className="mono">{Math.round(item.score * 100)}</span>
     </button>
   );

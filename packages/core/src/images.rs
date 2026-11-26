@@ -21,7 +21,9 @@ use url::Url;
 use crate::error::{AppError, AppResult};
 use crate::models::{new_id, now_iso, Art, Deck, NewDeck, Provider, Upload};
 use crate::providers::USER_AGENT;
-use crate::raster::{detect_upload_bleed, encode_png, strip_bleed, to_rgb, UPLOAD_CARD_MM};
+use crate::raster::{
+    detect_upload_bleed, encode_png, strip_bleed, to_rgb, PIPELINE_VERSION, UPLOAD_CARD_MM,
+};
 use crate::store::Store;
 use crate::upscaler::CancelToken;
 
@@ -52,6 +54,7 @@ pub fn upload_id(url: &str) -> Option<AppResult<String>> {
 const MAX_DOWNLOAD: usize = 32 * 1024 * 1024;
 const MAX_UPLOAD: usize = 16 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
+const UPLOAD_THUMBNAIL_EDGE: u32 = 480;
 
 pub fn validate_image_url(input: &str) -> AppResult<Url> {
     let url = Url::parse(input).map_err(|_| AppError::user("Invalid image URL"))?;
@@ -431,12 +434,44 @@ impl Images {
             if bleed_mm == 0.0 {
                 return Ok(bytes);
             }
-            let art = Art {
-                bleed_mm,
-                ..upload.art
+            encode_png(&trim_upload(&bytes, upload.art, bleed_mm)?)
+        })
+        .await?
+    }
+
+    /// Returns the cropped thumbnail for an upload at the requested bleed.
+    pub async fn upload_thumbnail(&self, url: &str, bleed_mm: f64) -> AppResult<Vec<u8>> {
+        validate_upload_bleed(Some(bleed_mm))?;
+        let (id, upload) = self.saved_upload(url)?;
+        if bleed_mm == 0.0 {
+            return Ok(tokio::fs::read(self.upload_path(&id)).await?);
+        }
+        let dir = self.root.join("preview").join("upload-thumbnails");
+        let key = image_key(&format!(
+            "{PIPELINE_VERSION}:{UPLOAD_THUMBNAIL_EDGE}:{id}:{bleed_mm}"
+        ));
+        let path = dir.join(format!("{key}.png"));
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        let bytes = tokio::fs::read(self.upload_path(&id)).await?;
+        tokio::task::spawn_blocking(move || {
+            let rgb = trim_upload(&bytes, upload.art, bleed_mm)?;
+            let thumbnail = if rgb.width().max(rgb.height()) > UPLOAD_THUMBNAIL_EDGE {
+                DynamicImage::ImageRgb8(rgb)
+                    .thumbnail(UPLOAD_THUMBNAIL_EDGE, UPLOAD_THUMBNAIL_EDGE)
+                    .into_rgb8()
+            } else {
+                rgb
             };
-            let rgb = to_rgb(decode(&bytes)?, image::Rgb([255; 3]));
-            encode_png(&strip_bleed(&rgb, &art, &Default::default()))
+            let bytes = encode_png(&thumbnail)?;
+            std::fs::create_dir_all(dir)?;
+            let tmp = path.with_extension(format!("part-{}", new_id()));
+            std::fs::write(&tmp, &bytes)?;
+            std::fs::rename(tmp, path)?;
+            Ok(bytes)
         })
         .await?
     }
@@ -494,6 +529,12 @@ impl Images {
         )?;
         Ok(art)
     }
+}
+
+fn trim_upload(bytes: &[u8], art: Art, bleed_mm: f64) -> AppResult<image::RgbImage> {
+    let art = Art { bleed_mm, ..art };
+    let rgb = to_rgb(decode(bytes)?, image::Rgb([255; 3]));
+    Ok(strip_bleed(&rgb, &art, &Default::default()))
 }
 
 fn validate_upload_bleed(bleed_mm: Option<f64>) -> AppResult<()> {
