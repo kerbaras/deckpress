@@ -130,12 +130,22 @@ it("applies, creates, updates and deletes profiles and exports the current corre
     destination,
     settings: expect.objectContaining({ backs: "short-edge", ...correction }),
   });
+  const firstMessage = status.firstElementChild;
+  expect(firstMessage).toHaveTextContent("Duplex calibration sheet saved.");
+  await user.click(
+    screen.getByRole("button", { name: "Export calibration sheet" }),
+  );
+  expect(status.firstElementChild).toHaveTextContent(
+    "Duplex calibration sheet saved.",
+  );
+  expect(status.firstElementChild).not.toBe(firstMessage);
   observer.disconnect();
   expect(screen.getAllByRole("status")).toEqual([status]);
   expect(announcements).toEqual([
     "Printer profile saved.",
     "Printer profile updated.",
     "Printer profile deleted. Current correction kept.",
+    "Duplex calibration sheet saved.",
     "Duplex calibration sheet saved.",
   ]);
 });

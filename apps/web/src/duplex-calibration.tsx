@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Crosshair, Download } from "lucide-react";
-import { useState } from "react";
+import { type ReactElement, useState } from "react";
 import { api, confirmAction } from "./api.ts";
 import type { PrinterProfileInput, PrintSettings } from "./core/index.ts";
 import { ErrorNotice, StatusRegion, useTask } from "./ui.tsx";
@@ -80,7 +80,7 @@ export function DuplexCalibration({
   const task = useTask();
   const [selectedId, select] = useState("");
   const [name, setName] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<ReactElement | null>(null);
   const profiles = query.data ?? [];
   const selected = profiles.find((profile) => profile.id === selectedId);
   const flip = backs === "short-edge" ? "short" : "long";
@@ -91,7 +91,7 @@ export function DuplexCalibration({
   };
   const saveProfile = (id: string | null) =>
     void task.run(async () => {
-      setStatus("");
+      setStatus(null);
       const input: PrinterProfileInput = { name: name.trim(), ...corrections };
       const profile = await api.savePrinterProfile(id, input);
       client.setQueryData<typeof profiles>(profileKey, (previous = []) => [
@@ -101,7 +101,11 @@ export function DuplexCalibration({
       select(profile.id);
       setName(profile.name);
       setStatus(
-        id === null ? "Printer profile saved." : "Printer profile updated.",
+        id === null ? (
+          <>Printer profile saved.</>
+        ) : (
+          <>Printer profile updated.</>
+        ),
       );
     });
   const canSave = !task.busy && query.isSuccess && name.trim().length > 0;
@@ -136,7 +140,7 @@ export function DuplexCalibration({
             );
             select(profile?.id ?? "");
             setName(profile?.name ?? "");
-            setStatus("");
+            setStatus(null);
             if (profile) {
               onChange({
                 backOffsetXmm: profile.backOffsetXmm,
@@ -185,7 +189,7 @@ export function DuplexCalibration({
               disabled={task.busy}
               onClick={() =>
                 void task.run(async () => {
-                  setStatus("");
+                  setStatus(null);
                   if (
                     !(await confirmAction(
                       `Delete “${selected.name}”?`,
@@ -202,7 +206,7 @@ export function DuplexCalibration({
                   select("");
                   setName("");
                   setStatus(
-                    "Printer profile deleted. Current correction kept.",
+                    <>Printer profile deleted. Current correction kept.</>,
                   );
                 })
               }
@@ -217,9 +221,9 @@ export function DuplexCalibration({
         disabled={task.busy}
         onClick={() =>
           void task.run(async () => {
-            setStatus("");
+            setStatus(null);
             if (await api.exportDuplexCalibration(settings)) {
-              setStatus("Duplex calibration sheet saved.");
+              setStatus(<>Duplex calibration sheet saved.</>);
             }
           })
         }

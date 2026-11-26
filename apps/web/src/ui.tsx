@@ -1,5 +1,7 @@
 import { AlertCircle, ImageOff, LoaderCircle, Search, X } from "lucide-react";
 import {
+  Fragment,
+  isValidElement,
   type KeyboardEvent,
   type ReactNode,
   type Ref,
@@ -80,6 +82,15 @@ export function StatusRegion({
   className?: string;
   label?: string;
 }) {
+  const message =
+    typeof children === "string" ||
+    (isValidElement(children) && children.type === Fragment)
+      ? children
+      : null;
+  const [announcement, setAnnouncement] = useState({ message, sequence: 0 });
+  if (message !== announcement.message) {
+    setAnnouncement({ message, sequence: announcement.sequence + 1 });
+  }
   return (
     <p
       className={className}
@@ -87,7 +98,14 @@ export function StatusRegion({
       aria-atomic="true"
       aria-label={label}
     >
-      {children}
+      {message ? (
+        // biome-ignore lint/a11y/useSemanticElements: Expose the inline announcement as a child in WebKitGTK's accessibility tree.
+        <span key={announcement.sequence} role="group">
+          {message}
+        </span>
+      ) : (
+        children
+      )}
     </p>
   );
 }
