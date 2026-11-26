@@ -116,7 +116,9 @@ export function ImportPanel({
               <label className="file-drop">
                 <FileUp size={22} />
                 <strong>Choose a decklist</strong>
-                <span>TXT, CSV, Arena export, MTGO .dek or MPC Autofill XML</span>
+                <span>
+                  TXT, CSV, Arena export, MTGO .dek or MPC Autofill XML
+                </span>
                 <input
                   type="file"
                   accept=".txt,.csv,.dek,.xml"

@@ -226,6 +226,33 @@ it("imports an MPC Autofill order without changing image IDs and exports it thro
   expect(mpcArtwork).toHaveBeenCalledTimes(2);
 });
 
+it("asks for an MPC back instead of opening the save dialog for a front-only deck", async () => {
+  const frontOnly = {
+    ...deck,
+    entries: [{ ...entry, selectedArt: community }],
+  };
+  const saveDialog = vi.fn();
+  const saveMpcXml = vi.fn();
+  mockIPC((cmd, args) => {
+    if (cmd === "list_decks") return [frontOnly];
+    if (cmd === "get_deck") return frontOnly;
+    if (cmd === "plugin:dialog|save") return saveDialog(args);
+    if (cmd === "save_mpc_xml") return saveMpcXml(args);
+    return [];
+  });
+  const user = userEvent.setup();
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  await user.click(
+    screen.getByRole("button", { name: "Export MPC Autofill XML" }),
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Choose an MPC Autofill back",
+  );
+  expect(saveDialog).not.toHaveBeenCalled();
+  expect(saveMpcXml).not.toHaveBeenCalled();
+});
+
 it("shows the model download error and retries the same model", async () => {
   const user = userEvent.setup();
   const qualityModel = {

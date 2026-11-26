@@ -51,6 +51,11 @@ it("round-trips ordered MPC Autofill fronts, copies, and common/explicit backs",
   const xml = await exportMpcXml(entries, resolve);
   expect(xml).toContain("<name>Island &amp; sea.png</name>");
   expect(xml).toContain("<slots>0,1,3,4</slots>");
+  const order = new DOMParser().parseFromString(xml, "application/xml");
+  expect(order.querySelector("order > cardback")?.textContent).toBe(lotus);
+  expect(order.querySelector("order > backs > card > id")?.textContent).toBe(
+    customBack,
+  );
   expect(parseMpcXml(xml)).toEqual([
     { front: island, back: lotus },
     { front: island, back: lotus },
@@ -67,6 +72,36 @@ it("round-trips ordered MPC Autofill fronts, copies, and common/explicit backs",
   );
   expect(commonXml).toContain(`<cardback>${lotus}</cardback>`);
   expect(commonXml).not.toContain("<backs>");
+});
+
+it("blocks front-only MPC export until there is artwork for the backs", async () => {
+  const frontsOnly = input
+    .replace(/<backs>.*<\/backs>/, "")
+    .replace(`<cardback>${lotus}</cardback>`, "");
+  const entries = await importMpcXml(frontsOnly, lookup);
+  const resolve = vi.fn(lookup);
+  await expect(exportMpcXml(entries, resolve)).rejects.toThrow(
+    "Choose an MPC Autofill back",
+  );
+  expect(resolve).not.toHaveBeenCalled();
+
+  const back = (await lookup([lotus]))[0]?.art;
+  if (!back || !entries[0]) throw new Error("Missing MPC fixture artwork");
+  entries[0].selectedBack = back;
+  await expect(exportMpcXml(entries, resolve)).rejects.toThrow(
+    "Choose an MPC Autofill back",
+  );
+  for (const entry of entries) entry.selectedBack = back;
+  const xml = await exportMpcXml(entries, resolve);
+  const order = new DOMParser().parseFromString(xml, "application/xml");
+  expect(order.querySelector("order > cardback")?.textContent).toBe(lotus);
+  expect(order.querySelector("order > backs")).toBeNull();
+  expect(parseMpcXml(xml)).toEqual(
+    parseMpcXml(frontsOnly).map((slot) => ({ ...slot, back: lotus })),
+  );
+  await expect(
+    exportMpcXml(entries, (ids) => lookup(ids.filter((id) => id !== lotus))),
+  ).rejects.toThrow(`MPC Autofill artwork ${lotus} is no longer available.`);
 });
 
 it("rejects unsafe, incomplete, duplicate-slot and unavailable MPC artwork", async () => {

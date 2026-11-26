@@ -175,10 +175,13 @@ export async function exportMpcXml(
     };
     return Array.from({ length: entry.quantity }, () => slot);
   });
+  const commonBack = slots[0]?.back;
+  if (!commonBack || slots.some((slot) => !slot.back))
+    throw new Error(
+      "Choose an MPC Autofill back for each card before exporting XML, or import an MPC Autofill order with a common back.",
+    );
   const artwork = await slotArtwork(slots, lookup);
-  const common = slots[0]?.back ?? null;
-  const commonBack =
-    common && slots.every((slot) => slot.back === common) ? common : null;
+  artwork(commonBack);
   const doc = document.implementation.createDocument(null, "order");
   const order = doc.documentElement;
   const append = (parent: Element, tag: string, text = "") => {
@@ -195,7 +198,7 @@ export async function exportMpcXml(
     const groups = new Map<string, number[]>();
     slots.forEach((slot, index) => {
       const id = slot[face];
-      if (!id || (face === "back" && commonBack)) return;
+      if (!id || (face === "back" && id === commonBack)) return;
       const indices = groups.get(id);
       if (indices) indices.push(index);
       else groups.set(id, [index]);
@@ -212,6 +215,6 @@ export async function exportMpcXml(
       append(card, "query", query);
     }
   }
-  append(order, "cardback", commonBack ?? "");
+  append(order, "cardback", commonBack);
   return new XMLSerializer().serializeToString(doc);
 }
