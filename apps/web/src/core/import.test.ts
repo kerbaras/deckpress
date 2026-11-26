@@ -378,7 +378,9 @@ describe("decklist import", () => {
         ].join(newline),
       );
       expect(result.format).toBe("CSV");
-      expect(result.entries.map(({ name }) => name)).toEqual(["Island"]);
+      expect(result.entries).toMatchObject([
+        { name: "Island", board: "testing Pool" },
+      ]);
       expect(result.lines).toEqual([6]);
       expect(result.issues).toEqual([
         {
