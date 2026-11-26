@@ -212,6 +212,40 @@ async fn moxfield_companion_section_does_not_depend_on_board_order() {
 }
 
 #[tokio::test]
+async fn moxfield_board_keys_are_exact_not_pasted_heading_variants() {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Providers::new(store.clone()).unwrap();
+    let key = hex::encode(Sha256::digest(
+        "https://api2.moxfield.com/v3/decks/all/exampleDecknull",
+    ));
+    for (board, heading) in [
+        ("SIDEBOARD", "SIDEBOARD"),
+        ("Side Board", "Deck\n// Board: Side Board"),
+        ("side-board", "Deck\n// Board: side-board"),
+        ("Sideboard:", "Deck\n// Board: Sideboard:"),
+        ("sideboard2", "Deck\n// Board: sideboard2"),
+        ("Commanders:", "Deck\n// Board: Commanders:"),
+        ("Maybe Board", "Deck\n// Board: Maybe Board"),
+        ("Tokens:", "Deck\n// Board: Tokens:"),
+    ] {
+        store
+            .put(
+                "cache",
+                &key,
+                &serde_json::json!({
+                    "boards": {(board): {"cards": {"id": {"card": {"name": "Negate"}}}}}
+                }),
+            )
+            .unwrap();
+        let output = providers
+            .import_url("https://moxfield.com/decks/exampleDeck")
+            .await
+            .unwrap();
+        assert_eq!(output, format!("{heading}\n1 Negate"), "board {board}");
+    }
+}
+
+#[tokio::test]
 async fn suggests_printable_tokens_and_emblems_from_all_parts() {
     fn cache(store: &Store, ids: &[&str], cards: Vec<Value>) {
         let identifiers: Vec<_> = ids

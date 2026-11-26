@@ -150,6 +150,8 @@ describe("decklist import", () => {
   it("does not treat lookalike board names as aliases in text or CSV", () => {
     const text = parseDecklist("Deck\n// sideboard2\n1 Shock");
     expect(text.entries).toMatchObject([{ name: "Shock", zone: "main" }]);
+    const formatted = parseDecklist("Deck\n// Side-Board 2:\n1 Shock");
+    expect(formatted.entries).toEqual(text.entries);
     const csv = parseDecklist(
       "Name,Quantity,Board\nShock,1,Sideboard2\nNegate,1,Sideboard",
     );
@@ -158,6 +160,41 @@ describe("decklist import", () => {
       { name: "Negate", zone: "side" },
     ]);
   });
+
+  it.each([
+    ["deck", "main"],
+    ["main", "main"],
+    ["main board", "main"],
+    ["commander", "commander"],
+    ["commanders", "commander"],
+    ["side", "side"],
+    ["side board", "side"],
+    ["maybe", "maybe"],
+    ["maybe board", "maybe"],
+    ["considering", "maybe"],
+    ["token", "tokens"],
+    ["tokens", "tokens"],
+  ])(
+    "recognizes the text heading %s and its formatted variants",
+    (alias, zone) => {
+      const preceding = zone === "main" ? "Sideboard" : "Deck";
+      const variants = new Set([
+        alias.replaceAll(" ", ""),
+        alias.replaceAll(" ", "").toUpperCase(),
+        alias.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        alias.replaceAll(" ", "-"),
+        `${alias.replaceAll(" ", "")}:`,
+        `// ${alias.toUpperCase().replaceAll(" ", " - ")}:`,
+      ]);
+      for (const heading of variants) {
+        const parsed = parseDecklist(`${preceding}\n${heading}\n1 Negate`);
+        expect(parsed.entries, heading).toMatchObject([
+          { name: "Negate", zone },
+        ]);
+        expect(parsed.issues, heading).toEqual([]);
+      }
+    },
+  );
 
   it("round-trips a card through text and CSV containing the same board header", () => {
     const header = "// Board: testing Pool";

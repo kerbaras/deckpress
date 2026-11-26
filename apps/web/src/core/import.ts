@@ -140,7 +140,11 @@ export function parseDecklist(input: string): ParsedDecklist {
     text.split(/\r?\n/).forEach((raw, index) => {
       const line = raw.trim();
       if (!line) return;
-      const header = zoneFrom(line.replace(/^\/\/\s*/, ""));
+      const heading = line
+        .replace(/^\/\/\s*/, "")
+        .replace(/:$/, "")
+        .replace(/[\s-]+/g, "");
+      const header = zoneFrom(heading);
       if (header) {
         zone = header;
         return;
