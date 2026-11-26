@@ -422,6 +422,93 @@ it("creates a deck, imports resolved cards, and reopens the saved project", asyn
   ]);
 });
 
+it("compares the selected scan and restores the chosen print model after saving", async () => {
+  const user = userEvent.setup();
+  const animeModel = {
+    ...compactModel,
+    id: "realesr-animevideov3",
+    tier: "fast" as const,
+  };
+  const qualityModel = {
+    ...compactModel,
+    id: "realesrgan-x4plus",
+    tier: "quality" as const,
+    installed: false,
+  };
+  vi.mocked(api.settings).mockResolvedValue({
+    ...(await api.settings()),
+    models: [compactModel, animeModel, qualityModel],
+  });
+  const chosenEntry = {
+    ...entry,
+    id: "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+    card: { ...entry.card, name: "Second printing" },
+    selectedArt: alternate,
+  };
+  let stored = { ...deck, entries: [entry, chosenEntry] };
+  const calls: unknown[] = [];
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [stored];
+      case "get_deck":
+        return stored;
+      case "save_deck":
+        stored = deckSchema.parse((args as { deck: unknown }).deck);
+        return stored;
+      case "compare_upscalers":
+        calls.push(args);
+        return [null, compactModel.id, animeModel.id].map((modelId) => ({
+          modelId,
+          crop: {
+            png: [137, 80, 78, 71],
+            width: 224,
+            height: 144,
+            elapsedMs: 12.5,
+          },
+        }));
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  renderWithClient(<App />);
+  const openPrint = async () => {
+    await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+    await user.click(screen.getByRole("button", { name: "Print setup" }));
+    await user.click(screen.getByText("Compare upscale models"));
+  };
+  await openPrint();
+  await user.selectOptions(
+    screen.getByLabelText("Comparison card"),
+    chosenEntry.id,
+  );
+  await user.click(screen.getByRole("button", { name: "Render text crops" }));
+  for (const label of ["Lanczos", "General x4v3", "Anime v3"]) {
+    expect(
+      await screen.findByRole("img", { name: `${label} text crop` }),
+    ).toHaveAttribute("width", "224");
+  }
+  expect(screen.getAllByText("12.5 ms")).toHaveLength(3);
+  expect(
+    screen.getByRole("button", { name: "Use Quality x4plus" }),
+  ).toBeDisabled();
+  expect(calls).toEqual([expect.objectContaining({ art: alternate })]);
+  await user.click(screen.getByRole("button", { name: "Use Anime v3" }));
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(stored.printSettings.upscaleModel).toBe(animeModel.id),
+  );
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  await openPrint();
+  expect(
+    screen.getByRole("button", { name: "Use Anime v3", pressed: true }),
+  ).toBeVisible();
+  expect(screen.getByLabelText("Use local AI upscaling")).toBeChecked();
+  await user.click(screen.getByRole("button", { name: "Use Lanczos" }));
+  expect(screen.getByLabelText("Use local AI upscaling")).not.toBeChecked();
+});
+
 it("keeps the original scan while selecting art for one copy and saving a personal rating", async () => {
   const user = userEvent.setup();
   vi.spyOn(api, "art").mockImplementation(async (provider) => ({

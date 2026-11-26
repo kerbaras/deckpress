@@ -41,6 +41,7 @@ pub fn run() {
             commands::settings,
             commands::download_model,
             commands::load_model,
+            commands::compare_upscalers,
             commands::list_decks,
             commands::get_deck,
             commands::create_deck,

@@ -21,6 +21,7 @@ use deckpress_core::pdf::build_duplex_calibration_pdf;
 use deckpress_core::providers::MpcArtwork;
 use deckpress_core::style::{StyleReport, StyleRequest};
 use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
+use deckpress_core::upscaler::preview::{self, ModelCrop};
 use deckpress_core::upscaler::UpscalerInfo;
 
 pub type AppState = deckpress_core::Core;
@@ -78,6 +79,17 @@ pub async fn load_model(state: State<'_, AppState>, id: String) -> AppResult<Ups
     let models = Arc::clone(&state.models);
     let upscaler = tokio::task::spawn_blocking(move || models.upscaler(&id)).await??;
     Ok(upscaler.info())
+}
+
+#[tauri::command]
+pub async fn compare_upscalers(
+    state: State<'_, AppState>,
+    art: Art,
+    settings: PrintSettings,
+) -> AppResult<Vec<ModelCrop>> {
+    let source = state.images.read(&art.image_url).await?;
+    let models = Arc::clone(&state.models);
+    tokio::task::spawn_blocking(move || preview::compare(&source, &art, &settings, &models)).await?
 }
 
 #[tauri::command]

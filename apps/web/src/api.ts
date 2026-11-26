@@ -67,6 +67,24 @@ const modelStatusSchema = z.object({
   downloading: z.boolean(),
 });
 export type ModelStatus = z.infer<typeof modelStatusSchema>;
+const cropPreviewSchema = z
+  .object({
+    modelId: z.string().nullable(),
+  })
+  .and(
+    z.union([
+      z.object({
+        crop: z.object({
+          png: z.array(z.number()),
+          width: z.number(),
+          height: z.number(),
+          elapsedMs: z.number(),
+        }),
+      }),
+      z.object({ error: z.string() }),
+    ]),
+  );
+export type CropPreview = z.infer<typeof cropPreviewSchema>;
 const upscalerInfoSchema = z.object({
   modelId: z.string(),
   modelName: z.string(),
@@ -367,6 +385,8 @@ export const api = {
   downloadModel: (id: string) =>
     command("download_model", z.array(modelStatusSchema), { id }),
   loadModel: (id: string) => command("load_model", upscalerInfoSchema, { id }),
+  compareUpscalers: (art: Art, settings: PrintSettings) =>
+    command("compare_upscalers", z.array(cropPreviewSchema), { art, settings }),
   preferences: (_signal?: AbortSignal) =>
     command("preferences", preferencesSchema),
   savePreference: (id: string, value: ArtPreference) =>

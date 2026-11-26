@@ -38,6 +38,7 @@ import {
 } from "./core/index.ts";
 import { DuplexCalibration } from "./duplex-calibration.tsx";
 import { ErrorNotice, ExternalLink, StatusRegion, useTask } from "./ui.tsx";
+import { UpscaleComparison } from "./upscale-comparison.tsx";
 
 const paperNames = {
   a4: "A4",
@@ -275,6 +276,19 @@ export function PrintSetup({
       >
         {cutTemplatePath && `Cut template saved to ${cutTemplatePath}`}
       </StatusRegion>
+      <UpscaleComparison
+        entries={entries}
+        models={models}
+        settings={settings}
+        activeModel={settings.upscale ? selectedModel?.id : null}
+        onChoose={(id) =>
+          change(
+            id === null
+              ? { upscale: false }
+              : { upscale: true, upscaleModel: id },
+          )
+        }
+      />
       <div className="print-layout">
         <div className="print-controls">
           <div className="panel presets">

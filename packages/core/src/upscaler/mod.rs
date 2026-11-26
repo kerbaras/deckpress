@@ -5,6 +5,7 @@
 
 pub mod manifest;
 pub mod ort_backend;
+pub mod preview;
 pub mod tiling;
 
 use std::sync::atomic::{AtomicBool, Ordering};
