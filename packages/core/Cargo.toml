@@ -30,6 +30,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 url = "2"
 futures-util = { version = "0.3", default-features = false }
 log = "0.4"
+crc32fast = "1.4"
+zip = { version = "~7.3", default-features = false }
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 ort = { version = "=2.0.0-rc.13", default-features = false, features = ["coreml"] }
@@ -45,3 +47,4 @@ cuda = ["ort/cuda"]
 [dev-dependencies]
 quick-xml = "0.42"
 tempfile = "3"
+zip = { version = "~7.3", default-features = false }

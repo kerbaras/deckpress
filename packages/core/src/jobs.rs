@@ -11,8 +11,9 @@ use tokio::sync::mpsc;
 use crate::error::{AppError, AppResult};
 use crate::format_count;
 use crate::images::Images;
-use crate::models::{new_id, now_iso, Deck, JobStatus, PrintJob, PrintSettings};
+use crate::models::{new_id, now_iso, Deck, ExportFormat, JobStatus, PrintJob, PrintSettings};
 use crate::pdf::{build_pdf, print_plan, PdfServices};
+use crate::png_export::build_png_zip;
 use crate::store::Store;
 use crate::upscaler::manifest::{default_model_id, ModelManager};
 use crate::upscaler::CancelToken;
@@ -40,7 +41,7 @@ pub struct Jobs {
     runtime: tokio::runtime::Handle,
 }
 
-pub fn file_name(deck: &Deck, settings: &PrintSettings) -> String {
+pub fn file_name(deck: &Deck, settings: &PrintSettings, format: ExportFormat) -> String {
     let stem: String = deck
         .name
         .chars()
@@ -55,7 +56,10 @@ pub fn file_name(deck: &Deck, settings: &PrintSettings) -> String {
     } else {
         stem
     };
-    format!("{stem}-{}dpi.pdf", settings.dpi)
+    match format {
+        ExportFormat::Pdf => format!("{stem}-{}dpi.pdf", settings.dpi),
+        ExportFormat::Png => format!("{stem}-{}dpi-png.zip", settings.dpi),
+    }
 }
 
 /// The Node API wrote finished exports to `jobs/<id>.pdf`. Move them to
@@ -166,19 +170,30 @@ impl Jobs {
             .ok_or_else(|| AppError::not_found("Print job not found"))
     }
 
-    pub fn pdf_path(&self, id: &str) -> AppResult<PathBuf> {
+    fn job_path(&self, job: &PrintJob) -> PathBuf {
+        self.pdf_dir
+            .join(format!("{}.{}", job.id, job.format.extension()))
+    }
+
+    /// The finished export file (PDF or PNG ZIP) of a completed job.
+    pub fn output_path(&self, id: &str) -> AppResult<(PathBuf, ExportFormat)> {
         let job = self.get(id)?;
         if job.status != JobStatus::Completed {
             return Err(AppError::user("This export has not finished"));
         }
-        let path = self.pdf_dir.join(format!("{}.pdf", job.id));
+        let path = self.job_path(&job);
         if !path.is_file() {
-            return Err(AppError::not_found("PDF file is missing. Export again."));
+            return Err(AppError::not_found("Export file is missing. Export again."));
         }
-        Ok(path)
+        Ok((path, job.format))
     }
 
-    pub fn create(&self, deck: Deck, settings: PrintSettings) -> AppResult<PrintJob> {
+    pub fn create(
+        &self,
+        deck: Deck,
+        settings: PrintSettings,
+        format: ExportFormat,
+    ) -> AppResult<PrintJob> {
         settings.validate()?;
         let plan = print_plan(&deck, &settings)?;
         if settings.upscale {
@@ -206,15 +221,19 @@ impl Jobs {
                 .iter()
                 .map(|side| side.entries.len() as u32)
                 .sum(),
-            message: format!(
-                "Queued · {}",
-                format_count(plan.sides.len(), "page", "pages")
-            ),
+            message: match format {
+                ExportFormat::Pdf => format!(
+                    "Queued · {}",
+                    format_count(plan.sides.len(), "page", "pages")
+                ),
+                ExportFormat::Png => "Queued · PNG files".into(),
+            },
             created_at: now_iso(),
-            file_name: file_name(&deck, &settings),
+            file_name: file_name(&deck, &settings, format),
             bytes: 0,
             pages: 0,
             calibration_page: settings.calibration_page,
+            format,
         };
         self.store.put(KIND, &job.id, &job)?;
         self.prune()?;
@@ -262,7 +281,7 @@ impl Jobs {
                 continue;
             }
             self.store.remove(KIND, &job.id)?;
-            let _ = std::fs::remove_file(self.pdf_dir.join(format!("{}.pdf", job.id)));
+            let _ = std::fs::remove_file(self.job_path(&job));
         }
         Ok(())
     }
@@ -317,11 +336,15 @@ impl Jobs {
                 job.completed = job.total;
                 job.bytes = bytes;
                 job.pages = pages as u32;
-                self.finish(
-                    job,
-                    JobStatus::Completed,
-                    format!("{} ready", format_count(pages, "page", "pages")),
-                );
+                let message = match job.format {
+                    ExportFormat::Pdf => {
+                        format!("{} ready", format_count(pages, "page", "pages"))
+                    }
+                    ExportFormat::Png => {
+                        format!("{} ready", format_count(pages, "PNG file", "PNG files"))
+                    }
+                };
+                self.finish(job, JobStatus::Completed, message);
             }
             Err(AppError::Cancelled) => {
                 self.finish(job, JobStatus::Cancelled, "Cancelled".into());
@@ -398,22 +421,53 @@ impl Jobs {
             let images = Arc::clone(&jobs.images);
             let mut read_source =
                 |url: &str| -> AppResult<Vec<u8>> { Ok(std::fs::read(images.local_path(url)?)?) };
-            let output = build_pdf(
-                &deck,
-                &settings,
-                &PdfServices {
-                    upscaler: upscaler.as_deref(),
-                    raster_dir: &jobs.raster_dir,
-                },
-                &cancel,
-                &mut progress,
-                &mut read_source,
-            )?;
-            let path = jobs.pdf_dir.join(format!("{}.pdf", job.id));
+            let path = jobs.job_path(&job);
             let tmp = path.with_extension("part");
-            std::fs::write(&tmp, &output.bytes)?;
+            let result = match job.format {
+                ExportFormat::Pdf => build_pdf(
+                    &deck,
+                    &settings,
+                    &PdfServices {
+                        upscaler: upscaler.as_deref(),
+                        raster_dir: &jobs.raster_dir,
+                    },
+                    &cancel,
+                    &mut progress,
+                    &mut read_source,
+                )
+                .and_then(|output| {
+                    std::fs::write(&tmp, &output.bytes)?;
+                    Ok(output.pages)
+                }),
+                ExportFormat::Png => std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&tmp)
+                    .map_err(AppError::from)
+                    .and_then(|file| {
+                        build_png_zip(
+                            &deck,
+                            &settings,
+                            upscaler.as_deref(),
+                            &cancel,
+                            &mut progress,
+                            &mut read_source,
+                            file,
+                        )
+                    })
+                    .map(|output| output.faces),
+            };
+            let units = match result {
+                Ok(units) => units,
+                Err(error) => {
+                    let _ = std::fs::remove_file(&tmp);
+                    return Err(error);
+                }
+            };
             std::fs::rename(&tmp, &path)?;
-            Ok((output.bytes.len() as u64, output.pages))
+            Ok((std::fs::metadata(&path)?.len(), units))
         })
         .await??;
         Ok((bytes, pages))

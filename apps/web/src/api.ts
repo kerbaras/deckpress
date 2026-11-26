@@ -21,6 +21,7 @@ import {
   mpcArtworkSchema,
   mpcXmlFormat,
   type PrinterProfileInput,
+  type PrintJob,
   type PrintSettings,
   parseDecklist,
   printerProfileSchema,
@@ -522,8 +523,11 @@ export const api = {
     return artSchema.parse(data);
   },
   jobs: (_signal?: AbortSignal) => command("list_jobs", z.array(jobSchema)),
-  createJob: (deckId: string, settings: PrintSettings) =>
-    command("create_job", jobSchema, { deckId, settings }),
+  createJob: (
+    deckId: string,
+    settings: PrintSettings,
+    format: PrintJob["format"] = "pdf",
+  ) => command("create_job", jobSchema, { deckId, settings, format }),
   cancelJob: (id: string) => command("cancel_job", jobSchema, { id }),
   openPdf: (id: string) => command("open_pdf", nothing, { id }),
   revealPdf: (id: string) => command("reveal_pdf", nothing, { id }),

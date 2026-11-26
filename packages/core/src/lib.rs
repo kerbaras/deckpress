@@ -12,6 +12,7 @@ pub mod jobs;
 pub mod layout;
 pub mod models;
 pub mod pdf;
+pub mod png_export;
 pub mod providers;
 pub mod raster;
 pub mod scm;

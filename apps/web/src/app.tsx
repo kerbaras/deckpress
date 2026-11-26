@@ -516,7 +516,10 @@ function PrintJobs({ active }: { active: number }) {
                   )}
                   <div className="job-meta">
                     <span>{prettyDate(job.createdAt)}</span>
-                    <span>{job.pages} PDF pages</span>
+                    <span>
+                      {job.pages}{" "}
+                      {job.format === "png" ? "PNG files" : "PDF pages"}
+                    </span>
                     {job.bytes > 0 && (
                       <span>{(job.bytes / 1024 / 1024).toFixed(1)} MB</span>
                     )}
@@ -534,15 +537,19 @@ function PrintJobs({ active }: { active: number }) {
                 <div className="job-actions">
                   {job.status === "completed" ? (
                     <>
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={task.busy}
-                        onClick={() => void task.run(() => api.openPdf(job.id))}
-                      >
-                        <Printer size={16} />
-                        Open PDF
-                      </button>
+                      {job.format === "pdf" && (
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={task.busy}
+                          onClick={() =>
+                            void task.run(() => api.openPdf(job.id))
+                          }
+                        >
+                          <Printer size={16} />
+                          Open PDF
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="icon-button"
@@ -554,7 +561,15 @@ function PrintJobs({ active }: { active: number }) {
                             setSaveStatus("");
                             const destination = await save({
                               defaultPath: job.fileName,
-                              filters: [{ name: "PDF", extensions: ["pdf"] }],
+                              filters:
+                                job.format === "png"
+                                  ? [
+                                      {
+                                        name: "ZIP of PNGs",
+                                        extensions: ["zip"],
+                                      },
+                                    ]
+                                  : [{ name: "PDF", extensions: ["pdf"] }],
                             });
                             if (destination) {
                               setSaveStatus(

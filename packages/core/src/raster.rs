@@ -377,3 +377,27 @@ pub fn encode_png(image: &RgbImage) -> AppResult<Vec<u8>> {
     )?;
     Ok(bytes)
 }
+
+/// [`encode_png`] plus a `pHYs` chunk so layout and print tools place the
+/// image at its physical size instead of assuming 72 or 96 DPI.
+pub fn encode_png_at_dpi(image: &RgbImage, dpi: u32) -> AppResult<Vec<u8>> {
+    let bytes = encode_png(image)?;
+    // Signature (8) + IHDR chunk (4 length + 4 type + 13 data + 4 CRC).
+    const IHDR_END: usize = 33;
+    if bytes.get(12..16) != Some(b"IHDR".as_slice()) {
+        return Err(AppError::internal("PNG encoder wrote no IHDR chunk"));
+    }
+    let pixels_per_metre = (f64::from(dpi) / 0.0254).round() as u32;
+    let mut body = Vec::with_capacity(13);
+    body.extend_from_slice(b"pHYs");
+    body.extend_from_slice(&pixels_per_metre.to_be_bytes());
+    body.extend_from_slice(&pixels_per_metre.to_be_bytes());
+    body.push(1);
+    let mut out = Vec::with_capacity(bytes.len() + 21);
+    out.extend_from_slice(&bytes[..IHDR_END]);
+    out.extend_from_slice(&9u32.to_be_bytes());
+    out.extend_from_slice(&body);
+    out.extend_from_slice(&crc32fast::hash(&body).to_be_bytes());
+    out.extend_from_slice(&bytes[IHDR_END..]);
+    Ok(out)
+}

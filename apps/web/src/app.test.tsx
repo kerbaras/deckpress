@@ -2259,6 +2259,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
     bytes: 0,
     pages: 1,
     calibrationPage: true,
+    format: "pdf",
   });
   function PrintHarness() {
     const [value, setValue] = useState({
@@ -2317,6 +2318,14 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   expect(createJob).toHaveBeenCalledWith(
     id,
     expect.objectContaining({ dpi: 300, columns: 0 }),
+    "pdf",
+  );
+  await user.click(screen.getByRole("button", { name: "Export PNGs" }));
+  await waitFor(() => expect(jobs).toHaveBeenCalledTimes(2));
+  expect(createJob).toHaveBeenLastCalledWith(
+    id,
+    expect.objectContaining({ dpi: 300, columns: 0 }),
+    "png",
   );
 });
 

@@ -390,6 +390,24 @@ pub enum JobStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportFormat {
+    #[default]
+    Pdf,
+    /// ZIP of print-ready PNGs, one per printed face.
+    Png,
+}
+
+impl ExportFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Pdf => "pdf",
+            Self::Png => "zip",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct PrintJob {
@@ -403,9 +421,12 @@ pub struct PrintJob {
     pub created_at: String,
     pub file_name: String,
     pub bytes: u64,
+    /// PDF pages, or PNG files for a PNG export.
     pub pages: u32,
     #[serde(default)]
     pub calibration_page: bool,
+    #[serde(default)]
+    pub format: ExportFormat,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use deckpress_core::images::{Images, UploadInput};
 use deckpress_core::jobs::{file_name, Jobs};
-use deckpress_core::models::{Deck, JobStatus, PrintJob, PrintSettings};
+use deckpress_core::models::{Deck, ExportFormat, JobStatus, PrintJob, PrintSettings};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::manifest::ModelManager;
 use tokio::runtime::Handle;
@@ -41,6 +41,7 @@ async fn a_single_page_is_singular_when_queued_and_ready() {
                 dpi: 150,
                 ..PrintSettings::default()
             },
+            ExportFormat::Pdf,
         )
         .unwrap();
     let ready = tokio::time::timeout(Duration::from_secs(10), async {
@@ -69,8 +70,12 @@ fn file_names_are_safe_and_carry_the_dpi() {
         ..common::deck(1)
     };
     assert_eq!(
-        file_name(&deck, &PrintSettings::default()),
+        file_name(&deck, &PrintSettings::default(), ExportFormat::Pdf),
         "Mono-Red--Burn-800dpi.pdf"
+    );
+    assert_eq!(
+        file_name(&deck, &PrintSettings::default(), ExportFormat::Png),
+        "Mono-Red--Burn-800dpi-png.zip"
     );
 }
 
@@ -88,7 +93,9 @@ async fn jobs_persist_the_export_calibration_setting_and_read_legacy_records() {
             upscale: false,
             ..PrintSettings::default()
         };
-        let job = jobs.create(common::deck(1), settings).unwrap();
+        let job = jobs
+            .create(common::deck(1), settings, ExportFormat::Pdf)
+            .unwrap();
         let saved = store.get::<PrintJob>("job", &job.id).unwrap().unwrap();
         assert_eq!(job.calibration_page, calibration_page);
         assert_eq!(saved.calibration_page, calibration_page);

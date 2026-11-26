@@ -14,7 +14,7 @@ use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, External
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::UploadInput;
 use deckpress_core::models::{
-    Art, ArtPage, ArtPreference, Deck, DeckEntry, ImportLine, NewDeck, PrintJob,
+    Art, ArtPage, ArtPreference, Deck, DeckEntry, ExportFormat, ImportLine, NewDeck, PrintJob,
     PrintLanguagePreferences, PrintSettings, PrinterProfile, PrinterProfileInput, ResolvedCards,
 };
 use deckpress_core::pdf::build_duplex_calibration_pdf;
@@ -372,12 +372,15 @@ pub fn create_job(
     state: State<'_, AppState>,
     deck_id: String,
     settings: PrintSettings,
+    format: Option<ExportFormat>,
 ) -> AppResult<PrintJob> {
     let deck = state
         .store
         .get::<Deck>("deck", &deck_id)?
         .ok_or_else(|| AppError::not_found("Deck not found"))?;
-    state.jobs.create(deck, settings)
+    state
+        .jobs
+        .create(deck, settings, format.unwrap_or_default())
 }
 
 #[tauri::command]
@@ -405,7 +408,7 @@ where
 
 #[tauri::command]
 pub async fn open_pdf(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    let path = state.jobs.pdf_path(&id)?;
+    let (path, _) = state.jobs.output_path(&id)?;
     with_desktop("open the PDF", move || {
         tauri_plugin_opener::open_path(path, None::<&str>)
     })
@@ -414,8 +417,8 @@ pub async fn open_pdf(state: State<'_, AppState>, id: String) -> AppResult<()> {
 
 #[tauri::command]
 pub async fn reveal_pdf(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    let path = state.jobs.pdf_path(&id)?;
-    with_desktop("show the PDF", move || {
+    let (path, _) = state.jobs.output_path(&id)?;
+    with_desktop("show the export", move || {
         tauri_plugin_opener::reveal_item_in_dir(&path).or_else(|_| {
             let dir = path.parent().unwrap_or(&path);
             tauri_plugin_opener::open_path(dir, None::<&str>)
@@ -430,10 +433,13 @@ pub async fn save_pdf(
     id: String,
     destination: String,
 ) -> AppResult<u64> {
-    let source = state.jobs.pdf_path(&id)?;
+    let (source, format) = state.jobs.output_path(&id)?;
     let destination = PathBuf::from(destination);
-    if destination.extension().and_then(|e| e.to_str()) != Some("pdf") {
-        return Err(AppError::user("Save the export as a .pdf file"));
+    let extension = format.extension();
+    if destination.extension().and_then(|e| e.to_str()) != Some(extension) {
+        return Err(AppError::user(format!(
+            "Save the export as a .{extension} file"
+        )));
     }
     Ok(tokio::fs::copy(source, destination).await?)
 }
