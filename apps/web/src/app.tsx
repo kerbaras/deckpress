@@ -19,8 +19,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
+import type { PrintJob } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
+import { importStatus } from "./import-review.tsx";
 import { Library } from "./library.tsx";
 import {
   PageToolbar,
@@ -34,6 +36,7 @@ import {
   ExternalLink,
   Loading,
   prettyDate,
+  StatusRegion,
   useTask,
 } from "./ui.tsx";
 import { Workspace } from "./workspace.tsx";
@@ -56,6 +59,7 @@ const confirmDiscard = () =>
     "Discard changes",
   );
 const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
+type ImportAnnouncement = { id: string; text: string };
 
 function readSidebar(): boolean {
   try {
@@ -70,6 +74,11 @@ export function App() {
   const [importedDeckId, setImportedDeckId] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(readSidebar);
   const [newDeckRequest, setNewDeckRequest] = useState(0);
+  const [pendingImport, setPendingImport] = useState<ImportAnnouncement | null>(
+    null,
+  );
+  const [importAnnouncement, setImportAnnouncement] =
+    useState<ImportAnnouncement | null>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const window_ = useWindowState();
   const routeRef = useRef(route);
@@ -95,14 +104,18 @@ export function App() {
   const activeJobs =
     jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
       .length ?? 0;
+  const { announcements, announceJobs } = usePrintJobAnnouncements(jobs.data);
   const navigate = async (next: string, saved = false) => {
     if (!saved && dirty.current && !(await confirmDiscard())) return false;
     dirty.current = false;
     window.location.hash = `/${next}`;
     return true;
   };
-  const openImportedDeck = async (id: string) => {
-    if (await navigate(`decks/${id}`)) setImportedDeckId(id);
+  const openImportedDeck = async (id: string, importedCards?: number) => {
+    if (!(await navigate(`decks/${id}`))) return;
+    setImportedDeckId(id);
+    if (importedCards !== undefined)
+      setPendingImport({ id, text: importStatus(null, importedCards) });
   };
   useEffect(() => {
     const change = async () => {
@@ -160,6 +173,11 @@ export function App() {
     return () => window.removeEventListener("keydown", shortcut);
   });
   const deckId = deckRoute(route);
+  useEffect(() => {
+    if (!pendingImport || pendingImport.id !== deckId) return;
+    setImportAnnouncement(pendingImport);
+    setPendingImport(null);
+  }, [deckId, pendingImport]);
   const recent = (decks.data ?? [])
     .slice()
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -182,6 +200,26 @@ export function App() {
       >
         Skip to content
       </button>
+      <StatusRegion label="Print job announcements">
+        {announcements.status.map(({ key, text }) => (
+          <span key={key}>{text} </span>
+        ))}
+      </StatusRegion>
+      <p
+        className="sr-only"
+        role="alert"
+        aria-label="Print job failures"
+        aria-atomic="true"
+      >
+        {announcements.alert.map(({ key, text }) => (
+          <span key={key}>{text} </span>
+        ))}
+      </p>
+      <StatusRegion label="Import announcements">
+        {importAnnouncement && (
+          <span key={importAnnouncement.id}>{importAnnouncement.text}</span>
+        )}
+      </StatusRegion>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>
           <SidebarToggle
@@ -294,7 +332,10 @@ export function App() {
                 focusHeading={importedDeckId === deckId}
                 onDirty={onDirty}
                 onBack={() => void navigate("decks")}
-                onJobs={() => void navigate("jobs", true)}
+                onJobs={(job) => {
+                  announceJobs([job]);
+                  void navigate("jobs", true);
+                }}
               />
             ) : route === "jobs" ? (
               <PrintJobs active={activeJobs} />
@@ -326,6 +367,59 @@ export function App() {
   );
 }
 
+type JobAnnouncement = { key: string; text: string };
+
+function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
+  const seen = useRef(new Map<string, Set<PrintJob["status"]>>());
+  const initialized = useRef(false);
+  const [announcements, setAnnouncements] = useState<
+    Record<"status" | "alert", JobAnnouncement[]>
+  >({ status: [], alert: [] });
+  const announceJobs = useCallback((snapshot: PrintJob[], initial = false) => {
+    const polite: JobAnnouncement[] = [];
+    const failures: JobAnnouncement[] = [];
+    for (const { id, status, deckName, message } of snapshot) {
+      let statuses = seen.current.get(id);
+      if (!statuses) {
+        statuses = new Set();
+        seen.current.set(id, statuses);
+      }
+      if (
+        statuses.has(status) ||
+        statuses.has("completed") ||
+        statuses.has("failed") ||
+        statuses.has("cancelled") ||
+        (status === "queued" && statuses.has("running"))
+      )
+        continue;
+      statuses.add(status);
+      if (status === "cancelled") continue;
+      const finished = status === "completed" || status === "failed";
+      if (initial && finished && statuses.size === 1) continue;
+      const phase =
+        finished && !statuses.has("running") ? `started and ${status}` : status;
+      (status === "failed" ? failures : polite).push({
+        key: `${id}:${status}`,
+        text:
+          status === "failed"
+            ? `Print job for ${deckName} ${phase}: ${message}`
+            : `Print job for ${deckName} ${phase}.`,
+      });
+    }
+    if (polite.length || failures.length)
+      setAnnouncements((previous) => ({
+        status: polite.length ? polite : previous.status,
+        alert: failures.length ? failures : previous.alert,
+      }));
+  }, []);
+  useEffect(() => {
+    if (!jobs) return;
+    announceJobs(jobs, !initialized.current);
+    initialized.current = true;
+  }, [jobs, announceJobs]);
+  return { announcements, announceJobs };
+}
+
 function PrintJobs({ active }: { active: number }) {
   const query = useQuery({
     queryKey: ["jobs"],
@@ -339,6 +433,7 @@ function PrintJobs({ active }: { active: number }) {
         : false,
   });
   const task = useTask();
+  const [saveStatus, setSaveStatus] = useState("");
   const total = query.data?.length ?? 0;
   return (
     <>
@@ -363,6 +458,9 @@ function PrintJobs({ active }: { active: number }) {
         </button>
       </PageToolbar>
       <div className="page-content">
+        <StatusRegion label="Export save status">
+          {task.error ? "" : saveStatus}
+        </StatusRegion>
         <ErrorNotice
           error={query.error ?? task.error}
           retry={() => void query.refetch()}
@@ -390,9 +488,7 @@ function PrintJobs({ active }: { active: number }) {
                     </span>
                   </div>
                   <p className="mono muted">{job.fileName}</p>
-                  <p role={job.status === "running" ? "status" : undefined}>
-                    {job.message}
-                  </p>
+                  <p>{job.message}</p>
                   {["queued", "running"].includes(job.status) && (
                     <progress
                       aria-label={`Export progress for ${job.deckName}`}
@@ -437,12 +533,20 @@ function PrintJobs({ active }: { active: number }) {
                         disabled={task.busy}
                         onClick={() =>
                           void task.run(async () => {
+                            setSaveStatus("");
                             const destination = await save({
                               defaultPath: job.fileName,
                               filters: [{ name: "PDF", extensions: ["pdf"] }],
                             });
-                            if (destination)
+                            if (destination) {
+                              setSaveStatus(
+                                `Saving export for ${job.deckName}…`,
+                              );
                               await api.savePdf(job.id, destination);
+                              setSaveStatus(
+                                `Export for ${job.deckName} saved.`,
+                              );
+                            }
                           })
                         }
                       >
@@ -511,6 +615,9 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
   });
   const busy = task.busy || download.isPending;
   const failedModelId = download.isError ? download.variables : undefined;
+  const downloadName = query.data?.models.find(
+    (model) => model.id === download.variables,
+  )?.name;
   const loaded = query.data?.loaded;
   return (
     <>
@@ -532,6 +639,13 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
           retry={() => void query.refetch()}
         />
         <section className="panel settings-card">
+          <StatusRegion label="Model download status">
+            {downloadName && download.isPending
+              ? `Downloading ${downloadName}…`
+              : downloadName && download.isSuccess
+                ? `${downloadName} downloaded.`
+                : ""}
+          </StatusRegion>
           <div className="section-heading">
             <h2 ref={modelsHeading} tabIndex={-1}>
               Local AI upscaling

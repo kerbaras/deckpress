@@ -9,7 +9,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api, type ImportResult, UrlImportError } from "./api.ts";
 import { isMpcXml } from "./core/index.ts";
 import { ImportReview, importStatus } from "./import-review.tsx";
-import { countCards, ErrorNotice, useTask } from "./ui.tsx";
+import { countCards, ErrorNotice, StatusRegion, useTask } from "./ui.tsx";
 
 type Mode = "paste" | "file" | "url";
 const modes: Mode[] = ["paste", "file", "url"];
@@ -34,19 +34,25 @@ export function ImportPanel({
   const [resolvedMode, setResolvedMode] = useState<Mode>("paste");
   const [replace, setReplace] = useState(false);
   const [saved, setSaved] = useState<number | null>(null);
+  const [lastSaveResult, setLastSaveResult] = useState<ImportResult | null>(
+    null,
+  );
   const [urlError, setUrlError] = useState<{
     message: string;
     fromRetry: boolean;
   } | null>(null);
   const [focusPaste, setFocusPaste] = useState(false);
+  const [reading, setReading] = useState(false);
   const panel = useRef<HTMLElement>(null);
   const decklist = useRef<HTMLTextAreaElement>(null);
   const urlInput = useRef<HTMLInputElement>(null);
   const retry = useRef<HTMLButtonElement>(null);
   const task = useTask();
   const save = useTask();
+  const saveError = result === lastSaveResult ? save.error : null;
   const busy = task.busy || save.busy;
   const mpc = mode !== "url" && isMpcXml(text);
+  const resolving = mpc ? "Reading MPC Autofill order…" : "Resolving cards…";
   const reset = () => {
     setResult(null);
     setSaved(null);
@@ -89,6 +95,15 @@ export function ImportPanel({
         setUrlError({ message: error.message, fromRetry: source === "retry" });
       }
     });
+  const status = reading
+    ? "Reading decklist file…"
+    : task.busy
+      ? resolving
+      : save.busy
+        ? "Saving imported cards…"
+        : task.error || saveError || urlError
+          ? ""
+          : importStatus(result, saved);
   return (
     <section ref={panel} className="panel import-panel">
       <div className="section-heading">
@@ -150,15 +165,20 @@ export function ImportPanel({
                     const file = event.target.files?.[0];
                     if (file)
                       void task.run(async () => {
-                        setFileName(null);
-                        if (/\.xml$/i.test(file.name)) {
-                          if (file.size > 512 * 1024)
-                            throw new Error("XML decklist exceeds 512 KB");
-                        } else if (file.size > 200_000)
-                          throw new Error("Decklist exceeds 200 KB");
-                        setText(await file.text());
-                        setFileName(file.name);
-                        reset();
+                        setReading(true);
+                        try {
+                          setFileName(null);
+                          if (/\.xml$/i.test(file.name)) {
+                            if (file.size > 512 * 1024)
+                              throw new Error("XML decklist exceeds 512 KB");
+                          } else if (file.size > 200_000)
+                            throw new Error("Decklist exceeds 200 KB");
+                          setText(await file.text());
+                          setFileName(file.name);
+                          reset();
+                        } finally {
+                          setReading(false);
+                        }
                       });
                     event.target.value = "";
                   }}
@@ -203,9 +223,9 @@ export function ImportPanel({
           onClick={() => resolve("resolve")}
         >
           {task.busy
-            ? mpc
-              ? "Reading MPC Autofill order…"
-              : "Resolving cards…"
+            ? reading
+              ? "Reading decklist file…"
+              : resolving
             : mpc
               ? "Read MPC Autofill order"
               : "Resolve on Scryfall"}
@@ -251,23 +271,24 @@ export function ImportPanel({
           showLines={resolvedMode !== "url"}
           saving={save.busy}
           saved={saved}
-          saveError={save.error}
+          saveError={saveError}
           onSave={() => {
             if (beforeApply && !beforeApply()) return;
             void save.run(async () => {
+              setLastSaveResult(result);
               await onApply(result, replace);
               setSaved(countCards(result.entries));
             });
           }}
         />
       )}
-      <p className="import-status text-meta text-muted" role="status">
-        {saved === null && result ? (
-          <span className="sr-only">{importStatus(result, saved)}</span>
+      <StatusRegion className="import-status text-meta text-muted">
+        {status && (busy || saved === null) ? (
+          <span className="sr-only">{status}</span>
         ) : (
-          importStatus(result, saved)
+          status
         )}
-      </p>
+      </StatusRegion>
     </section>
   );
 }

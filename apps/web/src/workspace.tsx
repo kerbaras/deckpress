@@ -23,6 +23,7 @@ import {
   frontArt,
   mergeImport,
   mpcXmlFormat,
+  type PrintJob,
   zones,
 } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
@@ -37,6 +38,7 @@ import {
   ManaPips,
   Modal,
   SearchField,
+  StatusRegion,
   useTask,
   zoneNames,
 } from "./ui.tsx";
@@ -52,7 +54,7 @@ export function Workspace({
   focusHeading: boolean;
   onBack: () => void;
   onDirty: (dirty: boolean) => void;
-  onJobs: () => void;
+  onJobs: (job: PrintJob) => void;
 }) {
   const query = useQuery({
     queryKey: ["deck", id],
@@ -118,7 +120,7 @@ function DeckWorkspace({
   focusHeading: boolean;
   onBack: () => void;
   onDirty: (dirty: boolean) => void;
-  onJobs: () => void;
+  onJobs: (job: PrintJob) => void;
 }) {
   const client = useQueryClient();
   const [deck, setDeck] = useState(initial);
@@ -126,9 +128,17 @@ function DeckWorkspace({
   const [view, setView] = useState<"edit" | "art" | "print">("edit");
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
+  const [mpcExportStatus, setMpcExportStatus] = useState("");
   const task = useTask();
   const heading = useRef<HTMLHeadingElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
+  const exportMpc = async () => {
+    const exported = await task.run(() => {
+      setMpcExportStatus("Preparing MPC Autofill XML…");
+      return downloadMpcXml(deck);
+    });
+    setMpcExportStatus(exported ? "MPC Autofill XML saved." : "");
+  };
   const saving = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   useEffect(() => {
@@ -261,7 +271,7 @@ function DeckWorkspace({
           aria-label="Export MPC Autofill XML"
           title="Export MPC Autofill XML"
           disabled={task.busy || !deck.entries.length}
-          onClick={() => void task.run(() => downloadMpcXml(deck))}
+          onClick={() => void exportMpc()}
         >
           <FileCode size={16} />
         </button>
@@ -276,6 +286,9 @@ function DeckWorkspace({
           <SlidersHorizontal size={16} />
         </button>
       </PageToolbar>
+      <StatusRegion label="MPC Autofill XML export status">
+        {mpcExportStatus}
+      </StatusRegion>
       <ErrorNotice error={task.error} />
       {view === "edit" && (
         <div className="editor-layout">
