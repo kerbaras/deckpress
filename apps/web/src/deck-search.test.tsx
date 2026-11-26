@@ -174,6 +174,18 @@ it("announces even an immediate preview response after exposing the empty dialog
     expect(getStatus()).toBe(status);
     expect(status).toBeEmptyDOMElement();
     expect(screen.getByText("Proliferate everything.")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Preview Atraxa Superfriends" }),
+    );
+    expect(screen.getByText("Proliferate everything.")).toBeVisible();
+    expect(screen.queryByText("Loading decklist…")).not.toBeInTheDocument();
+    expect(getStatus()).toBeEmptyDOMElement();
+    await act(() => vi.advanceTimersByTimeAsync(60));
+    expect(detail).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Loading decklist…")).not.toBeInTheDocument();
+    expect(getStatus()).toBeEmptyDOMElement();
   } finally {
     vi.useRealTimers();
   }
