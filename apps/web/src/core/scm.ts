@@ -234,26 +234,3 @@ export function createScmLayout(settings: PrintSettings): PrintLayout {
     },
   };
 }
-
-export function scmDuplexSlot(
-  slot: Slot,
-  layout: PrintLayout,
-  settings: PrintSettings,
-): Slot {
-  const first = layout.slots[0] ?? slot;
-  const last = layout.slots.at(-1) ?? slot;
-  const portrait = layout.height >= layout.width;
-  const transform = (rect: Rect, first: Rect, last: Rect): Rect => ({
-    ...rect,
-    x:
-      (portrait ? first.x + last.x - rect.x : rect.x) +
-      mmToPt(settings.backOffsetXmm),
-    y:
-      (portrait ? rect.y : first.y + last.y - rect.y) +
-      mmToPt(settings.backOffsetYmm),
-  });
-  return {
-    ...transform(slot, first, last),
-    trim: transform(slot.trim, first.trim, last.trim),
-  };
-}

@@ -49,8 +49,11 @@ impl PrintSettings {
         range("Guide width", self.guide_width_pt, 0.1, 2.0)?;
         range("DPI", f64::from(self.dpi), 150.0, 1200.0)?;
         range("JPEG quality", f64::from(self.quality), 60.0, 100.0)?;
-        range("Back offset X", self.back_offset_xmm, -10.0, 10.0)?;
-        range("Back offset Y", self.back_offset_ymm, -10.0, 10.0)?;
+        validate_duplex_adjustment(
+            self.back_offset_xmm,
+            self.back_offset_ymm,
+            self.back_rotation_deg,
+        )?;
         range("First page", f64::from(self.page_from), 1.0, 1000.0)?;
         range("Last page", f64::from(self.page_to), 0.0, 1000.0)?;
         hex_color("Bleed color", &self.bleed_color)?;
@@ -60,6 +63,12 @@ impl PrintSettings {
         }
         Ok(())
     }
+}
+
+pub(crate) fn validate_duplex_adjustment(x: f64, y: f64, rotation: f64) -> AppResult<()> {
+    range("Back offset X", x, -10.0, 10.0)?;
+    range("Back offset Y", y, -10.0, 10.0)?;
+    range("Back rotation", rotation, -180.0, 180.0)
 }
 
 pub fn validate_entries(entries: &[DeckEntry]) -> AppResult<()> {

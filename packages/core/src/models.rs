@@ -256,11 +256,28 @@ pub struct PrintSettings {
     pub backs: Backs,
     pub back_offset_xmm: f64,
     pub back_offset_ymm: f64,
+    pub back_rotation_deg: f64,
     pub include_sideboard: bool,
     pub include_maybeboard: bool,
     pub skip_basics: bool,
     pub page_from: u32,
     pub page_to: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrinterProfileInput {
+    pub name: String,
+    pub back_offset_xmm: f64,
+    pub back_offset_ymm: f64,
+    pub back_rotation_deg: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PrinterProfile {
+    pub id: String,
+    #[serde(flatten)]
+    pub input: PrinterProfileInput,
 }
 
 impl Default for PrintSettings {
@@ -294,6 +311,7 @@ impl Default for PrintSettings {
             backs: Backs::None,
             back_offset_xmm: 0.0,
             back_offset_ymm: 0.0,
+            back_rotation_deg: 0.0,
             include_sideboard: false,
             include_maybeboard: false,
             skip_basics: false,

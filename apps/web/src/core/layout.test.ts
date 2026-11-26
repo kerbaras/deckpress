@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import labelNumbers from "../../../../packages/core/tests/fixtures/sheet-label-numbers.json";
 import {
   createLayout,
+  duplexRotation,
   duplexSlot,
   fitSheetLabel,
   mmToPt,
@@ -174,4 +175,24 @@ describe("print geometry", () => {
       );
     }
   });
+
+  it.each(["free", "scm"] as const)(
+    "rotates %s back geometry about the paper centre, independent of XY offsets",
+    (layoutMode) => {
+      const settings = printSettingsSchema.parse({
+        layoutMode,
+        backs: "long-edge",
+        backRotationDeg: -2.75,
+        backOffsetXmm: 1.5,
+        backOffsetYmm: -1,
+      });
+      const layout = createLayout(settings);
+      expect(duplexRotation(layout, settings)).toBe(
+        `rotate(-2.75 ${layout.width / 2} ${layout.height / 2})`,
+      );
+      expect(
+        duplexRotation(layout, printSettingsSchema.parse({})),
+      ).toBeUndefined();
+    },
+  );
 });
