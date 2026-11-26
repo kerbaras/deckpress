@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type CropPreview, type ModelStatus } from "./api.ts";
 import { type DeckEntry, frontArt, type PrintSettings } from "./core/index.ts";
-import { ErrorNotice } from "./ui.tsx";
+import { ErrorNotice, StatusRegion } from "./ui.tsx";
 import "./upscale-comparison.css";
 
 function modelLabel(model: ModelStatus) {
@@ -38,6 +38,7 @@ export function UpscaleComparison({
     null,
   );
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [cancelledKey, setCancelledKey] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ key: string; error: unknown }>();
   const [entryId, setEntryId] = useState("");
   const [result, setResult] = useState<{
@@ -56,6 +57,7 @@ export function UpscaleComparison({
   ]);
   const previews = result?.key === sourceKey ? result.previews : null;
   const busy = busyKey === sourceKey;
+  const cancelled = cancelledKey === sourceKey;
   const methods = [
     { id: null, label: "Lanczos", installed: true },
     ...models.map((model) => ({
@@ -77,6 +79,7 @@ export function UpscaleComparison({
   };
   const compare = async () => {
     if (!art) return;
+    setCancelledKey(null);
     active.current?.controller.abort();
     const controller = new AbortController();
     const request = { key: sourceKey, controller };
@@ -114,6 +117,7 @@ export function UpscaleComparison({
                 value={selected?.id}
                 onChange={(event) => {
                   cancel();
+                  setCancelledKey(null);
                   setEntryId(event.target.value);
                 }}
               >
@@ -129,7 +133,13 @@ export function UpscaleComparison({
               {busy ? "Restart render" : "Render text crops"}
             </button>
             {busy && (
-              <button type="button" onClick={cancel}>
+              <button
+                type="button"
+                onClick={() => {
+                  cancel();
+                  setCancelledKey(sourceKey);
+                }}
+              >
                 Cancel render
               </button>
             )}
@@ -138,11 +148,16 @@ export function UpscaleComparison({
             1:1 crops at native 4× output. Times exclude model loading. Results
             sample the lower part of the scan, not the final print DPI.
           </p>
-          {busy && (
-            <p role="status" className="hint">
-              Rendering installed models on this device…
-            </p>
-          )}
+          <StatusRegion
+            label="Upscale comparison status"
+            className={busy || cancelled ? "hint" : "sr-only"}
+          >
+            {busy
+              ? "Rendering installed models on this device…"
+              : cancelled
+                ? "Comparison cancelled"
+                : null}
+          </StatusRegion>
           <ErrorNotice
             error={failure?.key === sourceKey ? failure.error : null}
             retry={() => void compare()}

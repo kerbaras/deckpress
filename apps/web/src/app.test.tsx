@@ -544,7 +544,13 @@ it("cancels comparison requests on cancel, restart and navigation out of print s
   await waitFor(() => expect(started).toHaveLength(1));
   await user.click(screen.getByRole("button", { name: "Cancel render" }));
   await waitFor(() => expect(cancelled).toEqual(started));
+  const comparisonStatus = screen.getByRole("status", {
+    name: "Upscale comparison status",
+  });
+  expect(comparisonStatus).toHaveTextContent("Comparison cancelled");
+  expect(comparisonStatus).toBeVisible();
   await renderCrops();
+  expect(comparisonStatus).not.toHaveTextContent("Comparison cancelled");
   await waitFor(() => expect(started).toHaveLength(2));
   await user.click(screen.getByRole("button", { name: "Restart render" }));
   await waitFor(() => expect(started).toHaveLength(3));
