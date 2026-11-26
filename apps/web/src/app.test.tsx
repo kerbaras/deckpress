@@ -1388,9 +1388,11 @@ it("opens Settings Models from the missing-model link using the keyboard", async
   });
   expect(link).toHaveFocus();
   await user.keyboard("{Enter}");
-  expect(
-    await screen.findByRole("heading", { name: "Local AI upscaling" }),
-  ).toHaveFocus();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("heading", { name: "Local AI upscaling" }),
+    ).toHaveFocus(),
+  );
   expect(window.location.hash).toBe("#/settings/models");
 });
 
