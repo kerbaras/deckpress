@@ -177,8 +177,9 @@ pub fn create_deck(state: State<'_, AppState>, deck: NewDeck) -> AppResult<Deck>
 }
 
 #[tauri::command]
-pub fn save_deck(state: State<'_, AppState>, deck: Deck) -> AppResult<Deck> {
-    state.store.update_deck(deck)
+pub async fn save_deck(state: State<'_, AppState>, deck: Deck) -> AppResult<Deck> {
+    let store = Arc::clone(&state.store);
+    tokio::task::spawn_blocking(move || store.update_deck(deck)).await?
 }
 
 #[tauri::command]
