@@ -1,5 +1,8 @@
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::Duration;
 
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::models::{PrintSettings, Provider};
@@ -217,6 +220,64 @@ fn comparison_cancels_during_inference_without_loading_later_models() {
     assert!(matches!(result, Err(AppError::Cancelled)));
 }
 
+#[test]
+fn cancelled_cold_load_leaves_the_model_unloaded_and_allows_retry() {
+    let temp = tempfile::tempdir().unwrap();
+    let manager = ModelManager::new(bundled_resources(), temp.path()).unwrap();
+    let id = default_model_id();
+    let cancel = CancelToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        manager.upscaler_cancellable(&id, &cancel),
+        Err(AppError::Cancelled)
+    ));
+    assert!(manager.loaded_info().is_none());
+    assert_eq!(manager.upscaler(&id).unwrap().info().model_id, id);
+}
+
+thread_local! {
+    static CANCEL_ON_LOAD: Cell<Option<CancelToken>> = const { Cell::new(None) };
+}
+
+struct CancelOnLoad;
+
+impl log::Log for CancelOnLoad {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.target() == "deckpress_core::upscaler::ort_backend"
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata())
+            && record
+                .args()
+                .to_string()
+                .starts_with("Loading ONNX session")
+        {
+            if let Some(cancel) = CANCEL_ON_LOAD.take() {
+                cancel.cancel();
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+#[test]
+fn cancelling_when_onnx_session_creation_starts_returns_cancelled() {
+    log::set_logger(&CancelOnLoad).unwrap();
+    log::set_max_level(log::LevelFilter::Debug);
+    let temp = tempfile::tempdir().unwrap();
+    let manager = ModelManager::new(bundled_resources(), temp.path()).unwrap();
+    let cancel = CancelToken::default();
+    CANCEL_ON_LOAD.set(Some(cancel.clone()));
+
+    let result = manager.upscaler_cancellable(&default_model_id(), &cancel);
+
+    assert!(cancel.is_cancelled());
+    assert!(matches!(result, Err(AppError::Cancelled)));
+    assert!(manager.loaded_info().is_none());
+}
+
 /// Nearest-neighbour 2x "model" with a batch of 2, used to validate tiling.
 struct Nearest;
 
@@ -254,6 +315,39 @@ impl TileModel for Nearest {
         }
         Ok(out)
     }
+}
+
+#[test]
+fn cancelling_a_waiter_does_not_require_the_running_model_to_unlock() {
+    let upscaler = TiledUpscaler::new(Nearest, 0);
+    let image = RgbImage::new(16, 16);
+    let cancel = CancelToken::default();
+    let (locked, lock_held) = mpsc::channel();
+    let (release, wait_for_release) = mpsc::channel();
+    let (done, result) = mpsc::channel();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let mut wait_for_release = Some(wait_for_release);
+            upscaler
+                .upscale(&image, &CancelToken::default(), &mut |_, _| {
+                    if let Some(wait) = wait_for_release.take() {
+                        locked.send(()).unwrap();
+                        wait.recv().unwrap();
+                    }
+                })
+                .unwrap();
+        });
+        lock_held.recv_timeout(Duration::from_secs(2)).unwrap();
+        scope.spawn(|| {
+            done.send(upscaler.upscale(&image, &cancel, &mut |_, _| {}))
+                .unwrap();
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        cancel.cancel();
+        let cancelled = result.recv_timeout(Duration::from_millis(900));
+        release.send(()).unwrap();
+        assert!(matches!(cancelled, Ok(Err(AppError::Cancelled))));
+    });
 }
 
 #[test]

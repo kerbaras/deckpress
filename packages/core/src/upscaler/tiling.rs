@@ -1,6 +1,7 @@
 //! Static tiles with reflect padding, overlap and feathered blending.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, TryLockError};
+use std::time::Duration;
 
 use image::RgbImage;
 
@@ -111,10 +112,17 @@ impl<M: TileModel> Upscaler for TiledUpscaler<M> {
         let tile_len = (tile * tile * 3) as usize;
         let out_len = out_tile * out_tile * 3;
 
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|_| AppError::user("Upscaler is unavailable"))?;
+        let mut model = loop {
+            cancel.check()?;
+            match self.model.try_lock() {
+                Ok(model) => break model,
+                Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(10)),
+                Err(TryLockError::Poisoned(_)) => {
+                    return Err(AppError::user("Upscaler is unavailable"))
+                }
+            }
+        };
+        cancel.check()?;
         let mut done = 0;
         progress(0, total);
         for chunk in coords.chunks(self.batch) {

@@ -3,8 +3,9 @@
 //! otherwise CPU) and reads the static tile shape from the model itself.
 
 use std::path::Path;
-use std::sync::{Arc, Once};
+use std::sync::{Arc, OnceLock};
 
+use ort::environment::Environment;
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::{RunOptions, Session};
@@ -14,12 +15,13 @@ use super::manifest::ModelSpec;
 use super::{CancelToken, TileModel, UpscalerInfo};
 use crate::error::{AppError, AppResult};
 
-static INIT: Once = Once::new();
+static ENVIRONMENT: OnceLock<Result<Environment, ort::Error>> = OnceLock::new();
 
-fn init_runtime() {
-    INIT.call_once(|| {
-        ort::init().with_name("deckpress").commit();
-    });
+fn runtime() -> AppResult<&'static Environment> {
+    ENVIRONMENT
+        .get_or_init(|| ort::init().with_name("deckpress").build())
+        .as_ref()
+        .map_err(|error| AppError::internal(format!("ONNX Runtime: {error}")))
 }
 
 struct Candidate {
@@ -66,19 +68,41 @@ fn candidates(cache_dir: &Path) -> Vec<Candidate> {
 /// Opens `path` with the first execution provider that accepts the model and
 /// returns the session with the provider's name.
 pub fn load_session(id: &str, path: &Path, cache_dir: &Path) -> AppResult<(Session, &'static str)> {
-    init_runtime();
+    load_session_cancellable(id, path, cache_dir, &CancelToken::default())
+}
+
+fn load_session_cancellable(
+    id: &str,
+    path: &Path,
+    cache_dir: &Path,
+    cancel: &CancelToken,
+) -> AppResult<(Session, &'static str)> {
+    cancel.check()?;
+    let environment = runtime()?;
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
     let mut last_error = None;
     for candidate in candidates(cache_dir) {
+        cancel.check()?;
         let built = (|| -> AppResult<Session> {
-            Ok(Session::builder()?
+            let mut builder = Session::builder(environment)?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_intra_threads(threads)?
-                .with_execution_providers([candidate.dispatch])?
-                .commit_from_file(path)?)
+                .with_execution_providers([candidate.dispatch])?;
+            let canceler = builder.canceler();
+            let _hook = cancel.on_cancel(move || {
+                if let Err(error) = canceler.cancel() {
+                    log::warn!("Failed to interrupt ONNX session load: {error}");
+                }
+            })?;
+            log::debug!("Loading ONNX session for {id}");
+            Ok(builder.commit_from_file(path)?)
         })();
+        if cancel.is_cancelled() {
+            log::debug!("Cancelled ONNX session load for {id}");
+            return Err(AppError::Cancelled);
+        }
         match built {
             Ok(session) => {
                 log::info!("Loaded {id} with the {} execution provider", candidate.name);
@@ -122,7 +146,16 @@ pub struct OrtModel {
 
 impl OrtModel {
     pub fn load(spec: &ModelSpec, path: &Path, cache_dir: &Path) -> AppResult<Self> {
-        let (session, provider) = load_session(&spec.id, path, cache_dir)?;
+        Self::load_cancellable(spec, path, cache_dir, &CancelToken::default())
+    }
+
+    pub(super) fn load_cancellable(
+        spec: &ModelSpec,
+        path: &Path,
+        cache_dir: &Path,
+        cancel: &CancelToken,
+    ) -> AppResult<Self> {
+        let (session, provider) = load_session_cancellable(&spec.id, path, cache_dir, cancel)?;
         Self::from_session(session, spec, provider)
     }
 

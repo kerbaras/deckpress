@@ -21,7 +21,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 fast_image_resize = { version = "6", features = ["image", "rayon"] }
 krilla = { version = "0.8", default-features = false, features = ["raster-images", "simple-text"] }
 lopdf = { version = "0.42", default-features = false }
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "tls-rustls", "copy-dylibs"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-rustls", "copy-dylibs", "api-22"] }
 ndarray = "0.17"
 sha2 = "0.11"
 hex = "0.4"
@@ -32,10 +32,10 @@ futures-util = { version = "0.3", default-features = false }
 log = "0.4"
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["coreml"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["directml"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["directml"] }
 
 [features]
 default = []

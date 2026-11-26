@@ -1,7 +1,9 @@
 mod common;
 
 use std::{io::Cursor, sync::Arc};
+use std::{net::TcpListener, process::Command, time::Duration};
 
+use deckpress_core::error::AppError;
 use deckpress_core::images::{
     mime_for, upload_id, validate_image_url, Images, UploadInput, UPLOAD_SCHEME,
 };
@@ -11,6 +13,70 @@ use deckpress_core::pdf::{build_pdf, PdfServices};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::CancelToken;
 use image::{ImageFormat, Rgb, RgbImage};
+
+#[test]
+fn cancelling_a_scan_fetch_releases_its_cache_entry() {
+    if std::env::var_os("DECKPRESS_PROXY_TEST").is_some() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(cancelled_scan_fetch_proxy_client());
+        return;
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (connected, connections) = std::sync::mpsc::channel();
+    let (done, finished) = std::sync::mpsc::channel();
+    let address = listener.local_addr().unwrap();
+    let proxy = std::thread::spawn(move || {
+        let _connections: Vec<_> = listener
+            .incoming()
+            .take(2)
+            .map(|client| {
+                let client = client.unwrap();
+                connected.send(()).unwrap();
+                client
+            })
+            .collect();
+        let _ = finished.recv();
+    });
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "cancelling_a_scan_fetch_releases_its_cache_entry",
+        ])
+        .env("HTTPS_PROXY", format!("http://{address}"))
+        .env("NO_PROXY", "")
+        .env("DECKPRESS_PROXY_TEST", "1")
+        .spawn()
+        .unwrap();
+    let status = child.wait().unwrap();
+    done.send(()).unwrap();
+    assert!(status.success());
+    assert_eq!(connections.try_iter().count(), 2);
+    proxy.join().unwrap();
+}
+
+async fn cancelled_scan_fetch_proxy_client() {
+    let dir = tempfile::tempdir().unwrap();
+    let images = Images::new(dir.path(), Arc::new(Store::in_memory().unwrap())).unwrap();
+    let url = "https://cards.scryfall.io/scan.png";
+    for _ in 0..2 {
+        let cancel = CancelToken::default();
+        let (result, _) = tokio::join!(
+            tokio::time::timeout(
+                Duration::from_millis(900),
+                images.read_cancellable(url, &cancel)
+            ),
+            async {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                cancel.cancel();
+            },
+        );
+        assert!(matches!(result, Ok(Err(AppError::Cancelled))));
+        assert!(!images.local_path(url).unwrap().exists());
+    }
+}
 
 #[test]
 fn only_allows_known_https_image_hosts() {
