@@ -59,13 +59,38 @@ export function saveScope(
   return `Add saves these ${plural(total)} to this deck.`;
 }
 
+export function importLanguageSummary({
+  entries,
+  missingPrints,
+}: Pick<ImportResult, "entries" | "missingPrints">) {
+  const skipped = missingPrints?.length ?? 0;
+  const fallbacks = countCards(
+    entries.filter((entry) => isEnglishFallback(entry)),
+  );
+  return [
+    skipped > 0
+      ? `No usable scan for ${skipped} ${skipped === 1 ? "printing" : "printings"}.`
+      : "",
+    fallbacks > 0
+      ? `${plural(fallbacks)} ${fallbacks === 1 ? "uses" : "use"} English fallback.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 /** Live-region text announcing a resolve result. */
 export function resolveSummary(result: ImportResult) {
   const issues = result.issues.length;
   const review = issues
     ? `${issues} ${issues === 1 ? "line needs" : "lines need"} review.`
     : "No lines need review.";
-  return `${plural(countCards(result.entries))} resolved. ${review}`;
+  return [
+    `${plural(countCards(result.entries))} resolved. ${review}`,
+    importLanguageSummary(result),
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Live-region text for the latest import step. */

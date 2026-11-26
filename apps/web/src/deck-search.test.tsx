@@ -119,7 +119,17 @@ it("searches after typing, previews the list, and imports only after showing unr
   });
   vi.spyOn(api, "importExternalDeck").mockResolvedValue({
     entries: [],
-    issues: [{ line: 4, input: "1 Not A Card", message: "Card not found" }],
+    issues: [
+      { line: 4, input: "1 Not A Card", message: "Card not found" },
+      {
+        line: 5,
+        input: "1 Black Lotus",
+        kind: "noUsableScan",
+        message: "No usable scan found in es.",
+        printLookup: { set: "lea", collectorNumber: "232", languages: ["es"] },
+      },
+    ],
+    missingPrints: [{ input: "1 Black Lotus", languages: ["es"] }],
   });
   const create = vi.spyOn(api, "createDeck");
   const open = vi.fn();
@@ -159,11 +169,16 @@ it("searches after typing, previews the list, and imports only after showing unr
   const dialog = await screen.findByRole("dialog");
   expect(await within(dialog).findByText("Sol Ring")).toBeVisible();
   expect(within(dialog).getByText("Maybeboard")).toBeVisible();
+  const languageStatus = within(dialog).getByRole("status", {
+    name: "Deck import language status",
+  });
+  expect(languageStatus).toBeEmptyDOMElement();
   await user.click(
     within(dialog).getByRole("button", { name: "Import as new deck" }),
   );
-  expect(await within(dialog).findByText("1 line needs review")).toBeVisible();
+  expect(await within(dialog).findByText("2 lines need review")).toBeVisible();
   expect(within(dialog).getByText("1 Not A Card")).toBeVisible();
+  expect(languageStatus).toHaveTextContent("No usable scan for 1 printing.");
   expect(create).not.toHaveBeenCalled();
   expect(
     within(dialog).getByRole("button", { name: "Import 0 resolved cards" }),

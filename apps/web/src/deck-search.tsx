@@ -13,7 +13,7 @@ import {
   searchFields,
 } from "./api.ts";
 import { type Deck, formats, type ImportLine } from "./core/index.ts";
-import { ImportIssueDetails } from "./import-review.tsx";
+import { ImportIssueDetails, importLanguageSummary } from "./import-review.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
   CardImage,
@@ -25,6 +25,7 @@ import {
   Modal,
   prettyDate,
   SearchField,
+  StatusRegion,
   useTask,
 } from "./ui.tsx";
 
@@ -381,6 +382,9 @@ function DeckPreview({
   return (
     <Modal title={summary.name} onClose={onClose} busy={task.busy}>
       <div className="discover-preview">
+        <StatusRegion label="Deck import language status">
+          {resolved ? importLanguageSummary(resolved) : ""}
+        </StatusRegion>
         <p className="discover-meta">
           <span className="deck-format">{summary.format}</span>
           <ManaPips colors={summary.colorIdentity} />

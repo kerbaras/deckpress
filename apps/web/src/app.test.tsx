@@ -1467,6 +1467,13 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
   expect(skipped.getByText("No usable Spanish scan.")).toBeVisible();
   expect(skipped.getByText("Looked up: LEA #84 (es)")).toBeVisible();
   expect(screen.getByText("Line 2")).toBeVisible();
+  const languageSummary =
+    "No usable scan for 1 printing. 4 cards use English fallback.";
+  const announcement = screen.getByText(new RegExp(languageSummary));
+  expect(announcement.closest('[role="status"]')).toHaveAttribute(
+    "aria-atomic",
+    "true",
+  );
   expect(
     within(screen.getByRole("list", { name: "English fallbacks" })).getByText(
       "Black Lotus — LEA #232 (es → en)",
