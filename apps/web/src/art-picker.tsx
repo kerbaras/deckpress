@@ -32,6 +32,7 @@ import {
   Modal,
   providerName,
   SearchField,
+  StatusRegion,
   useTask,
 } from "./ui.tsx";
 
@@ -43,6 +44,8 @@ export function ArtPicker(props: {
 }) {
   const { entry, onSelect } = props;
   const [activeFace, setActiveFace] = useState({ entryId: entry.id, face: 0 });
+  const [matchCount, setMatchCount] = useState<number | null>(null);
+  const [applied, setApplied] = useState({ sequence: 0, printing: "" });
   const face = activeFace.entryId === entry.id ? activeFace.face : 0;
   const heading = useRef<HTMLHeadingElement>(null);
   const previousEntry = useRef(entry.id);
@@ -53,21 +56,38 @@ export function ArtPicker(props: {
     }
   }, [entry.id]);
   return (
-    <ArtSession
-      key={`${entry.id}:${face}`}
-      {...props}
-      face={face}
-      setFace={(nextFace) =>
-        setActiveFace({ entryId: entry.id, face: nextFace })
-      }
-      onSelect={(id) => {
-        setActiveFace({ entryId: id, face: 0 });
-        onSelect(id);
-      }}
-      heading={heading}
-    />
+    <>
+      <StatusRegion label="Art match count">
+        {matchCount !== null && matchSummary(matchCount)}
+      </StatusRegion>
+      <StatusRegion label="Art apply status">
+        {applied.sequence > 0 && (
+          <span key={applied.sequence}>Applied: {applied.printing}</span>
+        )}
+      </StatusRegion>
+      <ArtSession
+        key={`${entry.id}:${face}`}
+        {...props}
+        face={face}
+        setFace={(nextFace) =>
+          setActiveFace({ entryId: entry.id, face: nextFace })
+        }
+        onSelect={(id, nextFace = 0) => {
+          setActiveFace({ entryId: id, face: nextFace });
+          onSelect(id);
+        }}
+        heading={heading}
+        onMatchCount={setMatchCount}
+        onApplied={(printing) =>
+          setApplied(({ sequence }) => ({ sequence: sequence + 1, printing }))
+        }
+      />
+    </>
   );
 }
+
+const matchSummary = (count: number) =>
+  `${count} ${count === 1 ? "match" : "matches"} in loaded results`;
 
 const normalizeTag = (tag: string) =>
   tag
@@ -139,18 +159,23 @@ function ArtSession({
   face,
   setFace,
   heading,
+  onMatchCount,
+  onApplied,
 }: {
   deck: Deck;
   entry: DeckEntry;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, face?: number) => void;
   onApply: (deck: Deck) => Promise<Deck>;
   face: number;
   setFace: (face: number) => void;
   heading: React.Ref<HTMLHeadingElement>;
+  onMatchCount: (count: number) => void;
+  onApplied: (printing: string) => void;
 }) {
   const client = useQueryClient();
   const original = entry.card.faces[face] ?? null;
-  const saved = face === 0 ? frontArt(entry) : backArt(entry);
+  const savedArt = face === 0 ? frontArt : backArt;
+  const saved = savedArt(entry);
   const [candidate, setCandidate] = useState<Art | null>(saved);
   const changed = candidate?.id !== saved?.id;
   const originalIsSaved = original?.id === saved?.id;
@@ -276,21 +301,39 @@ function ArtSession({
         face === 0
           ? { selectedArt: candidate?.id === original?.id ? null : candidate }
           : { selectedBack: candidate?.id === original?.id ? null : candidate };
+      const splitId =
+        scope === "one" && entry.quantity > 1 ? crypto.randomUUID() : null;
       const entries = deck.entries.flatMap((item) => {
         if (
           item.id !== entry.id &&
           !(scope === "deck" && item.card.oracleId === entry.card.oracleId)
         )
           return [item];
-        if (scope === "one" && item.quantity > 1)
+        if (splitId)
           return [
             { ...item, quantity: item.quantity - 1 },
-            { ...item, ...selected, quantity: 1, id: crypto.randomUUID() },
+            { ...item, ...selected, quantity: 1, id: splitId },
           ];
         return [{ ...item, ...selected }];
       });
-      await onApply({ ...deck, entries });
+      const committed = await onApply({ ...deck, entries });
+      const appliedEntry = committed.entries.find(
+        (item) => item.id === (splitId ?? entry.id),
+      );
+      if (appliedEntry) {
+        const appliedArt = savedArt(appliedEntry);
+        setCandidate(appliedArt);
+        if (appliedArt?.id !== saved?.id)
+          onApplied(
+            appliedArt
+              ? [appliedArt.source, appliedArt.collectorNumber]
+                  .filter(Boolean)
+                  .join(" ")
+              : "Playtest card back",
+          );
+      }
       if (next && nextEntry) onSelect(nextEntry.id);
+      else if (splitId && appliedEntry) onSelect(splitId, face);
     });
   const savePreference = (change: Partial<typeof preference>) => {
     if (candidate)
@@ -301,11 +344,21 @@ function ArtSession({
   };
   const showPrints = official || provider === "all" || provider === "scryfall";
   const showCommunity = !official && (provider === "all" || provider === "mpc");
-  const loadedPrints = prints.data?.pages.reduce(
-    (count, page) => count + page.items.length,
-    0,
-  );
-  const totalPrints = prints.data?.pages[0]?.total;
+  const loadedPrints =
+    prints.data?.pages.reduce((count, page) => count + page.items.length, 0) ??
+    0;
+  const totalPrints = prints.data?.pages[0]?.total ?? 0;
+  const totalCommunity = community.data?.pages[0]?.total ?? 0;
+  const fetchingArt =
+    (showPrints && prints.isFetching) ||
+    (showCommunity && community.isFetching) ||
+    uploads.isFetching;
+  const matchCount = shown.length;
+  useEffect(() => {
+    if (fetchingArt) return;
+    const timer = window.setTimeout(() => onMatchCount(matchCount), 300);
+    return () => window.clearTimeout(timer);
+  }, [fetchingArt, matchCount, onMatchCount]);
   return (
     <div className="art-studio">
       <div className="art-studio-scroll">
@@ -376,7 +429,9 @@ function ArtSession({
               disabled={task.busy}
               onChange={(event) => setScope(event.target.value)}
             >
-              <option value="entry">All {entry.quantity} copies here</option>
+              <option value="entry">
+                {entry.quantity === 1 ? "This copy" : `All ${entryCopies} here`}
+              </option>
               {entry.quantity > 1 && <option value="one">One copy only</option>}
               {sameCard.length > 1 && (
                 <option value="deck">All {cardCount} across deck</option>
@@ -634,9 +689,8 @@ function ArtSession({
             </button>
             <div className="spacer" />
             <span className="hint">
-              {shown.length} {shown.length === 1 ? "match" : "matches"} in
-              loaded results
-              {showPrints && prints.hasNextPage && !!totalPrints && (
+              {matchSummary(matchCount)}
+              {showPrints && loadedPrints < totalPrints && (
                 <>
                   {" "}
                   · {loadedPrints} of {totalPrints} Scryfall prints loaded
@@ -676,10 +730,7 @@ function ArtSession({
                   type="button"
                   className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
                   key={art.id}
-                  aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}`}
-                  aria-description={
-                    states.length ? states.join(", ") : undefined
-                  }
+                  aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}${states.length ? ` — ${states.join(", ")}` : ""}`}
                   aria-pressed={candidate?.id === art.id}
                   onClick={() => setCandidate(art)}
                 >
@@ -751,7 +802,8 @@ function ArtSession({
                 disabled={prints.isFetching}
                 onClick={() => void prints.fetchNextPage()}
               >
-                Load more Scryfall prints · {prints.data?.pages[0]?.total} total
+                Load more Scryfall prints
+                {totalPrints > 0 && ` · ${totalPrints} total`}
               </button>
             )}
             {showCommunity && community.hasNextPage && (
@@ -760,7 +812,8 @@ function ArtSession({
                 disabled={community.isFetching}
                 onClick={() => void community.fetchNextPage()}
               >
-                Load more MPC art · {community.data?.pages[0]?.total} total
+                Load more MPC art
+                {totalCommunity > 0 && ` · ${totalCommunity} total`}
               </button>
             )}
             <span className="hint">
