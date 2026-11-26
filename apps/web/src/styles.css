@@ -858,6 +858,9 @@ pre {
   background: var(--success-bg);
   overflow-wrap: anywhere;
 }
+.print-failed-setting {
+  outline: 2px solid var(--danger-line);
+}
 .loading {
   display: flex;
   align-items: center;

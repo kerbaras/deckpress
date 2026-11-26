@@ -5,7 +5,8 @@ use std::io::{Cursor, Read};
 use deckpress_core::error::AppError;
 use deckpress_core::layout::mm_to_pixels;
 use deckpress_core::models::{
-    Art, Backs, Deck, DeckEntry, LayoutMode, PrintSettings, Provider, ScmTemplate, Zone,
+    Art, Backs, Deck, DeckEntry, LayoutMode, PrintFailureTarget, PrintSettings, Provider,
+    ScmTemplate, Zone,
 };
 use deckpress_core::png_export::{build_png_zip, face_name, PngExport};
 use deckpress_core::scm::effective_print_settings;
@@ -285,6 +286,32 @@ fn scm_exports_use_the_template_card_size_and_bleed() {
             mm_to_pixels(effective.card_height_mm + bleed, 300)
         )
     );
+}
+
+#[test]
+fn a_failed_back_raster_identifies_its_card_and_face() {
+    let result = build_png_zip(
+        &deck(),
+        &settings(Backs::LongEdge),
+        None,
+        &CancelToken::default(),
+        &mut |_, _, _| {},
+        &mut |url| {
+            Ok(if url == "insectile" {
+                Vec::new()
+            } else {
+                source(url)
+            })
+        },
+        Cursor::new(Vec::new()),
+    );
+    assert!(matches!(
+        result,
+        Err(AppError::PrintTarget {
+            target: PrintFailureTarget::Card { entry_id, back: true },
+            ..
+        }) if entry_id == "Delver of Secrets // Insectile Aberration"
+    ));
 }
 
 #[test]

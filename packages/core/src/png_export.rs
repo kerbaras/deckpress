@@ -11,7 +11,7 @@ use zip::{CompressionMethod, ZipWriter};
 
 use crate::error::{AppError, AppResult};
 use crate::format_count;
-use crate::models::{Deck, PrintSettings};
+use crate::models::{Deck, PrintFailureTarget, PrintSettings};
 use crate::pdf::{print_plan, raster_key, PrintPlan};
 use crate::raster::{encode_png_at_dpi, rasterize};
 use crate::scm;
@@ -153,7 +153,13 @@ pub fn build_png_zip<W: Read + Write + Seek>(
                     if side.back { " · back" } else { "" }
                 ),
             );
-            let source = read_source(&art.image_url)?;
+            let card_error = |error: AppError| {
+                error.at_print_target(PrintFailureTarget::Card {
+                    entry_id: entry.id.clone(),
+                    back: side.back,
+                })
+            };
+            let source = read_source(&art.image_url).map_err(card_error)?;
             let key = raster_key(&source, &art, settings, &model);
             match written.get(&key) {
                 Some(first) => zip.deep_copy_file(first, &name).map_err(zip_error)?,
@@ -174,7 +180,8 @@ pub fn build_png_zip<W: Read + Write + Seek>(
                         upscaler,
                         cancel,
                         &mut tile_progress,
-                    )?;
+                    )
+                    .map_err(card_error)?;
                     let bytes = encode_png_at_dpi(&output.image, settings.dpi)?;
                     cancel.check()?;
                     zip.start_file(name.as_str(), options).map_err(zip_error)?;

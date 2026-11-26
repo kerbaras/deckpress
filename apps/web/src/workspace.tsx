@@ -54,8 +54,13 @@ import {
   zoneNames,
 } from "./ui.tsx";
 
+type PrintSetupRequest = {
+  failure: Pick<PrintJob, "failureTarget" | "message"> | undefined;
+};
+
 export function Workspace({
   id,
+  printSetup,
   focusHeading,
   restoreMessage,
   onBack,
@@ -65,6 +70,7 @@ export function Workspace({
   onJobs,
 }: {
   id: string;
+  printSetup: PrintSetupRequest | undefined;
   focusHeading: boolean;
   restoreMessage?: string | undefined;
   onBack: (trigger: HTMLButtonElement) => void;
@@ -91,6 +97,7 @@ export function Workspace({
   return (
     <DeckWorkspace
       initial={query.data}
+      printSetup={printSetup}
       focusHeading={focusHeading}
       restoreMessage={restoreMessage}
       onBack={onBack}
@@ -149,6 +156,7 @@ function withEditedUpload(deck: Deck, upload: Art): Deck {
 
 function DeckWorkspace({
   initial,
+  printSetup,
   focusHeading,
   restoreMessage,
   onBack,
@@ -158,6 +166,7 @@ function DeckWorkspace({
   onJobs,
 }: {
   initial: Deck;
+  printSetup: PrintSetupRequest | undefined;
   focusHeading: boolean;
   restoreMessage: string | undefined;
   onBack: (trigger: HTMLButtonElement) => void;
@@ -170,7 +179,9 @@ function DeckWorkspace({
   const [deck, setDeck] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [previousServerDeck, setPreviousServerDeck] = useState(initial);
-  const [view, setView] = useState<"edit" | "art" | "print">("edit");
+  const [view, setView] = useState<"edit" | "art" | "print">(
+    printSetup ? "print" : "edit",
+  );
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
   const [mpcExportStatus, setMpcExportStatus] = useState("");
@@ -411,6 +422,7 @@ function DeckWorkspace({
       {view === "print" && (
         <PrintSetup
           deck={deck}
+          failure={printSetup?.failure}
           onChange={setDeck}
           onSave={commit}
           onJobs={onJobs}

@@ -1,5 +1,7 @@
 use serde::{Serialize, Serializer};
 
+use crate::models::PrintFailureTarget;
+
 /// User-facing error. Serialized as a plain string so the webview can show it
 /// directly; `Internal` variants keep the detail in the log only.
 #[derive(Debug, thiserror::Error)]
@@ -14,6 +16,11 @@ pub enum AppError {
     RateLimited,
     #[error("Export cancelled")]
     Cancelled,
+    #[error("{source}")]
+    PrintTarget {
+        target: PrintFailureTarget,
+        source: Box<AppError>,
+    },
     #[error("Request failed. Check the application log and try again.")]
     Internal(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
@@ -29,6 +36,16 @@ impl AppError {
 
     pub fn internal(error: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
         Self::Internal(error.into())
+    }
+
+    pub(crate) fn at_print_target(self, target: PrintFailureTarget) -> Self {
+        match self {
+            Self::Cancelled => self,
+            source => Self::PrintTarget {
+                target,
+                source: Box::new(source),
+            },
+        }
     }
 }
 
