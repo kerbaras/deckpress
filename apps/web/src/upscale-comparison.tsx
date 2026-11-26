@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { api, type CropPreview, type ModelStatus } from "./api.ts";
+import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  api,
+  type CropPosition,
+  type CropPreview,
+  comparisonThumbnailSrc,
+  type ModelStatus,
+} from "./api.ts";
 import { type DeckEntry, frontArt, type PrintSettings } from "./core/index.ts";
 import { ErrorNotice, StatusRegion } from "./ui.tsx";
 import "./upscale-comparison.css";
@@ -19,6 +25,99 @@ function modelLabel(model: ModelStatus) {
 
 function imageSrc(bytes: number[]) {
   return `data:image/png;base64,${btoa(bytes.map((byte) => String.fromCharCode(byte)).join(""))}`;
+}
+
+const defaultPosition = { x: 0.5, y: 0.78 };
+const step = 0.05;
+const arrowSteps = {
+  ArrowLeft: { x: -step, y: 0 },
+  ArrowRight: { x: step, y: 0 },
+  ArrowUp: { x: 0, y: -step },
+  ArrowDown: { x: 0, y: step },
+};
+
+const clampPosition = (value: number) => Math.max(0, Math.min(value, 1));
+
+function pointerPosition(event: PointerEvent<HTMLButtonElement>) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return null;
+  return {
+    x: clampPosition((event.clientX - rect.left) / rect.width),
+    y: clampPosition((event.clientY - rect.top) / rect.height),
+  };
+}
+
+function CropPicker({
+  src,
+  position,
+  onMove,
+}: {
+  src: string;
+  position: CropPosition;
+  onMove: (position: CropPosition) => void;
+}) {
+  const instructions = useId();
+  const pointerId = useRef<number | null>(null);
+  const [draft, setDraft] = useState<CropPosition | null>(null);
+  const marker = draft ?? position;
+  const clearDrag = () => {
+    pointerId.current = null;
+    setDraft(null);
+  };
+  return (
+    <div className="upscale-crop-picker">
+      <button
+        type="button"
+        aria-label="Crop position"
+        aria-describedby={instructions}
+        onKeyDown={(event) => {
+          const delta = arrowSteps[event.key as keyof typeof arrowSteps];
+          if (!delta) return;
+          event.preventDefault();
+          onMove({
+            x: clampPosition(position.x + delta.x),
+            y: clampPosition(position.y + delta.y),
+          });
+        }}
+        onClick={(event) => {
+          if (event.detail === 0) onMove(position);
+        }}
+        onPointerDown={(event) => {
+          if (event.button !== 0 || pointerId.current !== null) return;
+          const next = pointerPosition(event);
+          if (!next) return;
+          pointerId.current = event.pointerId;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setDraft(next);
+        }}
+        onPointerMove={(event) => {
+          if (event.pointerId === pointerId.current)
+            setDraft(pointerPosition(event));
+        }}
+        onPointerUp={(event) => {
+          if (event.pointerId !== pointerId.current) return;
+          const next = pointerPosition(event);
+          clearDrag();
+          if (next) onMove(next);
+        }}
+        onLostPointerCapture={(event) => {
+          if (event.pointerId === pointerId.current) clearDrag();
+        }}
+      >
+        <img src={src} alt="" draggable={false} />
+        <span
+          className="upscale-crop-target"
+          aria-hidden="true"
+          style={{ left: `${marker.x * 100}%`, top: `${marker.y * 100}%` }}
+        />
+      </button>
+      <p className="hint" id={instructions}>
+        Drag on the card or use the arrow keys to move the crop.{" "}
+        {Math.round(position.x * 100)}% across, {Math.round(position.y * 100)}%
+        down.
+      </p>
+    </div>
+  );
 }
 
 export function UpscaleComparison({
@@ -41,12 +140,18 @@ export function UpscaleComparison({
   const [cancelledKey, setCancelledKey] = useState<string | null>(null);
   const [failure, setFailure] = useState<{ key: string; error: unknown }>();
   const [entryId, setEntryId] = useState("");
+  const [picked, setPicked] = useState<{
+    key: string;
+    position: CropPosition;
+  }>();
   const [result, setResult] = useState<{
     key: string;
     previews: CropPreview[];
   }>();
   const selected = entries.find((entry) => entry.id === entryId) ?? entries[0];
   const art = selected ? frontArt(selected) : null;
+  const artKey = JSON.stringify([selected?.id, art]);
+  const position = picked?.key === artKey ? picked.position : defaultPosition;
   const sourceKey = JSON.stringify([
     selected?.id,
     art,
@@ -55,9 +160,14 @@ export function UpscaleComparison({
     settings.bleedColor,
     models.filter((model) => model.installed).map((model) => model.id),
   ]);
-  const previews = result?.key === sourceKey ? result.previews : null;
-  const busy = busyKey === sourceKey;
-  const cancelled = cancelledKey === sourceKey;
+  const keyAt = (position: CropPosition) =>
+    JSON.stringify([sourceKey, position]);
+  const comparisonKey = keyAt(position);
+  const isDefault =
+    position.x === defaultPosition.x && position.y === defaultPosition.y;
+  const previews = result?.key === comparisonKey ? result.previews : null;
+  const busy = busyKey === comparisonKey;
+  const cancelled = cancelledKey === comparisonKey;
   const methods = [
     { id: null, label: "Lanczos", installed: true },
     ...models.map((model) => ({
@@ -77,24 +187,26 @@ export function UpscaleComparison({
     active.current = null;
     setBusyKey(null);
   };
-  const compare = async () => {
+  const compare = async (position: CropPosition) => {
     if (!art) return;
     setCancelledKey(null);
     active.current?.controller.abort();
     const controller = new AbortController();
     const request = { key: sourceKey, controller };
     active.current = request;
-    setBusyKey(sourceKey);
+    const key = keyAt(position);
+    setBusyKey(key);
     setFailure(undefined);
     try {
       const previews = await api.compareUpscalers(
         art,
         settings,
         controller.signal,
+        position,
       );
-      if (!controller.signal.aborted) setResult({ key: sourceKey, previews });
+      if (!controller.signal.aborted) setResult({ key, previews });
     } catch (error) {
-      if (!controller.signal.aborted) setFailure({ key: sourceKey, error });
+      if (!controller.signal.aborted) setFailure({ key, error });
     } finally {
       if (active.current === request) {
         active.current = null;
@@ -118,6 +230,7 @@ export function UpscaleComparison({
                 onChange={(event) => {
                   cancel();
                   setCancelledKey(null);
+                  setPicked(undefined);
                   setEntryId(event.target.value);
                 }}
               >
@@ -129,24 +242,37 @@ export function UpscaleComparison({
                 ))}
               </select>
             </label>
-            <button type="button" onClick={() => void compare()}>
-              {busy ? "Restart render" : "Render text crops"}
+            <button type="button" onClick={() => void compare(position)}>
+              {busy
+                ? "Restart render"
+                : isDefault
+                  ? "Render text crops"
+                  : "Render crops"}
             </button>
             {busy && (
               <button
                 type="button"
                 onClick={() => {
                   cancel();
-                  setCancelledKey(sourceKey);
+                  setCancelledKey(comparisonKey);
                 }}
               >
                 Cancel render
               </button>
             )}
           </div>
+          <CropPicker
+            key={artKey}
+            src={comparisonThumbnailSrc(art, settings)}
+            position={position}
+            onMove={(position) => {
+              setPicked({ key: artKey, position });
+              void compare(position);
+            }}
+          />
           <p className="hint">
-            1:1 crops at native 4× output. Times exclude model loading. Results
-            sample the lower part of the scan, not the final print DPI.
+            1:1 crops at native 4× output, not the final print DPI. Times
+            exclude model loading.
           </p>
           <StatusRegion
             label="Upscale comparison status"
@@ -159,8 +285,8 @@ export function UpscaleComparison({
                 : null}
           </StatusRegion>
           <ErrorNotice
-            error={failure?.key === sourceKey ? failure.error : null}
-            retry={() => void compare()}
+            error={failure?.key === comparisonKey ? failure.error : null}
+            retry={() => void compare(position)}
           />
           <div className="upscale-crops">
             {methods.map(({ id, label, installed }) => {
@@ -186,7 +312,7 @@ export function UpscaleComparison({
                         src={imageSrc(crop.png)}
                         width={crop.width}
                         height={crop.height}
-                        alt={`${label} text crop`}
+                        alt={`${label} ${isDefault ? "text crop" : "crop"}`}
                       />
                     ) : !installed ? (
                       <a href="#/settings/models">Download in Settings</a>

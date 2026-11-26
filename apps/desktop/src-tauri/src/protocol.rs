@@ -5,6 +5,7 @@
 //!   `upload://` art URL.
 //! - `preview/<json {art, settings}>`: the 150 DPI print preview of one face
 //!   (no upscaling), rendered with the same pipeline as the export.
+//! - `comparison-thumbnail/<json {art, settings}>`: the trimmed comparison face.
 
 use std::sync::Arc;
 
@@ -19,7 +20,7 @@ use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::{mime_for, Images};
 use deckpress_core::models::{Art, PrintSettings};
 use deckpress_core::raster::{encode_jpeg, rasterize, PIPELINE_VERSION};
-use deckpress_core::upscaler::CancelToken;
+use deckpress_core::upscaler::{preview as upscale_preview, CancelToken};
 
 pub const IMAGE_SCHEME: &str = "dpimg";
 pub const PREVIEW_DPI: u32 = 150;
@@ -138,6 +139,7 @@ async fn serve(state: Arc<Served>, path: String, origin: Option<String>) -> Resp
     let result = match kind {
         "image" => state.images.read(payload).await,
         "preview" => preview(&state.images, &state.preview_dir, payload).await,
+        "comparison-thumbnail" => comparison_thumbnail(&state.images, payload).await,
         _ => Err(AppError::not_found("Not found")),
     };
     match result {
@@ -159,6 +161,16 @@ async fn serve(state: Arc<Served>, path: String, origin: Option<String>) -> Resp
             respond(status, "text/plain", error.to_string().into_bytes(), origin)
         }
     }
+}
+
+async fn comparison_thumbnail(images: &Images, payload: &str) -> AppResult<Vec<u8>> {
+    let request: PreviewRequest =
+        serde_json::from_str(payload).map_err(|_| AppError::user("Invalid thumbnail request"))?;
+    let source = images.read(&request.art.image_url).await?;
+    tokio::task::spawn_blocking(move || {
+        upscale_preview::thumbnail(&source, &request.art, &request.settings)
+    })
+    .await?
 }
 
 struct Served {

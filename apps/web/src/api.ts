@@ -325,6 +325,11 @@ export type ExternalDeck = z.infer<typeof externalDeckSchema>;
 const lookupMpcArtwork = (ids: string[]) =>
   command("mpc_artwork", z.array(mpcArtworkSchema), { ids });
 
+export interface CropPosition {
+  x: number;
+  y: number;
+}
+
 export const api = {
   windowChrome: () =>
     command("window_chrome", windowChromeSchema).catch(
@@ -389,6 +394,7 @@ export const api = {
     art: Art,
     settings: PrintSettings,
     signal: AbortSignal,
+    position?: CropPosition,
   ) => {
     const requestId = crypto.randomUUID();
     const cancel = () =>
@@ -405,6 +411,7 @@ export const api = {
         requestId,
         art,
         settings,
+        position,
       });
     } finally {
       signal.removeEventListener("abort", onAbort);
@@ -525,6 +532,12 @@ const IMAGE_SCHEME = "dpimg";
 /** `<img src>` for any art URL, served by the Rust image cache. */
 export function imageSrc(url: string): string {
   return convertFileSrc(`image/${url}`, IMAGE_SCHEME);
+}
+export function comparisonThumbnailSrc(art: Art, settings: PrintSettings) {
+  return convertFileSrc(
+    `comparison-thumbnail/${JSON.stringify({ art, settings })}`,
+    IMAGE_SCHEME,
+  );
 }
 /** 150 DPI print-pipeline preview of one face, no AI. */
 export function previewSrc(

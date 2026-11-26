@@ -31,6 +31,7 @@ import {
   StyleMatch,
   targetsFor,
 } from "./style-match.tsx";
+import { UpscaleComparison } from "./upscale-comparison.tsx";
 
 const id = "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240";
 const original = artSchema.parse({
@@ -762,6 +763,69 @@ it("compares the selected scan and restores the chosen print model after saving"
   expect(screen.getByLabelText("Use local AI upscaling")).not.toBeChecked();
 });
 
+it("re-renders every installed crop after keyboard movement and a thumbnail drag", async () => {
+  const user = userEvent.setup();
+  const models = [
+    compactModel,
+    { ...compactModel, id: "anime", tier: "fast" as const },
+    { ...compactModel, id: "quality", tier: "quality" as const },
+  ];
+  const calls: unknown[] = [];
+  mockIPC((cmd, args) => {
+    if (cmd === "begin_upscale_comparison") return null;
+    if (cmd !== "compare_upscalers")
+      throw new Error(`Unexpected command: ${cmd}`);
+    calls.push(args);
+    return [null, ...models.map((model) => model.id)].map((modelId) => ({
+      modelId,
+      crop: {
+        png: [137, 80, 78, 71],
+        width: 224,
+        height: 144,
+        elapsedMs: calls.length * 12.5,
+      },
+    }));
+  });
+  render(
+    <UpscaleComparison
+      entries={[entry]}
+      models={models}
+      settings={deck.printSettings}
+      activeModel={compactModel.id}
+      onChoose={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByText("Compare upscale models"));
+  const picker = screen.getByRole("button", { name: "Crop position" });
+  expect(picker).toHaveAccessibleDescription(/50% across, 78% down/);
+  picker.focus();
+  await user.keyboard("{ArrowUp}");
+  expect(picker).toHaveFocus();
+  expect(await screen.findAllByText("12.5 ms")).toHaveLength(4);
+  expect(calls).toEqual([
+    expect.objectContaining({ position: { x: 0.5, y: 0.73 } }),
+  ]);
+
+  vi.spyOn(picker, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(10, 20, 100, 200),
+  );
+  picker.setPointerCapture = vi.fn();
+  fireEvent.pointerDown(picker, {
+    button: 0,
+    pointerId: 1,
+    clientX: 60,
+    clientY: 166,
+  });
+  fireEvent.pointerMove(picker, { pointerId: 1, clientX: 90, clientY: 70 });
+  expect(calls).toHaveLength(1);
+  fireEvent.pointerUp(picker, { pointerId: 1, clientX: 90, clientY: 70 });
+  expect(await screen.findAllByText("25.0 ms")).toHaveLength(4);
+  expect(calls[1]).toEqual(
+    expect.objectContaining({ position: { x: 0.8, y: 0.25 } }),
+  );
+  expect(picker).toHaveAccessibleDescription(/80% across, 25% down/);
+});
+
 it("cancels comparison requests on cancel, restart and navigation out of print setup", async () => {
   const user = userEvent.setup();
   const started: unknown[] = [];
@@ -843,6 +907,8 @@ it("opens Settings Models from the missing-model link using the keyboard", async
   await user.click(screen.getByText("Compare upscale models"));
   await user.click(screen.getByLabelText("Comparison card"));
   await user.tab();
+  await user.tab();
+  expect(screen.getByRole("button", { name: "Crop position" })).toHaveFocus();
   await user.tab();
   await user.tab();
   await user.tab();
