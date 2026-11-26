@@ -404,6 +404,10 @@ it("creates a deck, imports resolved cards, and reopens the saved project", asyn
   expect(
     await screen.findByRole("button", { name: "Imported and saved" }),
   ).toHaveAttribute("aria-disabled", "true");
+  const heading = screen.getByRole("heading", { name: "Burn", level: 1 });
+  expect(heading).toBeVisible();
+  expect(heading).toHaveAttribute("tabindex", "-1");
+  expect(document.activeElement).toBe(heading);
   await user.click(screen.getByRole("button", { name: "Back to decks" }));
   await user.click(await screen.findByRole("button", { name: "Open Burn" }));
   expect(

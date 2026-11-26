@@ -122,6 +122,7 @@ function DeckWorkspace({
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
   const task = useTask();
+  const heading = useRef<HTMLHeadingElement>(null);
   const saving = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   useEffect(() => {
@@ -167,6 +168,7 @@ function DeckWorkspace({
     <fieldset className={`workspace workspace-${view}`} disabled={isSaving}>
       <PageToolbar
         title={deck.name}
+        titleRef={heading}
         subtitle={
           <>
             <span className="badge" data-tauri-drag-region>
@@ -268,6 +270,7 @@ function DeckWorkspace({
                     ? [...(replace ? [] : deck.entries), ...result.entries]
                     : mergeImport(deck.entries, result.entries, replace),
               });
+              heading.current?.focus();
             }}
           />
           <DeckCards deck={deck} onChange={setDeck} onArt={selectArt} />
