@@ -1821,6 +1821,14 @@ dd {
   max-width: 195px;
   font-size: 11px;
 }
+.card-size-setting {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 5px;
+}
+.card-size-setting select {
+  max-width: none;
+}
 .number-unit {
   display: flex;
   align-items: center;

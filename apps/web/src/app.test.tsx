@@ -664,6 +664,36 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   );
 });
 
+it("shows the selected trim and warns when bleed exceeds half the gap", async () => {
+  const user = userEvent.setup();
+  function PrintHarness() {
+    const [value, setValue] = useState(deck);
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  expect(screen.getByText(/Trim 63 × 88 mm ·/)).toBeVisible();
+  const cardSize = screen.getByLabelText("Card size");
+  await user.selectOptions(
+    cardSize,
+    screen.getByRole("option", {
+      name: "Poker / MPC 63.5 × 88.9 mm (larger than MTG)",
+    }),
+  );
+  expect(screen.getByText(/Trim 63.5 × 88.9 mm ·/)).toBeVisible();
+  expect(screen.getByText(/Bleed exceeds half the gap/)).toBeVisible();
+  const gap = screen.getByRole("spinbutton", { name: /Gap between bleeds/ });
+  await user.clear(gap);
+  await user.type(gap, "2");
+  expect(screen.queryByText(/Bleed exceeds half the gap/)).toBeNull();
+});
+
 it("keeps a failed library request visible and lets the user retry", async () => {
   const user = userEvent.setup();
   vi.spyOn(api, "decks")

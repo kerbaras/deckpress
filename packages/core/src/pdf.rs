@@ -16,7 +16,9 @@ use krilla::Document;
 use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
-use crate::layout::{create_layout, duplex_slot, mm_to_pt, PrintLayout, Slot};
+use crate::layout::{
+    create_layout, duplex_slot, fit_sheet_label, mm_to_pt, sheet_label, PrintLayout, Slot,
+};
 use crate::models::{Art, Backs, Deck, DeckEntry, PrintSettings};
 use crate::raster::{encode_jpeg, parse_hex_color, rasterize};
 use crate::upscaler::{CancelToken, Upscaler};
@@ -165,24 +167,18 @@ fn draw_registration(
 fn draw_sheet_label(
     surface: &mut krilla::surface::Surface<'_>,
     layout: &PrintLayout,
-    settings: &PrintSettings,
     font: &Font,
     color: rgb::Color,
     text: &str,
 ) {
-    let Some(baseline) = layout.label_baseline else {
+    let Some(placement) = fit_sheet_label(layout, text) else {
         return;
     };
-    let x = layout
-        .slots
-        .first()
-        .map(|slot| slot.rect.x)
-        .unwrap_or(mm_to_pt(settings.margin_mm));
     surface.set_fill(Some(fill(color)));
     surface.draw_text(
-        Point::from_xy(x as f32, baseline as f32),
+        Point::from_xy(placement.x as f32, placement.baseline as f32),
         font.clone(),
-        5.0,
+        placement.font_size_pt as f32,
         text,
         false,
         TextDirection::LeftToRight,
@@ -274,8 +270,7 @@ fn draw_placeholder(surface: &mut krilla::surface::Surface<'_>, slot: &Slot, fon
     );
 }
 
-/// A page the user prints first to confirm the viewer is not scaling. Shows a
-/// 50 mm square, a 100 mm rule and the exact card outline.
+/// A 50 mm ruler and a fixed MTG reference box for checking printer scaling.
 fn draw_calibration_page(
     document: &mut Document,
     layout: &PrintLayout,
@@ -297,6 +292,7 @@ fn draw_calibration_page(
                 size: f32,
                 s: &str,
                 c: rgb::Color| {
+        surface.set_stroke(None);
         surface.set_fill(Some(fill(c)));
         surface.draw_text(
             Point::from_xy(x as f32, y as f32),
@@ -325,43 +321,22 @@ fn draw_calibration_page(
         muted,
     );
     y += 12.0;
-    text(&mut surface, margin, y + 9.0, 8.5, &format!(
-        "Paper {:.0} x {:.0} mm. Measure the square and the rule with a ruler before printing cards.",
-        layout.width / mm_to_pt(1.0),
-        layout.height / mm_to_pt(1.0)
-    ), muted);
-    y += 30.0;
-
-    let square = mm_to_pt(50.0);
-    if let Some(path) = rect_path(margin, y, square, square) {
-        surface.set_fill(None);
-        surface.set_stroke(Some(stroke(ink, 0.5)));
-        surface.draw_path(&path);
-    }
     text(
         &mut surface,
-        margin + square + 10.0,
-        y + 12.0,
-        9.0,
-        "50 x 50 mm square",
-        ink,
-    );
-    text(
-        &mut surface,
-        margin + square + 10.0,
-        y + 26.0,
-        8.0,
-        "Wrong size? The viewer is scaling. Disable it and reprint.",
+        margin,
+        y + 9.0,
+        8.5,
+        "Measure from line centre to line centre before printing cards.",
         muted,
     );
-    y += square + 24.0;
 
-    let rule_y = y;
-    if let Some(path) = line_path(margin, rule_y, margin + mm_to_pt(100.0), rule_y) {
+    let rule_y = y + 23.0;
+    surface.set_fill(None);
+    if let Some(path) = line_path(margin, rule_y, margin + mm_to_pt(50.0), rule_y) {
         surface.set_stroke(Some(stroke(ink, 0.5)));
         surface.draw_path(&path);
     }
-    for mm in 0..=100u32 {
+    for mm in 0..=50u32 {
         let x = margin + mm_to_pt(f64::from(mm));
         let len = if mm % 10 == 0 {
             5.0
@@ -371,6 +346,7 @@ fn draw_calibration_page(
             1.5
         };
         if let Some(path) = line_path(x, rule_y, x, rule_y + mm_to_pt(len)) {
+            surface.set_fill(None);
             surface.set_stroke(Some(stroke(ink, if mm % 10 == 0 { 0.5 } else { 0.3 })));
             surface.draw_path(&path);
         }
@@ -390,59 +366,42 @@ fn draw_calibration_page(
         margin,
         rule_y + mm_to_pt(5.0) + 22.0,
         8.0,
-        "100 mm rule, 1 mm ticks",
+        "50 mm ruler, 1 mm ticks",
         ink,
     );
-    y = rule_y + mm_to_pt(5.0) + 40.0;
+    y = rule_y + mm_to_pt(5.0) + 33.0;
 
-    let (cw, ch) = (
-        mm_to_pt(settings.card_width_mm),
-        mm_to_pt(settings.card_height_mm),
-    );
-    let bleed = mm_to_pt(settings.bleed_mm);
     surface.set_fill(None);
-    if let Some(path) = rect_path(margin, y, cw + 2.0 * bleed, ch + 2.0 * bleed) {
-        surface.set_stroke(Some(stroke(muted, 0.3)));
-        surface.draw_path(&path);
-    }
-    if let Some(path) = rect_path(margin + bleed, y + bleed, cw, ch) {
+    if let Some(path) = rect_path(margin, y, mm_to_pt(63.0), mm_to_pt(88.0)) {
         surface.set_stroke(Some(stroke(ink, 0.5)));
         surface.draw_path(&path);
     }
     surface.set_stroke(None);
     text(
         &mut surface,
-        margin + cw + 2.0 * bleed + 10.0,
-        y + 12.0,
+        margin + 10.0,
+        y + 18.0,
         9.0,
-        &format!(
-            "Card {} x {} mm, {} mm bleed",
-            settings.card_width_mm, settings.card_height_mm, settings.bleed_mm
-        ),
+        "63 × 88 mm MTG reference",
         ink,
     );
     text(
         &mut surface,
-        margin + cw + 2.0 * bleed + 10.0,
-        y + 26.0,
+        margin + 10.0,
+        y + 32.0,
         8.0,
-        &format!(
-            "{} DPI raster, {}",
-            settings.dpi,
-            if settings.upscale {
-                "AI upscaled"
-            } else {
-                "no upscaling"
-            }
-        ),
+        "Measure me with a ruler.",
         muted,
     );
     text(
         &mut surface,
-        margin + cw + 2.0 * bleed + 10.0,
-        y + 40.0,
+        margin + 10.0,
+        y + 55.0,
         8.0,
-        "Lay a real card inside the inner outline: it must match exactly.",
+        &format!(
+            "Selected trim: {} × {} mm",
+            settings.card_width_mm, settings.card_height_mm
+        ),
         muted,
     );
     surface.finish();
@@ -474,6 +433,24 @@ fn draw_blank_back(document: &mut Document, layout: &PrintLayout, font: &Font) -
     surface.finish();
     page.finish();
     Ok(())
+}
+
+fn set_print_preferences(bytes: &[u8], backs: Backs) -> Result<Vec<u8>, lopdf::Error> {
+    let mut pdf = lopdf::Document::load_mem(bytes)?;
+    let mut preferences = lopdf::Dictionary::new();
+    preferences.set("PrintScaling", lopdf::Object::Name(b"None".to_vec()));
+    if let Some(duplex) = match backs {
+        Backs::None => None,
+        Backs::LongEdge => Some("DuplexFlipLongEdge"),
+        Backs::ShortEdge => Some("DuplexFlipShortEdge"),
+        Backs::Separate => Some("Simplex"),
+    } {
+        preferences.set("Duplex", lopdf::Object::Name(duplex.as_bytes().to_vec()));
+    }
+    pdf.catalog_mut()?.set("ViewerPreferences", preferences);
+    let mut output = Vec::with_capacity(bytes.len());
+    pdf.save_to(&mut output)?;
+    Ok(output)
 }
 
 pub fn build_pdf(
@@ -651,26 +628,9 @@ pub fn build_pdf(
         draw_sheet_label(
             &mut surface,
             &layout,
-            settings,
             &font,
             guide_color,
-            &format!(
-                "{} / sheet {} of {} / {} / {} x {} mm + {} mm bleed / {} dpi / print at 100%",
-                deck.name
-                    .to_uppercase()
-                    .chars()
-                    .filter(|c| c.is_ascii_graphic() || *c == ' ')
-                    .take(40)
-                    .collect::<String>()
-                    .trim(),
-                side.sheet,
-                total_sheets,
-                if side.back { "BACKS" } else { "FRONTS" },
-                settings.card_width_mm,
-                settings.card_height_mm,
-                settings.bleed_mm,
-                settings.dpi
-            ),
+            &sheet_label(settings, &deck.name, side.sheet, total_sheets, side.back),
         );
         surface.finish();
         page.finish();
@@ -683,7 +643,8 @@ pub fn build_pdf(
     };
     let pages = sides.len() + calibration_pages;
     Ok(PdfOutput {
-        bytes: document.finish()?,
+        bytes: set_print_preferences(&document.finish()?, settings.backs)
+            .map_err(AppError::internal)?,
         pages,
         unique_images: embedded.len(),
     })

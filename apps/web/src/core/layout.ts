@@ -37,7 +37,42 @@ export interface PrintLayout {
 }
 
 export const REGISTRATION_RADIUS_MM = 1.5;
-export const LABEL_SIZE_PT = 5;
+const LABEL_SIZE_PT = 5;
+const LABEL_GLYPH_ADVANCE_EM = 0.6;
+
+export function fitSheetLabel(layout: PrintLayout, text: string) {
+  const baseline = layout.labelBaseline;
+  const x = layout.slots[0]?.x;
+  if (baseline === null || x === undefined) return null;
+  const advance = text.length * LABEL_GLYPH_ADVANCE_EM;
+  const width = Math.min(advance * LABEL_SIZE_PT, layout.width - x - mmToPt(4));
+  if (width <= 0) return null;
+  return { x, baseline, fontSizePt: width / advance, width };
+}
+
+function labelNumber(value: number): string {
+  // Keep half-thousandths stable across small float differences at the JSON boundary.
+  const thousandths = Math.round(value * 1000 + 1e-9);
+  const whole = Math.trunc(thousandths / 1000);
+  const fraction = thousandths % 1000;
+  if (fraction === 0) return String(whole);
+  return `${whole}.${String(fraction).padStart(3, "0").replace(/0+$/, "")}`;
+}
+
+export function sheetLabel(
+  settings: PrintSettings,
+  deckName: string,
+  sheet: number,
+  totalSheets: number,
+  back: boolean,
+): string {
+  const name = deckName
+    .toUpperCase()
+    .replace(/[^ -~]/g, "")
+    .slice(0, 40)
+    .trim();
+  return `${name} / SHEET ${sheet} OF ${totalSheets} / ${back ? "BACKS" : "FRONTS"} / TRIM ${labelNumber(settings.cardWidthMm)} × ${labelNumber(settings.cardHeightMm)} mm / ${labelNumber(settings.bleedMm)} mm BLEED / ${labelNumber(settings.dpi)} DPI / PRINT AT 100%`;
+}
 
 export function createLayout(input: PrintSettings): PrintLayout {
   const options = printSettingsSchema.parse(input);

@@ -60,6 +60,66 @@ pub struct PrintLayout {
 /// at all; `guides: none` means a clean page.
 pub const REGISTRATION_RADIUS_MM: f64 = 1.5;
 const LABEL_SIZE_PT: f64 = 5.0;
+const LABEL_GLYPH_ADVANCE_EM: f64 = 0.6;
+
+pub struct SheetLabelPlacement {
+    pub x: f64,
+    pub baseline: f64,
+    pub font_size_pt: f64,
+    pub width: f64,
+}
+
+pub fn fit_sheet_label(layout: &PrintLayout, text: &str) -> Option<SheetLabelPlacement> {
+    let baseline = layout.label_baseline?;
+    let x = layout.slots.first()?.rect.x;
+    let advance = text.chars().count() as f64 * LABEL_GLYPH_ADVANCE_EM;
+    let width = (advance * LABEL_SIZE_PT).min(layout.width - x - mm_to_pt(4.0));
+    if width <= 0.0 {
+        return None;
+    }
+    Some(SheetLabelPlacement {
+        x,
+        baseline,
+        font_size_pt: width / advance,
+        width,
+    })
+}
+
+fn label_number(value: f64) -> String {
+    // Keep half-thousandths stable across small float differences at the JSON boundary.
+    let thousandths = (value * 1000.0 + 1e-9).round() as u32;
+    let whole = thousandths / 1000;
+    let fraction = thousandths % 1000;
+    if fraction == 0 {
+        return whole.to_string();
+    }
+    let fraction = format!("{fraction:03}");
+    format!("{whole}.{}", fraction.trim_end_matches('0'))
+}
+
+pub fn sheet_label(
+    settings: &PrintSettings,
+    deck_name: &str,
+    sheet: usize,
+    total_sheets: usize,
+    back: bool,
+) -> String {
+    let name: String = deck_name
+        .to_uppercase()
+        .chars()
+        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+        .take(40)
+        .collect();
+    format!(
+        "{} / SHEET {sheet} OF {total_sheets} / {} / TRIM {} × {} mm / {} mm BLEED / {} DPI / PRINT AT 100%",
+        name.trim(),
+        if back { "BACKS" } else { "FRONTS" },
+        label_number(settings.card_width_mm),
+        label_number(settings.card_height_mm),
+        label_number(settings.bleed_mm),
+        label_number(f64::from(settings.dpi))
+    )
+}
 
 fn dedup(values: impl Iterator<Item = f64>) -> Vec<f64> {
     let mut out: Vec<f64> = Vec::new();

@@ -116,8 +116,8 @@ none of these are implemented yet and the app does not claim they are.
 
 - Print at 100% / actual size. "Fit to page", "shrink to printable area" and
   borderless modes all rescale the sheet.
-- Check the calibration page's 100 mm ruler with a real ruler before a full
-  run; a 1% scale error is 0.9 mm on a card.
+- Check the calibration page's 50 mm ruler and 63 × 88 mm reference box with a
+  real ruler before a full run; a 1% scale error is 0.9 mm on a card.
 - Use the heaviest paper the printer feeds reliably (200–300 gsm card stock)
   or print on plain paper and sleeve with a real card behind it.
 - For duplex, print one sheet first and hold it against a light to check
