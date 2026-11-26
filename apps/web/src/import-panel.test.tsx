@@ -162,6 +162,10 @@ it("reviews a partial list by line and board, then saves without moving focus", 
   expect(action).toHaveFocus();
   expect(action).toHaveTextContent("Imported and saved");
   expect(action).toHaveAttribute("aria-disabled", "true");
+  expect(screen.queryByText(/Replace removes/)).not.toBeInTheDocument();
+  expect(
+    screen.queryByLabelText(/Replace current list/),
+  ).not.toBeInTheDocument();
   await user.click(action);
   expect(onApply).toHaveBeenCalledTimes(2);
 });

@@ -90,7 +90,7 @@ export function ImportReview({
           </p>
         </div>
       )}
-      {existing > 0 && total > 0 && (
+      {saved === null && existing > 0 && total > 0 && (
         <label className="check-label">
           <input
             type="checkbox"
@@ -101,7 +101,9 @@ export function ImportReview({
           Replace current list, keeping matching art choices
         </label>
       )}
-      <p className="hint">{saveScope(total, existing, replace)}</p>
+      {saved === null && (
+        <p className="hint">{saveScope(total, existing, replace)}</p>
+      )}
       <ErrorNotice error={saveError} />
       <button
         type="button"
