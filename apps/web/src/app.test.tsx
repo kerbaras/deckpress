@@ -929,14 +929,113 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
     "4",
   );
   await user.selectOptions(
-    screen.getByRole("combobox", { name: "SCM paper" }),
-    "arch_b",
+    screen.getByRole("combobox", { name: "Silhouette Cameo template" }),
+    "arch_b:default",
   );
   const preview = screen.getByRole("img", {
     name: /Print preview, arch_b-standard-v/,
   });
   expect(preview.querySelectorAll('rect[fill="#000000"]')).toHaveLength(8);
   expect(preview).toHaveTextContent("template: arch_b-standard-v");
+});
+
+it("filters the paper-grouped cutter picker by card size and keeps free geometry", async () => {
+  const user = userEvent.setup();
+  function PrintHarness() {
+    const [value, setValue] = useState<Deck>({
+      ...deck,
+      printSettings: {
+        ...deck.printSettings,
+        paper: "letter",
+        orientation: "portrait",
+        cardWidthMm: 59,
+        gapMm: 2,
+        columns: 2,
+        rows: 2,
+      },
+    });
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async () => value}
+        onJobs={() => {}}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  const mode = screen.getByRole("combobox", { name: "Layout mode" });
+  const freePreview = "Print preview, US Letter, 2 columns by 2 rows";
+  expect(screen.getByRole("img", { name: freePreview })).toBeVisible();
+  await user.selectOptions(mode, "scm");
+
+  const card = screen.getByRole("combobox", { name: "Template card size" });
+  const picker = screen.getByRole("combobox", {
+    name: "Silhouette Cameo template",
+  });
+  const marks = screen.getByRole("combobox", {
+    name: "SCM registration marks",
+  });
+  const cuttingTemplates = screen.getByRole("link", {
+    name: "SCM cutting templates",
+  });
+  mode.focus();
+  for (const control of [card, picker, marks, cuttingTemplates]) {
+    await user.tab();
+    expect(control).toHaveFocus();
+  }
+  expect(cuttingTemplates).toHaveAttribute(
+    "href",
+    expect.stringMatching(
+      /^https:\/\/github\.com\/Alan-Cha\/silhouette-card-maker\/tree\/[a-f0-9]+\/cutting_templates$/,
+    ),
+  );
+
+  const a4 = within(picker).getByRole("group", { name: "A4" });
+  expect(within(a4).getAllByRole("option")).toHaveLength(2);
+  expect(
+    within(picker).getByRole("group", { name: "US Letter" }),
+  ).toBeVisible();
+  expect(screen.getByText("a4-standard-v5.studio3")).toBeVisible();
+  expect(screen.getByText("4 × 2 · 8 cards per sheet")).toBeVisible();
+  const threeMarks = screen.getByRole("img", {
+    name: "Print preview, a4-standard-v5, 4 columns by 2 rows",
+  });
+  expect(threeMarks.querySelectorAll('rect[fill="#000000"]')).toHaveLength(5);
+  expect(screen.queryByRole("spinbutton", { name: /Card width/ })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Orientation" })).toBeNull();
+  expect(screen.getByText("A4 · landscape")).toBeVisible();
+
+  await user.selectOptions(card, "poker");
+  expect(card).toHaveDisplayValue("Poker · 2.5in × 3.5in");
+  expect(screen.getByText("a4-poker-v3.studio3")).toBeVisible();
+  expect(screen.queryByText("a4-standard-v5.studio3")).not.toBeInTheDocument();
+  await user.selectOptions(card, "standard");
+  await user.selectOptions(
+    picker,
+    within(a4).getByRole("option", { name: "A4 · Borderless layout" }),
+  );
+  expect(screen.getByText("a4-standard-borderless-v2.studio3")).toBeVisible();
+  expect(screen.getByText("3 × 3 · 9 cards per sheet")).toBeVisible();
+  expect(
+    screen.getByRole("img", {
+      name: "Print preview, a4-standard-borderless-v2, 3 columns by 3 rows",
+    }),
+  ).toBeVisible();
+
+  await user.selectOptions(picker, "arch_b:borderless");
+  expect(screen.getByText(/SCM does not publish a cut file/)).toBeVisible();
+  await user.selectOptions(mode, "free");
+  expect(screen.getByRole("img", { name: freePreview })).toBeVisible();
+  expect(
+    screen.getByRole("spinbutton", { name: /Gap between bleeds/ }),
+  ).toHaveValue(2);
+  expect(screen.getByRole("spinbutton", { name: /Card width/ })).toHaveValue(
+    59,
+  );
+  expect(
+    screen.queryByRole("link", { name: "SCM cutting templates" }),
+  ).toBeNull();
 });
 
 it("keeps a failed library request visible and lets the user retry", async () => {

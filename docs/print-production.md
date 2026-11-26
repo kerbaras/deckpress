@@ -128,9 +128,12 @@ view.
 
 ## Silhouette Card Maker mode
 
-In Print Setup, choose **Silhouette Card Maker (SCM)** and select the paper,
-card, variant, and registration mark count for your matching `.studio3`
-template. The sheet label includes the template name and version. SCM mode
+In Print Setup, choose **Silhouette template (SCM)**, select a card size,
+then choose a layout under its paper size. Pick the 3- or 4-mark pattern
+for your cutter setup. The picker shows the fixed grid and exact `.studio3`
+filename, and links to SCM's cutting templates. SCM does not publish
+borderless cut files for A3 or Arch B. The sheet label includes the template
+name and version. SCM mode
 replaces crop marks with registration marks, caps bleed at **0.625 mm per
 side**, and uses long-edge alignment for backs. Switching modes does not
 overwrite your bleed or duplex settings. Arch B (12 × 18 in) is a paper
