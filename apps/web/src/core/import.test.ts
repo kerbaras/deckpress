@@ -78,6 +78,53 @@ describe("decklist import", () => {
     expect(result.issues).toEqual([]);
   });
 
+  it("keeps Moxfield companions in the preceding Commander section", () => {
+    const result = parseDecklist(
+      "commanders\n1 Jori En, Ruin Diver\ncompanions\n1 Lurrus of the Dream-Den\nmainboard\n4 Lightning Bolt",
+    );
+    expect(
+      result.entries.find(({ name }) => name === "Lurrus of the Dream-Den"),
+    ).toMatchObject({ zone: "commander" });
+  });
+
+  it("does not treat lookalike board names as aliases in text or CSV", () => {
+    const text = parseDecklist("Deck\n// sideboard2\n1 Shock");
+    expect(text.entries).toMatchObject([{ name: "Shock", zone: "main" }]);
+    const csv = parseDecklist(
+      "Name,Quantity,Board\nShock,1,Sideboard2\nNegate,1,Sideboard",
+    );
+    expect(csv.entries).toMatchObject([
+      { name: "Shock", zone: "main" },
+      { name: "Negate", zone: "side" },
+    ]);
+  });
+
+  it("round-trips a card through text and CSV containing the same board header", () => {
+    const header = "// Board: testing Pool";
+    const text = parseDecklist(`Deck\n${header}\n2 Island`);
+    expect(text.entries).toMatchObject([
+      { name: "Island", quantity: 2, zone: "main" },
+    ]);
+    const csv = parseDecklist(
+      [
+        "Name,Quantity",
+        header,
+        ...text.entries.map(({ name, quantity }) => `${name},${quantity}`),
+      ].join("\n"),
+    );
+    expect(csv.format).toBe("CSV");
+    expect(csv.entries).toEqual(text.entries);
+    expect(csv.issues).toEqual([]);
+    const roundTrip = parseDecklist(
+      [
+        "Deck",
+        header,
+        ...csv.entries.map(({ name, quantity }) => `${quantity} ${name}`),
+      ].join("\n"),
+    );
+    expect(roundTrip).toEqual(text);
+  });
+
   it("reads quoted CSV names and MTGO XML without interpreting entities", () => {
     const csv = parseDecklist(
       'Name,Quantity,Set Code,Collector Number,Board\n"Atraxa, Praetors\' Voice",1,C16,28,Commander',

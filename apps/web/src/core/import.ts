@@ -25,22 +25,25 @@ export interface ParsedDecklist {
 }
 
 function zoneFrom(value: string): ImportLine["zone"] | undefined {
-  return (
-    {
-      deck: "main",
-      main: "main",
-      mainboard: "main",
-      commander: "commander",
-      commanders: "commander",
-      side: "side",
-      sideboard: "side",
-      maybe: "maybe",
-      maybeboard: "maybe",
-      considering: "maybe",
-      token: "tokens",
-      tokens: "tokens",
-    } as const
-  )[value.toLowerCase().replace(/[^a-z]/g, "") as "deck"];
+  switch (value.trim().toLowerCase()) {
+    case "deck":
+    case "main":
+    case "mainboard":
+      return "main";
+    case "commander":
+    case "commanders":
+      return "commander";
+    case "side":
+    case "sideboard":
+      return "side";
+    case "maybe":
+    case "maybeboard":
+    case "considering":
+      return "maybe";
+    case "token":
+    case "tokens":
+      return "tokens";
+  }
 }
 
 export function parseDecklist(input: string): ParsedDecklist {
@@ -109,6 +112,7 @@ export function parseDecklist(input: string): ParsedDecklist {
     result.format = "CSV";
     const csv = Papa.parse<Record<string, string>>(text, {
       header: true,
+      comments: "// Board:",
       skipEmptyLines: "greedy",
       transformHeader: (header) => header.toLowerCase().replace(/[^a-z]/g, ""),
     });

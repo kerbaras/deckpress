@@ -88,12 +88,17 @@ async fn moxfield_import_labels_nonempty_boards() {
             &key,
             &serde_json::json!({
                 "boards": {
+                    "commanders": {"cards": {"jori": {"card": {"name": "Jori En, Ruin Diver"}}}},
+                    "companions": {"cards": {"lurrus": {"card": {
+                        "name": "Lurrus of the Dream-Den"
+                    }}}},
                     "mainboard": {"cards": {"bolt": {"quantity": 4, "card": {
                         "name": "Lightning Bolt", "set": "m10", "cn": "146"
                     }}}},
                     "sideboard": {"cards": {"negate": {"quantity": 2, "card": {
                         "name": "Negate"
                     }}}},
+                    "sideboard2": {"cards": {"shock": {"card": {"name": "Shock"}}}},
                     "testing Pool": {"cards": {"opt": {"card": {"name": "Opt"}}}},
                     "empty Board": {"cards": {}}
                 }
@@ -107,7 +112,11 @@ async fn moxfield_import_labels_nonempty_boards() {
         .unwrap();
     assert_eq!(
         text,
-        "mainboard\n4 Lightning Bolt (m10) 146\nsideboard\n2 Negate\nDeck\n// Board: testing Pool\n1 Opt"
+        concat!(
+            "commanders\n1 Jori En, Ruin Diver\ncompanions\n1 Lurrus of the Dream-Den\n",
+            "mainboard\n4 Lightning Bolt (m10) 146\nsideboard\n2 Negate\n",
+            "Deck\n// Board: sideboard2\n1 Shock\nDeck\n// Board: testing Pool\n1 Opt"
+        )
     );
 }
 

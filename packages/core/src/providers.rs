@@ -709,15 +709,10 @@ impl Providers {
                     });
                 }
                 if lines.len() > header {
-                    let normalized = zone
-                        .chars()
-                        .filter(char::is_ascii_alphabetic)
-                        .collect::<String>()
-                        .to_ascii_lowercase();
-                    let heading = match normalized.as_str() {
-                        "deck" | "main" | "mainboard" | "commander" | "commanders" | "side"
-                        | "sideboard" | "maybe" | "maybeboard" | "considering" | "token"
-                        | "tokens" => zone.clone(),
+                    let heading = match zone.to_ascii_lowercase().as_str() {
+                        "deck" | "main" | "mainboard" | "commander" | "commanders"
+                        | "companions" | "side" | "sideboard" | "maybe" | "maybeboard"
+                        | "considering" | "token" | "tokens" => zone.clone(),
                         _ => format!("Deck\n// Board: {zone}"),
                     };
                     lines.insert(header, heading);
