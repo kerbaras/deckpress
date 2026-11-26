@@ -125,3 +125,33 @@ none of these are implemented yet and the app does not claim they are.
 
 Deckpress prints these reminders on the calibration page and in the Print jobs
 view.
+
+## Silhouette Card Maker trim fixture
+
+`packages/core/assets/scm/trim-rects.json` covers all 114 default paper/card
+templates at SCM commit `0da09b7`. It excludes borderless variants. Rectangles
+are listed row first, with a top-left origin, as `[x, y, width, height]`.
+
+- `exactMm` keeps SCM's chosen grid and centers it on the exact paper size
+  using the original card dimensions and a 1.25 mm trim gap, without pixel rounding.
+- `scmPx` is the direct output from SCM's `page_manager.generate_layout` at
+  300 PPI. `scmMm` is those same pixel values converted to millimeters.
+- Grid exclusion uses the default 5 mm registration arm plus 1.5 mm padding
+  (6.5 mm), not the per-layout drawn arm length (`drawnArmMm`).
+
+Run from the Deckpress root with Python 3.12+, Git, and the two Python
+packages that SCM's page manager imports:
+
+```sh
+git clone https://github.com/Alan-Cha/silhouette-card-maker.git ../scm
+git -C ../scm checkout --detach 0da09b729814aa5aafde024b5a6059624fa87951
+python3 -m venv ../scm-fixture-venv
+../scm-fixture-venv/bin/python -m pip install matplotlib==3.11.2 pillow==13.0.0
+../scm-fixture-venv/bin/python scripts/generate-scm-fixture.py ../scm
+```
+
+The Rust and TypeScript tests compare `exactMm` within 0.01 mm. Deckpress can
+represent every SCM grid, including ARCH B via custom paper. Its automatic
+grid fits an extra column on seven templates because it treats the inset as
+a uniform margin and does not exclude the registration corners. The Rust test
+names those cases and checks their trim geometry with explicit rows and columns.
