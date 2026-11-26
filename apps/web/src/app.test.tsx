@@ -851,7 +851,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   );
 });
 
-it("saves a Free layout cut template by keyboard and hides export in SCM mode", async () => {
+it("saves a cut template by keyboard and only shows export in Free layout", async () => {
   const user = userEvent.setup();
   const saveDialog = vi
     .fn()
@@ -894,9 +894,21 @@ it("saves a Free layout cut template by keyboard and hides export in SCM mode", 
       settings: deck.printSettings,
     }),
   );
-  await user.selectOptions(screen.getByLabelText("Layout mode"), "scm");
-  expect(button).not.toBeInTheDocument();
+  const mode = screen.getByRole("combobox", { name: "Layout mode" });
+  await user.selectOptions(mode, "scm");
+  const template = screen.getByRole("combobox", {
+    name: "Silhouette Cameo template",
+  });
+  await user.selectOptions(template, "a4:borderless");
+  expect(template).toHaveValue("a4:borderless");
+  expect(
+    screen.queryByRole("button", { name: "Export cut template (SVG)" }),
+  ).not.toBeInTheDocument();
   expect(screen.getByText("Use the SCM .studio3 cut template.")).toBeVisible();
+  await user.selectOptions(mode, "free");
+  expect(
+    screen.getByRole("button", { name: "Export cut template (SVG)" }),
+  ).toBeVisible();
 });
 
 it("shows the selected trim and warns when bleed exceeds half the gap", async () => {
