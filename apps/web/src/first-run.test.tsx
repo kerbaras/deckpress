@@ -177,12 +177,19 @@ it("saves an imported list with the chosen name and format", async () => {
     name: "Add 4 cards to deck",
   });
   await user.click(add);
-  expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+  const nameError = await within(dialog).findByRole("alert");
+  expect(nameError).toHaveTextContent("Name the deck before adding the cards.");
+  const nameField = within(dialog).getByLabelText("Deck name");
+  expect(nameField).toHaveFocus();
+  expect(nameField).toHaveAttribute("aria-invalid", "true");
+  expect(nameField).toHaveAccessibleDescription(
     "Name the deck before adding the cards.",
   );
-  expect(within(dialog).getByLabelText("Deck name")).toHaveFocus();
   expect(create).not.toHaveBeenCalled();
-  await user.type(within(dialog).getByLabelText("Deck name"), " Burn ");
+  await user.type(nameField, " Burn ");
+  expect(nameError).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole("alert")).toBeNull();
+  expect(nameField).not.toHaveAttribute("aria-invalid");
   await user.selectOptions(within(dialog).getByLabelText("Format"), "Modern");
   await user.click(add);
   await waitFor(() =>
