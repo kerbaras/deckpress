@@ -1718,10 +1718,10 @@ export function PrintSetup({
             </div>
             <p className="hint">
               Trim boundary is preview-only. Actual bleed and image cropping are
-              rendered by the PDF raster pipeline.
-            </p>
-          </div>
-          </section>
+                rendered by the PDF raster pipeline.
+              </p>
+            </div>
+        </section>
         <div className="preflight">
           <div className="preflight-title">
             <h3>Print check</h3>
