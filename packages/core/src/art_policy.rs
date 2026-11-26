@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -145,7 +146,7 @@ impl ArtPolicy {
         }
     }
 
-    fn compare(&self, a: &Printing, b: &Printing) -> std::cmp::Ordering {
+    fn compare(&self, a: &Printing, b: &Printing, deck_policy: bool) -> Ordering {
         let release = if matches!(self, Self::Original) {
             a.date.cmp(&b.date)
         } else {
@@ -155,11 +156,25 @@ impl ArtPolicy {
             .cmp(&self.treatment_matches(a))
             .then_with(|| a.date.is_empty().cmp(&b.date.is_empty()))
             .then(release)
+            .then_with(|| {
+                if deck_policy {
+                    compare_scan_quality(
+                        a.scans.as_ref().and_then(|faces| faces.first()),
+                        b.scans.as_ref().and_then(|faces| faces.first()),
+                    )
+                } else {
+                    Ordering::Equal
+                }
+            })
             .then_with(|| a.set.cmp(&b.set))
             .then_with(|| a.collector.cmp(&b.collector))
             .then_with(|| (a.language != "en").cmp(&(b.language != "en")))
             .then_with(|| a.id.cmp(&b.id))
     }
+}
+
+fn compare_scan_quality(_a: Option<&Art>, _b: Option<&Art>) -> Ordering {
+    Ordering::Equal
 }
 
 fn same_illustrations(anchor: &Printing, candidate: &Printing) -> bool {
@@ -191,9 +206,11 @@ fn localized<'a>(
         .min_by(|a, b| {
             let exact =
                 |print: &Printing| print.set == anchor.set && print.collector == anchor.collector;
-            exact(b)
-                .cmp(&exact(a))
-                .then_with(|| policy.unwrap_or(&ArtPolicy::Latest).compare(a, b))
+            exact(b).cmp(&exact(a)).then_with(|| {
+                policy
+                    .unwrap_or(&ArtPolicy::Latest)
+                    .compare(a, b, policy.is_some())
+            })
         })
 }
 
@@ -420,7 +437,7 @@ impl ArtPolicies {
                 .filter(|print| {
                     policy.permits(print) && print.illustrations.len() == entry.card.faces.len()
                 })
-                .min_by(|a, b| policy.compare(a, b));
+                .min_by(|a, b| policy.compare(a, b, true));
             let selected = if let Some(anchor) = anchor {
                 let mut selected = None;
                 for language in languages(&preferences) {
