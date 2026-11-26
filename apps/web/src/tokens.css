@@ -12,7 +12,7 @@
   --on-accent: #191610;
   --score-low-fill: #a58a59;
   --focus: #8dc1ee;
-  --focus-on-accent: #191610;
+  --focus-on-accent: var(--on-accent);
   --danger-text: #f2b0a4;
   --danger-line: #b2766d;
   --danger-bg: #301e1c;
@@ -24,7 +24,9 @@
   --preview-loading-text: #525b68;
   --preview-error-text: #8c2323;
   --preview-error-bg: #f4dedb;
-  --info: #8dc1ee;
+  --art-gold: #e2b25a;
+  --art-outline: #111317;
+  --info: var(--focus);
   --caption-close: #b8322c;
   --on-caption-close: #ffffff;
   --scrim: rgb(0 0 0 / 0.64);
@@ -92,6 +94,29 @@
 
 .import-file-name {
   overflow-wrap: anywhere;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #f6f4f1;
+  --frame: #ebe7e1;
+  --panel: #ffffff;
+  --raised: #f1eee9;
+  --text: #1d2229;
+  --text-muted: #596372;
+  --line-subtle: #d8d3cb;
+  --line-control: #78736c;
+  --accent: #7f430d;
+  --on-accent: #ffffff;
+  --score-low-fill: #795a39;
+  --focus: #155ba4;
+  --danger-text: #912f22;
+  --danger-line: #b14e40;
+  --danger-bg: #fde9e4;
+  --warning-text: #754702;
+  --warning-bg: #fff1d2;
+  --success-text: #24563a;
+  --success-bg: #e5f2e9;
 }
 
 @theme inline {

@@ -42,6 +42,15 @@ import {
 } from "./ui.tsx";
 import { Workspace } from "./workspace.tsx";
 
+declare global {
+  interface Window {
+    deckpressAppearance?: {
+      readonly preference: string;
+      set(value: string): void;
+    };
+  }
+}
+
 const routeFromHash = () =>
   window.location.hash.replace(/^#\/?/, "") || "decks";
 
@@ -605,6 +614,9 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
   useEffect(() => {
     if (focusModels) modelsHeading.current?.focus();
   }, [focusModels]);
+  const [appearance, setAppearance] = useState(
+    () => window.deckpressAppearance?.preference ?? "system",
+  );
   const query = useQuery({
     queryKey: ["settings"],
     queryFn: ({ signal }) => api.settings(signal),
@@ -635,6 +647,24 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
         </button>
       </PageToolbar>
       <div className="page-content settings-page">
+        <section className="panel settings-card">
+          <h2>Appearance</h2>
+          <label className="field">
+            Theme
+            <select
+              value={appearance}
+              onChange={(event) => {
+                const theme = event.currentTarget.value;
+                setAppearance(theme);
+                window.deckpressAppearance?.set(theme);
+              }}
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </section>
         <ErrorNotice
           error={query.error ?? task.error}
           retry={() => void query.refetch()}

@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { runInNewContext } from "node:vm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import {
@@ -375,6 +378,69 @@ it("asks for an MPC back instead of opening the save dialog for a front-only dec
   ).toHaveTextContent("Choose an MPC Autofill back");
   expect(saveDialog).not.toHaveBeenCalled();
   expect(saveMpcXml).not.toHaveBeenCalled();
+});
+
+it("restores a saved appearance before settings loads and clears it on System", async () => {
+  const user = userEvent.setup();
+  const root = document.documentElement;
+  const storage = window.localStorage;
+  const bootScript = readFileSync(
+    resolve(import.meta.dirname, "../public/appearance.js"),
+    "utf8",
+  );
+  let dark = false;
+  let system = new EventTarget();
+  const restart = () => {
+    delete root.dataset.theme;
+    system = new EventTarget();
+    runInNewContext(bootScript, {
+      document,
+      localStorage: storage,
+      matchMedia: () =>
+        Object.defineProperty(system, "matches", { get: () => dark }),
+      window,
+    });
+  };
+  const themeKey = "deckpress.theme";
+  window.history.replaceState(null, "", "#/settings");
+  mockIPC(() => []);
+
+  try {
+    storage.setItem(themeKey, "invalid");
+    restart();
+    const { unmount } = renderWithClient(<App />);
+    const theme = screen.getByRole("combobox", { name: "Theme" });
+    expect(theme).toHaveValue("system");
+    expect(root).toHaveAttribute("data-theme", "light");
+    dark = true;
+    system.dispatchEvent(new Event("change"));
+    expect(root).toHaveAttribute("data-theme", "dark");
+
+    await user.selectOptions(theme, "dark");
+    expect(root).toHaveAttribute("data-theme", "dark");
+    expect(storage.getItem(themeKey)).toBe("dark");
+
+    await user.selectOptions(theme, "light");
+    unmount();
+    restart();
+    expect(root).toHaveAttribute("data-theme", "light");
+
+    renderWithClient(<App />);
+    const restoredTheme = screen.getByRole("combobox", { name: "Theme" });
+    expect(restoredTheme).toHaveValue("light");
+    dark = false;
+    system.dispatchEvent(new Event("change"));
+    dark = true;
+    system.dispatchEvent(new Event("change"));
+    expect(root).toHaveAttribute("data-theme", "light");
+    await user.selectOptions(restoredTheme, "system");
+    expect(root).toHaveAttribute("data-theme", "dark");
+    expect(storage.getItem(themeKey)).toBeNull();
+  } finally {
+    delete root.dataset.theme;
+    delete window.deckpressAppearance;
+    storage.removeItem(themeKey);
+  }
 });
 
 it("shows the model download error and retries the same model", async () => {
