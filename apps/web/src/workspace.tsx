@@ -368,6 +368,7 @@ function DeckWorkspace({
           onChange={setDeck}
           onSave={commit}
           onJobs={onJobs}
+          mpcExport={{ busy: task.busy, run: () => void exportMpc() }}
         />
       )}
       {metadata && (

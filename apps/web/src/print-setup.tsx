@@ -4,11 +4,13 @@ import {
   ArrowLeft,
   ArrowRight,
   Download,
+  FileCode,
   FlipHorizontal2,
   Images,
   PaintBucket,
   Printer,
   Save,
+  Scissors,
   UnfoldHorizontal,
 } from "lucide-react";
 import {
@@ -45,6 +47,7 @@ import {
   sheetLabel,
 } from "./core/index.ts";
 import { DuplexCalibration } from "./duplex-calibration.tsx";
+import { type MenuAction, MenuButton } from "./export-menu.tsx";
 import { isEnglishFallback } from "./print-language.tsx";
 import { ErrorNotice, ExternalLink, StatusRegion, useTask } from "./ui.tsx";
 import { UpscaleComparison } from "./upscale-comparison.tsx";
@@ -125,11 +128,13 @@ export function PrintSetup({
   onChange,
   onSave,
   onJobs,
+  mpcExport,
 }: {
   deck: Deck;
   onChange: (deck: Deck) => void;
   onSave: (deck: Deck) => Promise<Deck>;
   onJobs: (job: PrintJob) => void;
+  mpcExport: { busy: boolean; run: () => void };
 }) {
   const settings = deck.printSettings;
   const isScm = settings.layoutMode === "scm";
@@ -341,6 +346,54 @@ export function PrintSetup({
       const saved = await onSave(deck);
       onJobs(await api.createJob(saved.id, settings, format));
     });
+  const saveCutTemplate = () =>
+    void cutTemplateTask.run(async () => {
+      setCutTemplateStatus(({ id }) => ({ path: "", id }));
+      const path = await downloadCutTemplate(deck);
+      if (path) setCutTemplateStatus(({ id }) => ({ path, id: id + 1 }));
+    });
+  const otherExports: MenuAction[] = [
+    {
+      id: "png",
+      label: "PNG ZIP",
+      hint: "One print-ready PNG per card face, in a ZIP.",
+      icon: <Images size={16} aria-hidden="true" />,
+      disabledReason: task.busy
+        ? "Wait for the current export to queue."
+        : valid
+          ? undefined
+          : "Fix the export blockers first.",
+      onSelect: () => start("png"),
+    },
+    {
+      id: "mpc",
+      label: "MPC Autofill XML",
+      hint: "Order file with the chosen art, for MakePlayingCards.",
+      icon: <FileCode size={16} aria-hidden="true" />,
+      disabledReason: mpcExport.busy
+        ? "Wait for the current deck task to finish."
+        : deck.entries.length
+          ? undefined
+          : "Add cards to the deck first.",
+      onSelect: mpcExport.run,
+    },
+    {
+      id: "svg",
+      label: "SVG cut template",
+      hint: "Cut lines for this free layout.",
+      icon: <Scissors size={16} aria-hidden="true" />,
+      disabledReason: isScm
+        ? cutFile
+          ? "SCM layouts use the .studio3 cut template."
+          : "No SCM cut file for this layout."
+        : cutTemplateTask.busy
+          ? "Saving the cut template…"
+          : layout
+            ? undefined
+            : "Fix the layout first.",
+      onSelect: saveCutTemplate,
+    },
+  ];
   return (
     <div className="print-workspace px-6 py-4">
       <div className="print-title toolbar">
@@ -350,38 +403,6 @@ export function PrintSetup({
             Physical dimensions first. No hidden scaling.
           </p>
         </div>
-        <div className="spacer" />
-        {isScm ? (
-          <span className="muted">
-            {cutFile
-              ? "Use the SCM .studio3 cut template."
-              : "No SCM cut file for this layout."}
-          </span>
-        ) : (
-          <button
-            type="button"
-            disabled={!layout || cutTemplateTask.busy}
-            onClick={() =>
-              void cutTemplateTask.run(async () => {
-                setCutTemplateStatus(({ id }) => ({ path: "", id }));
-                const path = await downloadCutTemplate(deck);
-                if (path)
-                  setCutTemplateStatus(({ id }) => ({ path, id: id + 1 }));
-              })
-            }
-          >
-            Export cut template (SVG)
-          </button>
-        )}
-        <button
-          type="button"
-          title="One print-ready PNG per card face, in a ZIP"
-          disabled={!valid || task.busy}
-          onClick={() => start("png")}
-        >
-          <Images size={16} />
-          Export PNGs
-        </button>
       </div>
       <ErrorNotice error={cutTemplateTask.error} />
       <StatusRegion
@@ -1151,15 +1172,18 @@ export function PrintSetup({
             <section className="print-summary" aria-label="Print summary">
               <div className="toolbar print-summary-heading">
                 <h3>Print summary</h3>
-                <button
-                  type="button"
-                  className="primary"
-                  disabled={!valid || task.busy}
-                  onClick={() => start("pdf")}
-                >
-                  <Download size={16} aria-hidden="true" />
-                  {task.busy ? "Queuing…" : "Generate PDF"}
-                </button>
+                <div className="export-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    disabled={!valid || task.busy}
+                    onClick={() => start("pdf")}
+                  >
+                    <Download size={16} aria-hidden="true" />
+                    {task.busy ? "Queuing…" : "Generate PDF"}
+                  </button>
+                  <MenuButton label="Other exports" items={otherExports} />
+                </div>
               </div>
               <dl className="print-summary-values">
                 <div>
