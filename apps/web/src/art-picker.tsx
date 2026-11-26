@@ -48,10 +48,18 @@ export function ArtPicker(props: {
   onApply: (deck: Deck) => Promise<Deck>;
 }) {
   const { entry, onSelect } = props;
-  const [activeFace, setActiveFace] = useState({ entryId: entry.id, face: 0 });
+  const [activeFace, setActiveFace] = useState({
+    entryId: entry.id,
+    face: 0,
+    restoreFocus: false,
+  });
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const [applied, setApplied] = useState({ sequence: 0, printing: "" });
   const face = activeFace.entryId === entry.id ? activeFace.face : 0;
+  const activeFaceControl = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (activeFace.restoreFocus) activeFaceControl.current?.focus();
+  }, [activeFace]);
   const heading = useRef<HTMLHeadingElement>(null);
   const previousEntry = useRef(entry.id);
   useEffect(() => {
@@ -72,11 +80,12 @@ export function ArtPicker(props: {
         key={`${entry.id}:${face}`}
         {...props}
         face={face}
-        setFace={(nextFace) =>
-          setActiveFace({ entryId: entry.id, face: nextFace })
+        activeFaceControl={activeFaceControl}
+        setFace={(nextFace, restoreFocus) =>
+          setActiveFace({ entryId: entry.id, face: nextFace, restoreFocus })
         }
         onSelect={(id, nextFace = 0) => {
-          setActiveFace({ entryId: id, face: nextFace });
+          setActiveFace({ entryId: id, face: nextFace, restoreFocus: false });
           onSelect(id);
         }}
         heading={heading}
@@ -162,6 +171,7 @@ function ArtSession({
   onSelect,
   onApply,
   face,
+  activeFaceControl,
   setFace,
   heading,
   onMatchCount,
@@ -172,7 +182,8 @@ function ArtSession({
   onSelect: (id: string, face?: number) => void;
   onApply: (deck: Deck) => Promise<Deck>;
   face: number;
-  setFace: (face: number) => void;
+  activeFaceControl: React.Ref<HTMLButtonElement>;
+  setFace: (face: number, restoreFocus: boolean) => void;
   heading: React.Ref<HTMLHeadingElement>;
   onMatchCount: (count: number) => void;
   onApplied: (printing: string) => void;
@@ -186,7 +197,9 @@ function ArtSession({
   const originalIsSaved = original?.id === saved?.id;
   const previewingOriginal = changed && candidate?.id === original?.id;
   const showSavedMonitor = changed && !originalIsSaved;
-  const [pendingEntry, setPendingEntry] = useState<string | null>(null);
+  const [pending, setPending] = useState<
+    { entryId: string } | { face: number } | null
+  >(null);
   const scopeDescription = useId();
   const [provider, setProvider] = useState("all");
   const [language, setLanguage] = useState(entry.requestedLanguages?.[0] ?? "");
@@ -299,8 +312,15 @@ function ArtSession({
   );
   const navigate = (id: string) => {
     if (id === entry.id || task.busy) return;
-    if (changed) setPendingEntry(id);
+    if (changed) setPending({ entryId: id });
     else onSelect(id);
+  };
+  const switchFace = (nextFace: number, trigger: HTMLButtonElement) => {
+    if (nextFace === face) return;
+    if (changed) {
+      trigger.focus();
+      setPending({ face: nextFace });
+    } else setFace(nextFace, false);
   };
   const apply = (next: boolean) =>
     void task.run(async () => {
@@ -379,15 +399,17 @@ function ArtSession({
           <div className="segmented">
             <button
               type="button"
+              ref={face === 0 ? activeFaceControl : undefined}
               aria-pressed={face === 0}
-              onClick={() => setFace(0)}
+              onClick={(event) => switchFace(0, event.currentTarget)}
             >
               Front
             </button>
             <button
               type="button"
+              ref={face === 1 ? activeFaceControl : undefined}
               aria-pressed={face === 1}
-              onClick={() => setFace(1)}
+              onClick={(event) => switchFace(1, event.currentTarget)}
             >
               Back
             </button>
@@ -876,12 +898,14 @@ function ArtSession({
           </button>
         ))}
       </nav>
-      {pendingEntry && (
+      {pending && (
         <DiscardPreview
-          onStay={() => setPendingEntry(null)}
+          switchingFace={"face" in pending}
+          onStay={() => setPending(null)}
           onDiscard={() => {
-            setPendingEntry(null);
-            onSelect(pendingEntry);
+            setPending(null);
+            if ("face" in pending) setFace(pending.face, true);
+            else onSelect(pending.entryId);
           }}
         />
       )}
@@ -906,57 +930,30 @@ function ArtSession({
 }
 
 function DiscardPreview({
+  switchingFace,
   onStay,
   onDiscard,
 }: {
+  switchingFace: boolean;
   onStay: () => void;
   onDiscard: () => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const title = useId();
-  const description = useId();
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
-  const stay = () => {
-    dialogRef.current?.close();
-    onStay();
-  };
   return (
-    <dialog
-      className="modal"
-      ref={dialogRef}
-      aria-labelledby={title}
-      aria-describedby={description}
-      onCancel={(event) => {
-        event.preventDefault();
-        stay();
-      }}
+    <Modal
+      title="Discard art preview?"
+      description={`This preview hasn’t been applied. Discard it to ${switchingFace ? "switch faces" : "move to another card"}. Your saved art won’t change.`}
+      onClose={onStay}
+      showClose={false}
     >
-      <div className="modal-heading">
-        <h2 id={title}>Discard art preview?</h2>
-      </div>
-      <p id={description}>
-        This preview hasn’t been applied. Discard it to move to another card.
-        Your saved art won’t change.
-      </p>
       <div className="modal-actions">
-        <button type="button" className="primary" onClick={stay}>
-          Stay
+        <button type="button" className="primary" onClick={onStay}>
+          {switchingFace ? "Keep preview" : "Stay"}
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            dialogRef.current?.close();
-            onDiscard();
-          }}
-        >
+        <button type="button" onClick={onDiscard}>
           Discard
         </button>
       </div>
-    </dialog>
+    </Modal>
   );
 }
 

@@ -1443,6 +1443,87 @@ it.each([
   },
 );
 
+it.each([
+  ["Front", "Back"],
+  ["Back", "Front"],
+] as const)(
+  "confirms a face switch from %s to %s only with an unapplied preview",
+  async (from, to) => {
+    const user = userEvent.setup();
+    mockPickerArt([original, alternate]);
+    const apply = vi.fn(async (value: Deck) => value);
+    const twoSided = {
+      ...entry,
+      card: {
+        ...entry.card,
+        faces: [original, { ...original, id: "scryfall:original-back" }],
+      },
+    };
+    renderWithClient(
+      <ArtPicker
+        deck={{ ...deck, entries: [twoSided] }}
+        entry={twoSided}
+        onSelect={vi.fn()}
+        onApply={apply}
+      />,
+    );
+    const face = (name: string) => screen.getByRole("button", { name });
+    if (from === "Back") await user.click(face(from));
+    expect(face(from)).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+
+    const preview = await screen.findByRole("button", previewButton);
+    await user.click(preview);
+    await user.click(face(from));
+    expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+
+    const trigger = face(to);
+    await user.click(trigger);
+    const prompt = screen.getByRole("dialog", promptName);
+    const keep = within(prompt).getByRole("button", { name: "Keep preview" });
+    const discard = within(prompt).getByRole("button", { name: "Discard" });
+    discard.focus();
+    await user.tab();
+    expect(keep).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(discard).toHaveFocus();
+    await user.click(keep);
+    expect(prompt).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(face(from)).toHaveAttribute("aria-pressed", "true");
+    expect(preview).toHaveAttribute("aria-pressed", "true");
+
+    await user.keyboard("{Enter}");
+    fireEvent(
+      screen.getByRole("dialog", promptName),
+      new Event("cancel", { cancelable: true }),
+    );
+    expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(face(from)).toHaveAttribute("aria-pressed", "true");
+    expect(preview).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(trigger);
+    await user.click(
+      within(screen.getByRole("dialog", promptName)).getByRole("button", {
+        name: "Discard",
+      }),
+    );
+    expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+    expect(face(to)).toHaveAttribute("aria-pressed", "true");
+    expect(face(to)).toHaveFocus();
+
+    await user.click(face(from));
+    expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+    expect(face(from)).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", previewButton)).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(apply).not.toHaveBeenCalled();
+  },
+);
+
 it("navigates without prompting for unchanged art and waits for Apply & next to save", async () => {
   const user = userEvent.setup();
   mockPickerArt([original, alternate]);
