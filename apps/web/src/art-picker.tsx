@@ -841,7 +841,8 @@ function UploadArt({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [artist, setArtist] = useState("");
-  const [bleed, setBleed] = useState(0);
+  const [bleed, setBleed] = useState("auto");
+  const [customBleed, setCustomBleed] = useState("");
   const task = useTask();
   return (
     <Modal title="Upload card art" onClose={onClose} busy={task.busy}>
@@ -857,7 +858,13 @@ function UploadArt({
                   oracleId: entry.card.oracleId,
                   name: entry.card.name,
                   artist,
-                  bleedMm: bleed,
+                  ...(bleed === "auto"
+                    ? {}
+                    : {
+                        bleedMm: Number(
+                          bleed === "custom" ? customBleed : bleed,
+                        ),
+                      }),
                 }),
               );
             });
@@ -889,16 +896,33 @@ function UploadArt({
           Existing bleed per side
           <select
             value={bleed}
-            onChange={(event) => setBleed(Number(event.target.value))}
+            onChange={(event) => setBleed(event.target.value)}
           >
+            <option value="auto">Auto-detect (recommended)</option>
             <option value={0}>No bleed, trimmed card</option>
             <option value={3.048}>MPC image, 36 px at 300 DPI</option>
             <option value={3.175}>⅛ inch bleed</option>
+            <option value="custom">Custom bleed</option>
           </select>
         </label>
+        {bleed === "custom" && (
+          <label className="field">
+            Custom bleed per side (mm)
+            <input
+              type="number"
+              min={0}
+              max={10}
+              step="any"
+              required
+              value={customBleed}
+              onChange={(event) => setCustomBleed(event.target.value)}
+            />
+          </label>
+        )}
         <p className="hint">
-          Existing bleed is removed before applying your print settings. A wrong
-          value crops the card face.
+          Auto-detect uses image proportions to match common bleed sizes.
+          Override it if you already know the bleed. Existing bleed is removed
+          before applying your print settings.
         </p>
         <ErrorNotice error={task.error} />
         <div className="modal-actions">

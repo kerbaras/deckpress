@@ -26,6 +26,18 @@ fn strips_mpc_bleed_using_the_mpc_card_size() {
     assert_eq!(untouched.dimensions(), image.dimensions());
 }
 
+#[test]
+fn strips_upload_bleed_using_the_source_size_even_for_custom_print_trim() {
+    let image = RgbImage::new(816, 1112);
+    let settings = PrintSettings {
+        card_width_mm: 40.0,
+        card_height_mm: 60.0,
+        ..PrintSettings::default()
+    };
+    let out = strip_bleed(&image, &art(3.048, Provider::Upload), &settings);
+    assert_eq!(out.dimensions(), (744, 1040));
+}
+
 /// Every pixel gets a unique colour so reflections can be traced exactly.
 fn labelled(width: u32, height: u32) -> RgbImage {
     let mut image = RgbImage::new(width, height);

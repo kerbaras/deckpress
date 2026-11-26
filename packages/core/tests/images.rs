@@ -1,12 +1,16 @@
 mod common;
 
-use std::sync::Arc;
+use std::{io::Cursor, sync::Arc};
 
 use deckpress_core::images::{
     mime_for, upload_id, validate_image_url, Images, UploadInput, UPLOAD_SCHEME,
 };
-use deckpress_core::models::Provider;
+use deckpress_core::layout::{create_layout, mm_to_pixels, mm_to_pt};
+use deckpress_core::models::{BleedMode, PrintSettings, Provider};
+use deckpress_core::pdf::{build_pdf, PdfServices};
 use deckpress_core::store::Store;
+use deckpress_core::upscaler::CancelToken;
+use image::{ImageFormat, Rgb, RgbImage};
 
 #[test]
 fn only_allows_known_https_image_hosts() {
@@ -54,7 +58,7 @@ async fn uploads_are_normalized_to_png_and_listed_by_oracle() {
                 oracle_id: "oracle".into(),
                 name: "Custom".into(),
                 artist: String::new(),
-                bleed_mm: 0.0,
+                bleed_mm: Some(0.0),
             },
         )
         .unwrap();
@@ -68,4 +72,123 @@ async fn uploads_are_normalized_to_png_and_listed_by_oracle() {
     let legacy = art.image_url.replace(UPLOAD_SCHEME, "/api/uploads/");
     assert_eq!(images.read(&legacy).await.unwrap(), bytes);
     assert!(images.read("upload://not-a-uuid").await.is_err());
+}
+
+fn upload_input(bleed_mm: Option<f64>) -> UploadInput {
+    UploadInput {
+        oracle_id: "o".into(),
+        name: "Custom".into(),
+        artist: String::new(),
+        bleed_mm,
+    }
+}
+
+#[test]
+fn upload_detects_common_bleed_sizes_unless_overridden() {
+    let dir = tempfile::tempdir().unwrap();
+    let images = Images::new(dir.path(), Arc::new(Store::in_memory().unwrap())).unwrap();
+    for (width, height, expected) in [
+        (690, 940, 3.048),
+        (822, 1122, 3.048),
+        (819, 1114, 3.175),
+        (744, 1040, 0.0),
+        (1000, 1000, 0.0),
+    ] {
+        let art = images
+            .upload(
+                &common::png(width, height, [180, 100, 60]),
+                upload_input(None),
+            )
+            .unwrap();
+        assert_eq!(art.bleed_mm, expected, "{width} × {height}");
+        assert!(images.uploads_for("o").unwrap().contains(&art));
+    }
+
+    let png = common::png(822, 1122, [180, 100, 60]);
+    for bleed in [0.0, 1.25] {
+        let art = images.upload(&png, upload_input(Some(bleed))).unwrap();
+        assert_eq!(art.bleed_mm, bleed);
+    }
+    assert!(images.upload(&png, upload_input(Some(10.01))).is_err());
+}
+
+#[tokio::test]
+async fn detected_bleed_upload_fills_physical_trim_in_pdf_export() {
+    let dir = tempfile::tempdir().unwrap();
+    let images = Images::new(dir.path(), Arc::new(Store::in_memory().unwrap())).unwrap();
+    let upload = RgbImage::from_fn(816, 1112, |x, y| {
+        if !(36..780).contains(&x) || !(36..1076).contains(&y) {
+            Rgb([40, 170, 65])
+        } else if !(44..772).contains(&x) || !(44..1068).contains(&y) {
+            Rgb([225, 28, 32])
+        } else {
+            Rgb([240, 238, 216])
+        }
+    });
+    let mut png = Vec::new();
+    upload
+        .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+        .unwrap();
+    let art = images.upload(&png, upload_input(None)).unwrap();
+    assert_eq!(art.bleed_mm, 3.048);
+    assert_eq!(art.dpi, 300.0);
+    let url = art.image_url.clone();
+    let source = images.read(&url).await.unwrap();
+    let mut deck = common::deck(1);
+    deck.entries[0].selected_art = Some(art);
+    let settings = PrintSettings {
+        dpi: 300,
+        bleed_mode: BleedMode::Edge,
+        calibration_page: false,
+        ..PrintSettings::default()
+    };
+    let slot = create_layout(&settings).unwrap().slots[0];
+    assert_eq!(slot.trim.width, mm_to_pt(63.0));
+    assert_eq!(slot.trim.height, mm_to_pt(88.0));
+    let raster_dir = dir.path().join("rasters");
+    let pdf = build_pdf(
+        &deck,
+        &settings,
+        &PdfServices {
+            upscaler: None,
+            raster_dir: &raster_dir,
+        },
+        &CancelToken::default(),
+        &mut |_, _, _| {},
+        &mut |requested| {
+            assert_eq!(requested, url);
+            Ok(source.clone())
+        },
+    )
+    .unwrap();
+    assert_eq!(pdf.unique_images, 1);
+    let jpeg = std::fs::read(
+        std::fs::read_dir(raster_dir)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path(),
+    )
+    .unwrap();
+    assert!(pdf.bytes.windows(jpeg.len()).any(|window| window == jpeg));
+    let embedded = image::load_from_memory(&jpeg).unwrap().to_rgb8();
+    let bleed = mm_to_pixels(settings.bleed_mm, settings.dpi);
+    let (w, h) = (mm_to_pixels(63.0, 300), mm_to_pixels(88.0, 300));
+    assert_eq!(embedded.dimensions(), (w + 2 * bleed, h + 2 * bleed));
+    let is_outline = |x, y| {
+        let [r, g, b] = embedded.get_pixel(x, y).0;
+        r > 160 && g < 100 && b < 100
+    };
+    let assert_trim_outline = |length, is_outline: &dyn Fn(u32) -> bool| {
+        let mut outline = (bleed..bleed + length).filter(|&p| is_outline(p));
+        let first = outline.next().unwrap();
+        let last = outline.next_back().unwrap();
+        assert!(first - bleed <= 1, "outline starts at {first}");
+        assert!(bleed + length - 1 - last <= 1, "outline ends at {last}");
+    };
+    assert_trim_outline(w, &|x| is_outline(x, bleed + h / 2));
+    assert_trim_outline(h, &|y| is_outline(bleed + w / 2, y));
+    assert!(is_outline(0, bleed + h / 2));
+    assert!(is_outline(bleed + w / 2, 0));
 }

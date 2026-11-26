@@ -68,7 +68,7 @@ fn upload(images: &Images, name: &str, pixel: [u8; 3]) -> Art {
                 oracle_id: "oracle".into(),
                 name: name.into(),
                 artist: "Seb McKinnon".into(),
-                bleed_mm: 0.0,
+                bleed_mm: Some(0.0),
             },
         )
         .unwrap()

@@ -388,7 +388,7 @@ export const api = {
   /** Image bytes travel as the raw IPC body; metadata rides in a header. */
   upload: async (
     file: File,
-    meta: { oracleId: string; name: string; artist: string; bleedMm: number },
+    meta: { oracleId: string; name: string; artist: string; bleedMm?: number },
   ) => {
     let data: unknown;
     try {
