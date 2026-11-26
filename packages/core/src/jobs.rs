@@ -210,6 +210,7 @@ impl Jobs {
             file_name: file_name(&deck, &settings),
             bytes: 0,
             pages: 0,
+            calibration_page: settings.calibration_page,
         };
         self.store.put(KIND, &job.id, &job)?;
         self.prune()?;

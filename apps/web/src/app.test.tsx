@@ -142,6 +142,50 @@ beforeEach(() => {
   });
 });
 
+it("shows the calibration ruler hint only on jobs that included it", async () => {
+  const job = {
+    id,
+    deckId: id,
+    status: "completed",
+    completed: 60,
+    total: 60,
+    message: "PDF ready",
+    createdAt: deck.createdAt,
+    fileName: "Burn.pdf",
+    bytes: 1000,
+    pages: 7,
+  };
+  mockIPC((cmd) => {
+    if (cmd === "health")
+      return { status: "ok", service: "@deckpress/desktop" };
+    if (cmd === "list_jobs")
+      return [
+        { ...job, deckName: "Without calibration", calibrationPage: false },
+        {
+          ...job,
+          id: "85ec616b-91ec-4da4-be64-be378806c981",
+          deckName: "With calibration",
+          pages: 8,
+          calibrationPage: true,
+        },
+        {
+          ...job,
+          id: "bfdd21b1-4be2-4bbc-a6ac-30c07b752520",
+          deckName: "Older export",
+        },
+      ];
+    return [];
+  });
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  await screen.findByRole("heading", { name: "Without calibration" });
+  expect(screen.getByRole("heading", { name: "Older export" })).toBeVisible();
+  const hint = screen.getByText(
+    /measure the ruler on the print-size calibration page/i,
+  );
+  expect(hint.closest("article")).toHaveTextContent("With calibration");
+});
+
 it("suggests related tokens and saves them in the tokens zone only when added", async () => {
   const tokenId = "138aacf8-01a2-4e63-a43a-e42eb1abc32c";
   const token: DeckEntry = {
@@ -814,6 +858,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
     fileName: "burn.pdf",
     bytes: 0,
     pages: 1,
+    calibrationPage: true,
   });
   function PrintHarness() {
     const [value, setValue] = useState({
@@ -834,6 +879,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   for (const button of screen.getAllByRole("button", { name: "Generate PDF" }))
     expect(button).toBeDisabled();
   await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
+  await user.click(screen.getByRole("button", { name: "Next page" }));
   const proof = screen.getByRole("img", {
     name: /Print preview, A4, 3 columns by 3 rows/,
   });
@@ -958,39 +1004,83 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
   expect(screen.queryByText(/Bleed exceeds half the gap/)).toBeNull();
 });
 
-it.each(printPageCounts)("shows the PDF page count for $name", (fixture) => {
-  const { quantity, settings, cardSheets, pdfPages, calibrationPages } =
-    fixture;
-  renderWithClient(
-    <PrintSetup
-      deck={{
-        ...deck,
-        entries: quantity ? [{ ...entry, quantity }] : [],
-        printSettings: printSettingsSchema.parse(settings),
-      }}
-      onChange={() => {}}
-      onSave={async (value) => value}
-      onJobs={() => {}}
-    />,
-  );
-  const summary = screen.getByText(/^Trim [\d.]+ × [\d.]+ mm/);
-  const sheets = `${cardSheets} card ${cardSheets === 1 ? "sheet" : "sheets"}`;
-  const pages = `${pdfPages} PDF ${pdfPages === 1 ? "page" : "pages"}`;
-  expect(summary).toHaveTextContent(`${sheets} · ${pages}`);
-  if (calibrationPages) {
-    expect(summary).toHaveTextContent(
-      `(includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`,
+it.each(printPageCounts)(
+  "shows the PDF page count for $name",
+  async (fixture) => {
+    const user = userEvent.setup();
+    const { quantity, settings, cardSheets, pdfPages, calibrationPages } =
+      fixture;
+    renderWithClient(
+      <PrintSetup
+        deck={{
+          ...deck,
+          entries: quantity ? [{ ...entry, quantity }] : [],
+          printSettings: printSettingsSchema.parse(settings),
+        }}
+        onChange={() => {}}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+      />,
     );
-  } else {
-    expect(summary).not.toHaveTextContent(/calibration/);
-  }
-  for (const button of screen.getAllByRole("button", {
-    name: "Generate PDF",
-  })) {
-    if (cardSheets) expect(button).toBeEnabled();
-    else expect(button).toBeDisabled();
-  }
-});
+    const summary = screen.getByText(/^Trim [\d.]+ × [\d.]+ mm/);
+    const sheets = `${cardSheets} card ${cardSheets === 1 ? "sheet" : "sheets"}`;
+    const pages = `${pdfPages} PDF ${pdfPages === 1 ? "page" : "pages"}`;
+    expect(summary).toHaveTextContent(`${sheets} · ${pages}`);
+    if (calibrationPages) {
+      expect(summary).toHaveTextContent(
+        `(includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`,
+      );
+    } else {
+      expect(summary).not.toHaveTextContent(/calibration/);
+    }
+    for (const button of screen.getAllByRole("button", {
+      name: "Generate PDF",
+    })) {
+      if (cardSheets) expect(button).toBeEnabled();
+      else expect(button).toBeDisabled();
+    }
+    const next = screen.getByRole("button", { name: "Next page" });
+    const previous = screen.getByRole("button", { name: "Previous page" });
+    expect(previous).toBeDisabled();
+    if (pdfPages === 0) {
+      expect(screen.queryByText("Sheet 8 of 7")).not.toBeInTheDocument();
+      expect(screen.getByText("Page 0 of 0")).toBeVisible();
+      expect(next).toBeDisabled();
+      return;
+    }
+    for (let page = 1; page <= pdfPages; page++) {
+      const counter = screen.getByText(`Page ${page} of ${pdfPages}`, {
+        exact: false,
+      });
+      if (page <= calibrationPages) {
+        const label =
+          page === 1 ? "Calibration page" : "Blank calibration back";
+        expect(counter).toHaveTextContent(label);
+        const proof = screen.getByRole("img", { name: label });
+        expect(proof).toBeVisible();
+        if (page === 1 && "rulerMm" in fixture) {
+          expect(proof).toHaveTextContent(`${fixture.rulerMm} mm ruler`);
+          expect(proof).not.toHaveTextContent("MTG reference");
+        }
+      } else {
+        expect(counter).toHaveTextContent(/Sheet \d+ · (front|back)/);
+      }
+      if (page < pdfPages) {
+        expect(next).toBeEnabled();
+        await user.click(next);
+      }
+    }
+    expect(next).toBeDisabled();
+    if (pdfPages > 1) {
+      await user.click(previous);
+      expect(
+        screen.getByText(`Page ${pdfPages - 1} of ${pdfPages}`, {
+          exact: false,
+        }),
+      ).toBeVisible();
+    }
+  },
+);
 
 it("clamps SCM bleed visibly and previews the selected registration template", async () => {
   const user = userEvent.setup();
@@ -1001,6 +1091,7 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
         ...deck.printSettings,
         bleedMm: 1.4,
         backs: "short-edge",
+        calibrationPage: false,
       },
     });
     return (
@@ -1063,6 +1154,7 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
         gapMm: 2,
         columns: 2,
         rows: 2,
+        calibrationPage: false,
       },
     });
     return (

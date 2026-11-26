@@ -403,6 +403,12 @@ function PrintJobs({ active }: { active: number }) {
                       {job.completed} / {job.total} faces
                     </span>
                   </div>
+                  {job.status === "completed" && job.calibrationPage && (
+                    <p className="hint">
+                      Measure the ruler on the print-size calibration page
+                      before the full run.
+                    </p>
+                  )}
                 </div>
                 <div className="job-actions">
                   {job.status === "completed" ? (
@@ -473,9 +479,8 @@ function PrintJobs({ active }: { active: number }) {
         <div className="notice print-job-note">
           <Printer size={19} />
           <span>
-            Print at <strong>100% / actual size</strong>. Disable “Fit to page”
-            and measure the ruler on the print-size calibration page before the
-            full run. For AI exports, inspect rules text and mana symbols.
+            Print at <strong>100% / actual size</strong>. Disable “Fit to page”.
+            For AI exports, inspect rules text and mana symbols.
           </span>
         </div>
       </div>
