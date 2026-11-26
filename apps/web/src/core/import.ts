@@ -1,12 +1,13 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import Papa from "papaparse";
 import { z } from "zod";
-import { zoneSchema } from "./models.ts";
+import { boardSchema, zoneSchema } from "./models.ts";
 
 export const importLineSchema = z.object({
   name: z.string().trim().min(1).max(300),
   quantity: z.number().int().min(1).max(250),
   zone: zoneSchema,
+  board: boardSchema,
   set: z.string().max(20).default(""),
   collectorNumber: z.string().max(40).default(""),
 });
@@ -48,6 +49,42 @@ function zoneFrom(alias: string): ImportLine["zone"] | undefined {
     case "tokens":
       return "tokens";
   }
+}
+
+function boardComment(line: string) {
+  return /^\/\/ Board:\s*(.+)$/.exec(line)?.[1]?.trim() || undefined;
+}
+
+function namedMaybeBoard(label: string, alias: string) {
+  if (alias === "maybeboard" || alias === "considering")
+    return label.replace(/^\/\/\s*/, "").replace(/[^\p{L}\p{N}]+$/u, "");
+}
+
+function csvBoardComments(text: string, meta: Papa.ParseMeta) {
+  if (!text.includes("// Board:")) return [];
+  const newline =
+    meta.linebreak === "\r\n" || meta.linebreak === "\r"
+      ? meta.linebreak
+      : "\n";
+  const boards: (string | undefined)[] = [];
+  let offset = 0;
+  let board: string | undefined;
+  Papa.parse<string[]>(text, {
+    delimiter: meta.delimiter,
+    newline,
+    comments: "// Board:",
+    step: ({ data, meta }) => {
+      while (text.startsWith("// Board:", offset)) {
+        const end = text.indexOf(newline, offset);
+        if (end < 0) break;
+        board = boardComment(text.slice(offset, end));
+        offset = end + newline.length;
+      }
+      if (data.join("").trim()) boards.push(board);
+      offset = meta.cursor;
+    },
+  });
+  return boards.slice(1);
 }
 
 export function parseDecklist(input: string): ParsedDecklist {
@@ -126,10 +163,12 @@ export function parseDecklist(input: string): ParsedDecklist {
         input: "CSV row",
         message: error.message,
       });
+    const boardComments = csvBoardComments(text, csv.meta);
     csv.data.forEach((row, index) => {
       const line = index + 2;
       const board = (row.board ?? row.zone ?? "").trim();
-      const zone = zoneFrom(boardAlias(board));
+      const alias = boardAlias(board);
+      const zone = zoneFrom(alias);
       if (board && !zone)
         result.issues.push({
           line,
@@ -143,6 +182,11 @@ export function parseDecklist(input: string): ParsedDecklist {
           set: (row.setcode ?? row.set ?? "").toLowerCase(),
           collectorNumber: row.collectornumber ?? "",
           zone: zone ?? "main",
+          board: board
+            ? zone
+              ? namedMaybeBoard(board, alias)
+              : board
+            : boardComments[index],
         },
         line,
         row.name ?? row.cardname ?? "",
@@ -150,12 +194,19 @@ export function parseDecklist(input: string): ParsedDecklist {
     });
   } else {
     let zone: ImportLine["zone"] = "main";
+    let board: string | undefined;
     text.split(/\r?\n/).forEach((raw, index) => {
       const line = raw.trim();
       if (!line) return;
-      const header = zoneFrom(boardAlias(line));
+      const alias = boardAlias(line);
+      const header = zoneFrom(alias);
       if (header) {
         zone = header;
+        board = namedMaybeBoard(line, alias);
+        return;
+      }
+      if (line.startsWith("// Board:")) {
+        board = boardComment(line);
         return;
       }
       if (/^(\/\/|#)/.test(line)) return;
@@ -180,6 +231,7 @@ export function parseDecklist(input: string): ParsedDecklist {
           set: (match[3] ?? match[5] ?? "").toLowerCase(),
           collectorNumber: match[4] ?? "",
           zone: sideboard ? "side" : zone,
+          board: sideboard ? undefined : board,
         },
         index + 1,
         line,
@@ -194,6 +246,7 @@ export function parseDecklist(input: string): ParsedDecklist {
       entry.set,
       entry.collectorNumber,
       entry.zone,
+      entry.board,
     ]);
     const old = merged.get(key);
     if (old && old.entry.quantity + entry.quantity > 250)

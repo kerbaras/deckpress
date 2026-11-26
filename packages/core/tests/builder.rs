@@ -49,6 +49,7 @@ fn entry(pool: &PoolCard, quantity: u32, zone: Zone) -> DeckEntry {
         card: pool.card.clone(),
         quantity,
         zone,
+        board: None,
         selected_art: None,
         selected_back: None,
         excluded: false,
@@ -238,6 +239,7 @@ fn main_line(name: &str, quantity: u32) -> ImportLine {
         quantity,
         name: name.into(),
         zone: Zone::Main,
+        board: None,
         set: String::new(),
         collector_number: String::new(),
     }

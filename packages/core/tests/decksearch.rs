@@ -235,6 +235,7 @@ fn import_limits_mirror_deck_validation() {
         quantity,
         name: "Plains".into(),
         zone: Zone::Main,
+        board: None,
         set: String::new(),
         collector_number: String::new(),
     };

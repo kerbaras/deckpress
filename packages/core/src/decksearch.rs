@@ -427,6 +427,7 @@ pub fn parse_archidekt_deck(value: &Value) -> AppResult<ExternalDeck> {
             quantity,
             name,
             zone,
+            board: None,
             set: text(card, "/card/edition/editioncode").to_lowercase(),
             collector_number: text(card, "/card/collectorNumber"),
         });
