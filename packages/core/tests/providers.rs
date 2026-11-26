@@ -113,11 +113,102 @@ async fn moxfield_import_labels_nonempty_boards() {
     assert_eq!(
         text,
         concat!(
-            "commanders\n1 Jori En, Ruin Diver\ncompanions\n1 Lurrus of the Dream-Den\n",
+            "commanders\n1 Jori En, Ruin Diver\nCommander\n// Board: companions\n1 Lurrus of the Dream-Den\n",
             "mainboard\n4 Lightning Bolt (m10) 146\nsideboard\n2 Negate\n",
             "Deck\n// Board: sideboard2\n1 Shock\nDeck\n// Board: testing Pool\n1 Opt"
         )
     );
+}
+
+#[tokio::test]
+async fn moxfield_companion_section_does_not_depend_on_board_order() {
+    struct OrderedBoards<'a>([(&'a str, &'a Value); 4]);
+    impl serde::Serialize for OrderedBoards<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_map(self.0)
+        }
+    }
+    #[derive(serde::Serialize)]
+    struct Fixture<'a> {
+        boards: OrderedBoards<'a>,
+    }
+
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Providers::new(store.clone()).unwrap();
+    let key = hex::encode(Sha256::digest(
+        "https://api2.moxfield.com/v3/decks/all/exampleDecknull",
+    ));
+    let card = |name: &str| serde_json::json!({"cards": {"id": {"card": {"name": name}}}});
+    let commander = card("Jori En, Ruin Diver");
+    let companion = card("Lurrus of the Dream-Den");
+    let custom = card("Opt");
+    let empty = serde_json::json!({"cards": {}});
+
+    for (commander_key, commander_cards, companion_key, custom_key, expected) in [
+        (
+            "commanders",
+            &commander,
+            "companions",
+            "testing Pool",
+            "Commander",
+        ),
+        (
+            "commanders",
+            &commander,
+            "companions",
+            "commanders2",
+            "Commander",
+        ),
+        (
+            "Commanders",
+            &commander,
+            "COMPANIONS",
+            "testing Pool",
+            "Commander",
+        ),
+        ("commanders", &empty, "companions", "testing Pool", "Deck"),
+        ("commanders", &empty, "companions", "commanders2", "Deck"),
+    ] {
+        let boards = [
+            (commander_key, commander_cards),
+            (companion_key, &companion),
+            (custom_key, &custom),
+            ("empty Board", &empty),
+        ];
+        let companion_label = format!("// Board: {companion_key}");
+        for a in 0..4 {
+            for b in (0..4).filter(|b| *b != a) {
+                for c in (0..4).filter(|c| *c != a && *c != b) {
+                    let order = [a, b, c, 6 - a - b - c];
+                    let fixture = Fixture {
+                        boards: OrderedBoards(order.map(|i| boards[i])),
+                    };
+                    store.put("cache", &key, &fixture).unwrap();
+                    let output = providers
+                        .import_url("https://moxfield.com/decks/exampleDeck")
+                        .await
+                        .unwrap();
+                    assert!(
+                        output
+                            .lines()
+                            .collect::<Vec<_>>()
+                            .windows(3)
+                            .any(|section| {
+                                section
+                                    == [
+                                        expected,
+                                        companion_label.as_str(),
+                                        "1 Lurrus of the Dream-Den",
+                                    ]
+                            }),
+                        "order {:?}: {output}",
+                        order.map(|i| boards[i].0)
+                    );
+                    assert!(!output.contains("empty Board"));
+                }
+            }
+        }
+    }
 }
 
 #[tokio::test]

@@ -78,14 +78,74 @@ describe("decklist import", () => {
     expect(result.issues).toEqual([]);
   });
 
-  it("keeps Moxfield companions in the preceding Commander section", () => {
-    const result = parseDecklist(
-      "commanders\n1 Jori En, Ruin Diver\ncompanions\n1 Lurrus of the Dream-Den\nmainboard\n4 Lightning Bolt",
-    );
-    expect(
-      result.entries.find(({ name }) => name === "Lurrus of the Dream-Den"),
-    ).toMatchObject({ zone: "commander" });
-  });
+  it.each([
+    [
+      "normal",
+      "commanders",
+      "companions",
+      "testing Pool",
+      "Commander",
+      "commander",
+    ],
+    [
+      "lookalike custom",
+      "commanders",
+      "companions",
+      "commanders2",
+      "Commander",
+      "commander",
+    ],
+    [
+      "mixed-case keys",
+      "Commanders",
+      "COMPANIONS",
+      "testing Pool",
+      "Commander",
+      "commander",
+    ],
+    ["empty commanders", "", "companions", "testing Pool", "Deck", "main"],
+    [
+      "empty commanders with lookalike custom",
+      "",
+      "companions",
+      "commanders2",
+      "Deck",
+      "main",
+    ],
+  ])(
+    "imports Moxfield companions in %s boards regardless of order",
+    (_case, commanders, companions, custom, heading, zone) => {
+      const sections = [
+        commanders ? `${commanders}\n1 Jori En, Ruin Diver` : "",
+        `${heading}\n// Board: ${companions}\n1 Lurrus of the Dream-Den`,
+        `Deck\n// Board: ${custom}\n1 Opt`,
+        "",
+      ];
+      function permutations(values: string[]): string[][] {
+        if (!values.length) return [[]];
+        return values.flatMap((value, index) =>
+          permutations(values.filter((_, i) => i !== index)).map((tail) => [
+            value,
+            ...tail,
+          ]),
+        );
+      }
+      for (const order of permutations(sections)) {
+        const input = order.filter(Boolean).join("\n");
+        const result = parseDecklist(input);
+        expect(result.entries, input).toHaveLength(commanders ? 3 : 2);
+        expect(
+          result.entries.find(({ name }) => name === "Lurrus of the Dream-Den"),
+          input,
+        ).toMatchObject({ zone });
+        expect(
+          result.entries.find(({ name }) => name === "Opt"),
+          input,
+        ).toMatchObject({ zone: "main" });
+        expect(result.issues, input).toEqual([]);
+      }
+    },
+  );
 
   it("does not treat lookalike board names as aliases in text or CSV", () => {
     const text = parseDecklist("Deck\n// sideboard2\n1 Shock");
