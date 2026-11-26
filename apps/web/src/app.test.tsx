@@ -1135,7 +1135,17 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
   ).toBeVisible();
 
   await user.selectOptions(picker, "arch_b:borderless");
-  expect(screen.getByText(/SCM does not publish a cut file/)).toBeVisible();
+  expect(screen.getAllByText(/No SCM cut file for this layout/)).toHaveLength(
+    2,
+  );
+  expect(screen.queryByText(/\.studio3$/)).not.toBeInTheDocument();
+  expect(screen.queryByText("Cut file")).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("link", { name: "SCM borderless docs" }),
+  ).toHaveAttribute(
+    "href",
+    expect.stringMatching(/\/hugo\/content\/miscellaneous\/borderless\.md$/),
+  );
   await user.selectOptions(mode, "free");
   expect(screen.getByRole("img", { name: freePreview })).toBeVisible();
   expect(

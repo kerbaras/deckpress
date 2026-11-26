@@ -31,6 +31,7 @@ import {
   type ScmTemplate,
   scmCardLabel,
   scmCards,
+  scmCutFile,
   scmPapers,
   sheetLabel,
 } from "./core/index.ts";
@@ -53,8 +54,10 @@ const scmVariants = [
   { value: "default", label: "Standard layout" },
   { value: "borderless", label: "Borderless layout" },
 ] as const;
-const scmCuttingTemplates =
-  "https://github.com/Alan-Cha/silhouette-card-maker/tree/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates";
+const scmTree =
+  "https://github.com/Alan-Cha/silhouette-card-maker/tree/0da09b729814aa5aafde024b5a6059624fa87951";
+const scmCuttingTemplates = `${scmTree}/cutting_templates`;
+const scmBorderlessDocs = `${scmTree}/hugo/content/miscellaneous/borderless.md`;
 
 export const bleedModes: {
   value: PrintSettings["bleedMode"];
@@ -130,6 +133,7 @@ export function PrintSetup({
     ? Number(effective.cardHeightMm.toFixed(2))
     : effective.cardHeightMm;
   const sheetName = layout?.scm?.name ?? paperNames[settings.paper];
+  const cutFile = layout?.scm && scmCutFile(layout.scm.name);
   const changeTemplate = (patch: Partial<ScmTemplate>) =>
     change({ scmTemplate: { ...template, ...patch } });
   const matchingPapers = isScm
@@ -213,7 +217,11 @@ export function PrintSetup({
             ` (includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`}
         </span>
         {isScm ? (
-          <span className="muted">Use the SCM .studio3 cut template.</span>
+          <span className="muted">
+            {cutFile
+              ? "Use the SCM .studio3 cut template."
+              : "No SCM cut file for this layout."}
+          </span>
         ) : (
           <button
             type="button"
@@ -433,24 +441,27 @@ export function PrintSetup({
                           {layout.slots.length} cards per sheet
                         </dd>
                       </div>
-                      <div>
-                        <dt>Cut file</dt>
-                        <dd>
-                          <code>{layout.scm.name}.studio3</code>
-                        </dd>
-                      </div>
-                    </dl>
-                    <ExternalLink href={scmCuttingTemplates}>
-                      SCM cutting templates
-                    </ExternalLink>
-                    {template.variant === "borderless" &&
-                      (template.paper === "a3" ||
-                        template.paper === "arch_b") && (
-                        <p className="my-0 text-meta text-warning-ink">
-                          SCM does not publish a cut file for this borderless
-                          layout.
-                        </p>
+                      {cutFile && (
+                        <div>
+                          <dt>Cut file</dt>
+                          <dd>
+                            <code>{cutFile}</code>
+                          </dd>
+                        </div>
                       )}
+                    </dl>
+                    {cutFile ? (
+                      <ExternalLink href={scmCuttingTemplates}>
+                        SCM cutting templates
+                      </ExternalLink>
+                    ) : (
+                      <p className="scm-cut-warning my-0 text-meta text-warning-ink">
+                        No SCM cut file for this layout.{" "}
+                        <ExternalLink href={scmBorderlessDocs}>
+                          SCM borderless docs
+                        </ExternalLink>
+                      </p>
+                    )}
                     <p className="my-0 text-meta text-muted">
                       Registration marks replace crop guides. Template spacing
                       replaces free margins and gaps. Duplex uses long-edge

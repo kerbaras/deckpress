@@ -1,3 +1,4 @@
+import cutTemplates from "../../../../packages/core/assets/scm/cutting-templates.json";
 import source from "../../../../packages/core/assets/scm/layouts.json";
 import { mmToPt, type PrintLayout, type Rect, type Slot } from "./layout.ts";
 import type { PrintSettings, ScmTemplate } from "./models.ts";
@@ -30,6 +31,15 @@ export function scmCardLabel(card: string) {
     .replace(/\b[a-z]/g, (initial) => initial.toUpperCase());
   const size = Object.hasOwn(cardSizes, card) ? cardSizes[card] : undefined;
   return size ? `${name} · ${size.width} × ${size.height}` : name;
+}
+
+const cutFiles = new Set(
+  cutTemplates.files.map((path) => path.slice(path.lastIndexOf("/") + 1)),
+);
+
+export function scmCutFile(name: string): string | undefined {
+  const file = `${name}.studio3`;
+  return cutFiles.has(file) ? file : undefined;
 }
 
 export interface ScmSheet {
