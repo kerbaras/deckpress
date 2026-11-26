@@ -119,8 +119,10 @@ export function parseDecklist(input: string): ParsedDecklist {
   if (input.length > 200_000) throw new Error("Decklist exceeds 200 KB");
   const source = input.replace(/^\uFEFF/, "");
   const text = source.trim();
+  const leadingLines =
+    /^(?:[ \t]*(?:(?:\/\/|#)[^\r\n]*)?(?:\r\n|\r|\n))*/.exec(text)?.[0] ?? "";
   const csvHeaderDelimiter = /^(?:.*[;,])?(?:name|card name)([;,])/i.exec(
-    text.split(/\r?\n/, 1)[0] ?? "",
+    text.slice(leadingLines.length).split(/\r?\n/, 1)[0] ?? "",
   )?.[1];
   const result: ParsedDecklist = {
     entries: [],
@@ -181,25 +183,30 @@ export function parseDecklist(input: string): ParsedDecklist {
     });
   } else if (csvHeaderDelimiter) {
     result.format = "CSV";
+    const boardLine =
+      leadingLines.match(/^\/\/ Board:[^\r\n]*(?:\r\n|\r|\n)/gm)?.pop() ?? "";
+    const csvText = boardLine + text.slice(leadingLines.length);
     const config: Papa.ParseConfig<Record<string, string>> = {
       header: true,
       comments: csvComment,
       skipEmptyLines: "greedy",
       transformHeader: (header) => header.toLowerCase().replace(/[^a-z]/g, ""),
     };
-    const detected = Papa.parse(text, config);
+    const detected = Papa.parse(csvText, config);
     const csv = detected.errors.some(
       (error) => error.code === "UndetectableDelimiter",
     )
-      ? Papa.parse(text, { ...config, delimiter: csvHeaderDelimiter })
+      ? Papa.parse(csvText, { ...config, delimiter: csvHeaderDelimiter })
       : detected;
     const firstLine =
       1 +
       lineBreakCount(
         source.slice(0, source.length - source.trimStart().length),
-      );
+      ) +
+      lineBreakCount(leadingLines) -
+      lineBreakCount(boardLine);
     const { recordLines, nonEmptyLines, boards, headingLines } = csvSourceLines(
-      text,
+      csvText,
       firstLine,
       csv.meta,
     );

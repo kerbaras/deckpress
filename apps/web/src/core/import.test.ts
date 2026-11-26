@@ -486,6 +486,55 @@ describe("decklist import", () => {
     },
   );
 
+  it.each([
+    ["a board comment", "\n", ",", ["// Board: testing Pool"], "testing Pool"],
+    [
+      "comments and blank lines",
+      "\r\n",
+      ";",
+      ["// Exported deck", "", "# notes", "// Board: testing Pool", ""],
+      "testing Pool",
+    ],
+    ["a plain comment", "\n", ",", ["// Exported deck"], undefined],
+  ])(
+    "detects CSV after %s before the header and keeps physical lines",
+    (_case, newline, delimiter, leading, board) => {
+      const result = parseDecklist(
+        [
+          "",
+          ...leading,
+          `Name${delimiter}Quantity`,
+          `Opt${delimiter}1`,
+          `Shock${delimiter}invalid`,
+        ].join(newline),
+      );
+      const header = leading.length + 2;
+      expect(result.format).toBe("CSV");
+      expect(result.entries).toEqual([
+        expect.objectContaining({ name: "Opt", quantity: 1, board }),
+      ]);
+      expect(result.lines).toEqual([header + 1]);
+      expect(result.issues).toEqual([
+        {
+          line: header + 2,
+          input: "Shock",
+          message: "Expected a card name and a quantity between 1 and 250",
+          category: "csv",
+        },
+      ]);
+    },
+  );
+
+  it("keeps text lists that start with comments as Text / Arena", () => {
+    const result = parseDecklist("// Exported deck\n# notes\n\n1 Opt\n2 Shock");
+    expect(result.format).toBe("Text / Arena");
+    expect(result.entries).toMatchObject([
+      { name: "Opt", quantity: 1 },
+      { name: "Shock", quantity: 2 },
+    ]);
+    expect(result.lines).toEqual([4, 5]);
+  });
+
   it("reads quoted CSV names and MTGO XML without interpreting entities", () => {
     const csv = parseDecklist(
       'Name,Quantity,Set Code,Collector Number,Board\n"Atraxa, Praetors\' Voice",1,C16,28,Commander',
