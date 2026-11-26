@@ -5,7 +5,7 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
-    paths: ['.github/workflows/build.yml']
+    paths: ['.github/workflows/build.yml', 'scripts/check-release*.mjs']
   workflow_dispatch:
 
 permissions:
@@ -20,8 +20,38 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  release_gate:
+    name: Validate release
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Test release validation
+        if: github.event_name == 'pull_request'
+        run: node --test scripts/check-release.test.mjs
+
+      - name: Validate tag, versions, and release notes
+        if: github.event_name == 'push'
+        run: node scripts/check-release.mjs "$GITHUB_REF_NAME" > release-notes.md
+
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'push'
+        with:
+          name: release-notes
+          if-no-files-found: error
+          path: release-notes.md
+
   package:
     name: ${{ matrix.name }}
+    needs: release_gate
+    if: ${{ !cancelled() && (needs.release_gate.result == 'success' || needs.release_gate.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -72,8 +102,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          # ort-sys rc.13 uses the pre-1.100 Cargo layout to place DirectML.dll
-          # next to the Windows executable, where Tauri picks it up.
+          # Remove the Windows pin when we use an ort-sys release that handles
+          # Cargo >=1.100's build-dir layout: https://github.com/pykeio/ort/issues/674
           toolchain: ${{ runner.os == 'Windows' && '1.99.0' || 'stable' }}
           targets: ${{ matrix.target }}
 
@@ -153,7 +183,7 @@ jobs:
   release:
     name: Publish tagged release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: package
+    needs: [release_gate, package]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -161,25 +191,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
         with:
-          fetch-depth: 0
-
-      - name: Read release notes
-        run: |
-          if [ "$(git cat-file -t "$GITHUB_REF")" != tag ]; then
-            echo "::error::Push an annotated tag for $GITHUB_REF_NAME"
-            exit 1
-          fi
-          awk -v heading="## $GITHUB_REF_NAME" '
-            $0 == heading { found = 1; next }
-            found && /^## / { exit }
-            found { print; if (NF) has_notes = 1 }
-            END { if (!has_notes) exit 1 }
-          ' CHANGELOG.md > release-notes.md || {
-            echo "::error::No notes under ## $GITHUB_REF_NAME in CHANGELOG.md"
-            exit 1
-          }
+          name: release-notes
 
       - uses: actions/download-artifact@v7
         with:
