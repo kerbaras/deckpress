@@ -72,44 +72,27 @@ export function Loading({
   active = true,
   announcementId,
   label,
-  waitForPaint = true,
   children = "Loading…",
 }: {
   active?: boolean;
   announcementId?: string;
   label?: string;
-  waitForPaint?: boolean;
   children?: string;
 }) {
+  const ready = usePainted(!active);
   return (
     <>
-      <LoadingAnnouncement {...{ active, announcementId, label, waitForPaint }}>
-        {children}
-      </LoadingAnnouncement>
+      <StatusRegion label={label} announcementId={announcementId}>
+        {active && ready ? children : ""}
+      </StatusRegion>
       {active && <LoadingIndicator>{children}</LoadingIndicator>}
     </>
   );
 }
 
-export function LoadingAnnouncement({
-  active,
-  announcementId,
-  label,
-  waitForPaint = true,
-  children,
-}: {
-  active: boolean;
-  announcementId?: string | undefined;
-  label?: string | undefined;
-  waitForPaint?: boolean;
-  children: string;
-}) {
-  const [ready, setReady] = useState(!active);
+function usePainted(initial: boolean) {
+  const [ready, setReady] = useState(initial);
   useEffect(() => {
-    if (!waitForPaint) {
-      setReady(true);
-      return;
-    }
     let afterPaint = 0;
     const frame = requestAnimationFrame(() => {
       afterPaint = requestAnimationFrame(() => setReady(true));
@@ -118,12 +101,19 @@ export function LoadingAnnouncement({
       cancelAnimationFrame(frame);
       cancelAnimationFrame(afterPaint);
     };
-  }, [waitForPaint]);
-  return (
-    <StatusRegion label={label} announcementId={announcementId}>
-      {active && ready ? children : ""}
-    </StatusRegion>
-  );
+  }, []);
+  return ready;
+}
+
+export function useLoadingSequence() {
+  const announce = usePainted(false);
+  const [start, setStart] = useState(false);
+  useEffect(() => {
+    if (!announce) return;
+    const frame = requestAnimationFrame(() => setStart(true));
+    return () => cancelAnimationFrame(frame);
+  }, [announce]);
+  return { announce, start };
 }
 
 export function LoadingIndicator({ children }: { children: string }) {

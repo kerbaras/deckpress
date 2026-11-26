@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import { api, type DeckSummary } from "./api.ts";
@@ -109,6 +116,67 @@ it("records the source and author in the imported deck's notes", () => {
     "Imported from Archidekt: https://archidekt.com/decks/3949764",
   );
   expect(searchableFormats).not.toContain("Cube");
+});
+
+it("announces even an immediate preview response after exposing the empty dialog status", async () => {
+  vi.useFakeTimers();
+  try {
+    vi.spyOn(api, "searchDecks").mockResolvedValue({
+      items: [summary],
+      page: 1,
+      hasMore: false,
+      total: 1,
+      matchedCard: null,
+      cardMatches: [],
+    });
+    const getStatus = () =>
+      screen.getByRole("status", { name: "Discover decklist loading" });
+    const detail = vi.spyOn(api, "deckDetail").mockImplementation(async () => {
+      expect(within(getStatus()).getByRole("group")).toHaveTextContent(
+        "Loading decklist…",
+      );
+      return { summary, description: "Proliferate everything.", lines };
+    });
+    const client = new QueryClient();
+    const slot = document.createElement("div");
+    document.body.append(slot);
+    const page = () => (
+      <QueryClientProvider client={client}>
+        <ToolbarSlotProvider value={slot}>
+          <DeckSearch open={vi.fn()} />
+        </ToolbarSlotProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(page());
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: /Search public decks/ }),
+      { target: { value: "Atraxa" } },
+    );
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Preview Atraxa Superfriends" }),
+    );
+    const status = getStatus();
+    expect(status.closest("dialog")).toHaveAttribute("open");
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.getByText("Loading decklist…")).toBeVisible();
+    expect(detail).not.toHaveBeenCalled();
+    rerender(page());
+    expect(getStatus()).toBe(status);
+    expect(status).toBeEmptyDOMElement();
+    await act(() => vi.advanceTimersByTimeAsync(34));
+    expect(within(status).getAllByRole("group")).toHaveLength(1);
+    expect(detail).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(17));
+    expect(detail).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(getStatus()).toBe(status);
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.getByText("Proliferate everything.")).toBeVisible();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("searches after typing, previews the list, and imports only after showing unresolved lines", async () => {

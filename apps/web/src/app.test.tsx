@@ -144,19 +144,28 @@ it("announces library opening in the status mounted by the app shell", async () 
     window.history.replaceState(null, "", "/");
     const decks =
       Promise.withResolvers<Awaited<ReturnType<typeof api.decks>>>();
-    vi.spyOn(api, "decks").mockReturnValue(decks.promise);
+    const readLibrary = vi.spyOn(api, "decks").mockImplementation(() => {
+      expect(within(getStatus()).getByRole("group")).toHaveTextContent(
+        "Opening your library…",
+      );
+      return decks.promise;
+    });
     renderWithClient(<App />);
     const getStatus = () =>
       screen.getByRole("status", { name: "Library loading" });
     const status = getStatus();
     expect(status).toBeEmptyDOMElement();
     expect(screen.getByText("Opening your library…")).toBeVisible();
+    expect(readLibrary).not.toHaveBeenCalled();
 
     await act(() => vi.advanceTimersByTimeAsync(40));
     const message = within(status).getByRole("group");
     expect(message).toHaveTextContent("Opening your library…");
+    expect(readLibrary).not.toHaveBeenCalled();
     fireEvent.keyDown(document.body, { key: "b", ctrlKey: true });
     expect(within(status).getByRole("group")).toBe(message);
+    await act(() => vi.advanceTimersByTimeAsync(16));
+    expect(readLibrary).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       decks.resolve([deck]);

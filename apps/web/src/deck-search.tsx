@@ -26,11 +26,13 @@ import {
   ErrorNotice,
   ExternalLink,
   Loading,
+  LoadingIndicator,
   ManaPips,
   Modal,
   prettyDate,
   SearchField,
   StatusRegion,
+  useLoadingSequence,
   useTask,
 } from "./ui.tsx";
 
@@ -365,10 +367,12 @@ function DeckPreview({
   open: (id: string) => void;
 }) {
   const client = useQueryClient();
+  const previewLoad = useLoadingSequence();
   const detail = useQuery({
     queryKey: ["decksearch", "detail", summary.source, summary.id],
     queryFn: ({ signal }) => api.deckDetail(summary.source, summary.id, signal),
     staleTime: 5 * 60 * 1000,
+    enabled: previewLoad.start,
   });
   const task = useTask();
   const [resolved, setResolved] = useState<ResolvedCards | null>(null);
@@ -423,13 +427,12 @@ function DeckPreview({
         ) : (
           <ErrorNotice error={task.error} />
         )}
-        <Loading
-          active={detail.isPending}
-          label="Discover decklist loading"
-          waitForPaint={false}
-        >
-          Loading decklist…
-        </Loading>
+        <StatusRegion label="Discover decklist loading">
+          {previewLoad.announce && detail.isPending ? "Loading decklist…" : ""}
+        </StatusRegion>
+        {detail.isPending && (
+          <LoadingIndicator>Loading decklist…</LoadingIndicator>
+        )}
         {detail.data && (
           <>
             {detail.data.description && (

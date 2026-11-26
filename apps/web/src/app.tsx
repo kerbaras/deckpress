@@ -44,10 +44,10 @@ import {
   ErrorNotice,
   ExternalLink,
   Loading,
-  LoadingAnnouncement,
   prettyDate,
   STATUS_COALESCE_MS,
   StatusRegion,
+  useLoadingSequence,
   useTask,
 } from "./ui.tsx";
 import { Workspace } from "./workspace.tsx";
@@ -158,9 +158,22 @@ export function App() {
     queryFn: ({ signal }) => fetchHealth(signal),
     refetchInterval: 30_000,
   });
+  const [, deckId, printJobId] = deckRoute(route) ?? [];
+  const libraryOpen =
+    !deckId &&
+    ![
+      "jobs",
+      "settings",
+      "settings/models",
+      "sources",
+      "discover",
+      "builder",
+    ].includes(route);
+  const libraryLoad = useLoadingSequence();
   const decks = useQuery({
     queryKey: ["decks"],
     queryFn: ({ signal }) => api.decks(signal),
+    enabled: !libraryOpen || libraryLoad.start,
   });
   const jobs = useQuery({
     queryKey: ["jobs"],
@@ -269,17 +282,6 @@ export function App() {
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   });
-  const [, deckId, printJobId] = deckRoute(route) ?? [];
-  const libraryOpen =
-    !deckId &&
-    ![
-      "jobs",
-      "settings",
-      "settings/models",
-      "sources",
-      "discover",
-      "builder",
-    ].includes(route);
   const printJob = jobs.data?.find(
     (job) => job.id === printJobId && job.deckId === deckId,
   );
@@ -336,12 +338,11 @@ export function App() {
       <StatusRegion label="Art editions loading">
         {editionsLoading ? "Finding editions…" : ""}
       </StatusRegion>
-      <LoadingAnnouncement
-        active={libraryOpen && decks.isPending}
-        label="Library loading"
-      >
-        Opening your library…
-      </LoadingAnnouncement>
+      <StatusRegion label="Library loading">
+        {libraryOpen && libraryLoad.announce && decks.isPending
+          ? "Opening your library…"
+          : ""}
+      </StatusRegion>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>
           <SidebarToggle
@@ -509,6 +510,7 @@ export function App() {
               />
             ) : (
               <Library
+                query={decks}
                 open={(id) => void navigate(`decks/${id}`)}
                 openImported={openImportedDeck}
                 createRequest={newDeckRequest}
