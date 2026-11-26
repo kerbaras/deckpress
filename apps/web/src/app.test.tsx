@@ -1072,7 +1072,7 @@ it.each([
       `Opening Print setup for ${deck.name}.`,
     );
     if (job.failureTarget?.kind === "card") {
-      const preview = screen.getByRole("img", { name: /^Print preview,/ });
+      const preview = screen.getByRole("group", { name: /^Print preview,/ });
       expect(screen.getByText("Lightning Bolt:")).toBeVisible();
       const highlightedCard = preview.querySelector(".print-failed-card");
       expect(highlightedCard).toBeInTheDocument();

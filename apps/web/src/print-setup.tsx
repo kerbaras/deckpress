@@ -1468,7 +1468,7 @@ export function PrintSetup({
                     width: `min(100%, calc(var(--proof-height) * ${layout.width / layout.height}), ${(650 * layout.width) / layout.height}px)`,
                   }}
                   viewBox={`0 0 ${layout.width} ${layout.height}`}
-                  role="img"
+                  role={recoveryCardIndex >= 0 ? "group" : "img"}
                   aria-label={`Print preview, ${sheetName}, ${layout.columns} columns by ${layout.rows} rows`}
                   aria-description={
                     fallbackNames.length
