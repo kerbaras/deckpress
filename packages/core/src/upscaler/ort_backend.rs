@@ -3,15 +3,15 @@
 //! otherwise CPU) and reads the static tile shape from the model itself.
 
 use std::path::Path;
-use std::sync::Once;
+use std::sync::{Arc, Once};
 
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::builder::GraphOptimizationLevel;
-use ort::session::Session;
+use ort::session::{RunOptions, Session};
 use ort::value::Tensor;
 
 use super::manifest::ModelSpec;
-use super::{TileModel, UpscalerInfo};
+use super::{CancelToken, TileModel, UpscalerInfo};
 use crate::error::{AppError, AppResult};
 
 static INIT: Once = Once::new();
@@ -180,10 +180,24 @@ impl TileModel for OrtModel {
         }
     }
 
-    fn run(&mut self, input: &[f32]) -> AppResult<Vec<f32>> {
+    fn run(&mut self, input: &[f32], cancel: &CancelToken) -> AppResult<Vec<f32>> {
         let shape = [self.batch, 3, self.tile as usize, self.tile as usize];
         let tensor = Tensor::from_array((shape, input.to_vec()))?;
-        let outputs = self.session.run(ort::inputs![tensor])?;
+        let options = Arc::new(RunOptions::new()?);
+        let run = options.clone();
+        let _hook = cancel.on_cancel(move || {
+            if let Err(error) = run.terminate() {
+                log::warn!("Failed to terminate ONNX inference: {error}");
+            }
+        })?;
+        let outputs = self
+            .session
+            .run_with_options(ort::inputs![tensor], &options);
+        if cancel.is_cancelled() {
+            log::debug!("Cancelled ONNX inference for {}", self.spec.id);
+        }
+        cancel.check()?;
+        let outputs = outputs?;
         let (_, data) = outputs[0].try_extract_tensor::<f32>()?;
         Ok(data.to_vec())
     }

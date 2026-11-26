@@ -492,6 +492,190 @@ it("creates a deck, imports resolved cards, and reopens the saved project", asyn
   ]);
 });
 
+it("compares the selected scan and restores the chosen print model after saving", async () => {
+  const user = userEvent.setup();
+  const animeModel = {
+    ...compactModel,
+    id: "realesr-animevideov3",
+    tier: "fast" as const,
+  };
+  const qualityModel = {
+    ...compactModel,
+    id: "realesrgan-x4plus",
+    tier: "quality" as const,
+    installed: false,
+  };
+  vi.mocked(api.settings).mockResolvedValue({
+    ...(await api.settings()),
+    models: [compactModel, animeModel, qualityModel],
+  });
+  const chosenEntry = {
+    ...entry,
+    id: "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+    card: { ...entry.card, name: "Second printing" },
+    selectedArt: alternate,
+  };
+  let stored = { ...deck, entries: [entry, chosenEntry] };
+  const calls: unknown[] = [];
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [stored];
+      case "get_deck":
+        return stored;
+      case "save_deck":
+        stored = deckSchema.parse((args as { deck: unknown }).deck);
+        return stored;
+      case "begin_upscale_comparison":
+        return null;
+      case "compare_upscalers":
+        calls.push(args);
+        return [null, compactModel.id, animeModel.id].map((modelId) => ({
+          modelId,
+          crop: {
+            png: [137, 80, 78, 71],
+            width: 224,
+            height: 144,
+            elapsedMs: 12.5,
+          },
+        }));
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  renderWithClient(<App />);
+  const openPrint = async () => {
+    await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+    await user.click(screen.getByRole("button", { name: "Print setup" }));
+    await user.click(screen.getByText("Compare upscale models"));
+  };
+  await openPrint();
+  await user.selectOptions(
+    screen.getByLabelText("Comparison card"),
+    chosenEntry.id,
+  );
+  await user.click(screen.getByRole("button", { name: "Render text crops" }));
+  for (const label of ["Lanczos", "General x4v3", "Anime v3"]) {
+    expect(
+      await screen.findByRole("img", { name: `${label} text crop` }),
+    ).toHaveAttribute("width", "224");
+  }
+  expect(screen.getAllByText("12.5 ms")).toHaveLength(3);
+  expect(
+    screen.getByRole("button", { name: "Use Quality x4plus" }),
+  ).toBeDisabled();
+  expect(calls).toEqual([expect.objectContaining({ art: alternate })]);
+  await user.click(screen.getByRole("button", { name: "Use Anime v3" }));
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(stored.printSettings.upscaleModel).toBe(animeModel.id),
+  );
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  await openPrint();
+  expect(
+    screen.getByRole("button", { name: "Use Anime v3", pressed: true }),
+  ).toBeVisible();
+  expect(screen.getByLabelText("Use local AI upscaling")).toBeChecked();
+  await user.click(screen.getByRole("button", { name: "Use Lanczos" }));
+  expect(screen.getByLabelText("Use local AI upscaling")).not.toBeChecked();
+});
+
+it("cancels comparison requests on cancel, restart and navigation out of print setup", async () => {
+  const user = userEvent.setup();
+  const started: unknown[] = [];
+  const cancelled: unknown[] = [];
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [deck];
+      case "get_deck":
+        return deck;
+      case "begin_upscale_comparison":
+        return null;
+      case "compare_upscalers":
+        started.push((args as { requestId: string }).requestId);
+        return new Promise(() => {});
+      case "cancel_upscale_comparison":
+        cancelled.push((args as { requestId: string }).requestId);
+        return null;
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Print setup" }));
+  await user.click(screen.getByText("Compare upscale models"));
+  const renderCrops = () =>
+    user.click(screen.getByRole("button", { name: "Render text crops" }));
+  await renderCrops();
+  await waitFor(() => expect(started).toHaveLength(1));
+  await user.click(screen.getByRole("button", { name: "Cancel render" }));
+  await waitFor(() => expect(cancelled).toEqual(started));
+  const comparisonStatus = screen.getByRole("status", {
+    name: "Upscale comparison status",
+  });
+  expect(comparisonStatus).toHaveTextContent("Comparison cancelled");
+  expect(comparisonStatus).toBeVisible();
+  await renderCrops();
+  expect(comparisonStatus).not.toHaveTextContent("Comparison cancelled");
+  await waitFor(() => expect(started).toHaveLength(2));
+  await user.click(screen.getByRole("button", { name: "Restart render" }));
+  await waitFor(() => expect(started).toHaveLength(3));
+  expect(cancelled).toEqual(started.slice(0, 2));
+  await user.click(screen.getByRole("button", { name: "Deck editor" }));
+  await waitFor(() => expect(cancelled).toEqual(started));
+  expect(new Set(started).size).toBe(3);
+  expect(screen.queryByText("Compare upscale models")).not.toBeInTheDocument();
+});
+
+it("opens Settings Models from the missing-model link using the keyboard", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.settings).mockResolvedValue({
+    ...(await api.settings()),
+    models: [
+      compactModel,
+      {
+        ...compactModel,
+        id: "realesrgan-x4plus",
+        tier: "quality",
+        installed: false,
+      },
+    ],
+  });
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  mockIPC((cmd) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [deck];
+      case "get_deck":
+        return deck;
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Print setup" }));
+  await user.click(screen.getByText("Compare upscale models"));
+  await user.click(screen.getByLabelText("Comparison card"));
+  await user.tab();
+  await user.tab();
+  await user.tab();
+  await user.tab();
+  const link = await screen.findByRole("link", {
+    name: "Download in Settings",
+  });
+  expect(link).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(
+    await screen.findByRole("heading", { name: "Local AI upscaling" }),
+  ).toHaveFocus();
+  expect(window.location.hash).toBe("#/settings/models");
+});
+
 it("keeps the original scan while selecting art for one copy and saving a personal rating", async () => {
   const user = userEvent.setup();
   vi.spyOn(api, "art").mockImplementation(async (provider) => ({

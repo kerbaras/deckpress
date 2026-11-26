@@ -1,0 +1,48 @@
+.upscale-comparison {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.upscale-comparison summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+.upscale-comparison-controls {
+  align-items: end;
+  margin-top: var(--space-3);
+}
+.upscale-crops {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding: var(--space-1) var(--space-1) var(--space-2);
+}
+.upscale-crop {
+  display: grid;
+  gap: var(--space-2);
+  width: 224px;
+  flex: none;
+}
+.upscale-crop-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.upscale-crop-image {
+  display: grid;
+  place-items: center;
+  min-height: 144px;
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--line-subtle);
+  text-align: center;
+}
+.upscale-crop-image img {
+  display: block;
+}
+.upscale-crop-image :is(.hint, a) {
+  margin: var(--space-2);
+}
+.upscale-crop button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}

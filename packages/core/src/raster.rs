@@ -38,7 +38,7 @@ pub fn parse_hex_color(input: &str) -> Rgb<u8> {
     }
 }
 
-fn to_rgb(image: image::DynamicImage, background: Rgb<u8>) -> RgbImage {
+pub(crate) fn to_rgb(image: image::DynamicImage, background: Rgb<u8>) -> RgbImage {
     match image {
         image::DynamicImage::ImageRgb8(rgb) => rgb,
         other if other.color().has_alpha() => {

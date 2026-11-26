@@ -67,6 +67,24 @@ const modelStatusSchema = z.object({
   downloading: z.boolean(),
 });
 export type ModelStatus = z.infer<typeof modelStatusSchema>;
+const cropPreviewSchema = z
+  .object({
+    modelId: z.string().nullable(),
+  })
+  .and(
+    z.union([
+      z.object({
+        crop: z.object({
+          png: z.array(z.number()),
+          width: z.number(),
+          height: z.number(),
+          elapsedMs: z.number(),
+        }),
+      }),
+      z.object({ error: z.string() }),
+    ]),
+  );
+export type CropPreview = z.infer<typeof cropPreviewSchema>;
 const upscalerInfoSchema = z.object({
   modelId: z.string(),
   modelName: z.string(),
@@ -367,6 +385,31 @@ export const api = {
   downloadModel: (id: string) =>
     command("download_model", z.array(modelStatusSchema), { id }),
   loadModel: (id: string) => command("load_model", upscalerInfoSchema, { id }),
+  compareUpscalers: async (
+    art: Art,
+    settings: PrintSettings,
+    signal: AbortSignal,
+  ) => {
+    const requestId = crypto.randomUUID();
+    const cancel = () =>
+      invoke<void>("cancel_upscale_comparison", { requestId });
+    await invoke<void>("begin_upscale_comparison", { requestId });
+    if (signal.aborted) {
+      await cancel();
+      return [];
+    }
+    const onAbort = () => void cancel().catch(console.error);
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      return await command("compare_upscalers", z.array(cropPreviewSchema), {
+        requestId,
+        art,
+        settings,
+      });
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
+  },
   preferences: (_signal?: AbortSignal) =>
     command("preferences", preferencesSchema),
   savePreference: (id: string, value: ArtPreference) =>

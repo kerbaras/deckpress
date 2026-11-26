@@ -1,12 +1,17 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use deckpress_core::error::{AppError, AppResult};
+use deckpress_core::models::{PrintSettings, Provider};
 use deckpress_core::upscaler::manifest::{
     default_model_id, sha256_file, specs, ModelKind, ModelManager,
 };
+use deckpress_core::upscaler::preview::{compare, compare_models, CropResult};
 use deckpress_core::upscaler::tiling::{feather, positions, reflect, TiledUpscaler};
 use deckpress_core::upscaler::{CancelToken, TileModel, Upscaler, UpscalerInfo};
 use image::RgbImage;
+
+mod common;
 
 /// The ONNX files ship with the desktop app, not with this crate.
 fn bundled_resources() -> PathBuf {
@@ -83,6 +88,84 @@ fn bundled_model_runs_on_cpu_and_produces_a_4x_tile() {
     );
 }
 
+#[test]
+fn comparison_renders_lanczos_and_each_installed_upscaler() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = ModelManager::new(bundled_resources(), dir.path()).unwrap();
+    let settings = PrintSettings::default();
+    let art = common::art(0.0, Provider::Scryfall);
+    let scan = RgbImage::from_fn(256, 360, |x, y| {
+        let value = if (x / 4 + y / 5) % 2 == 0 { 225 } else { 35 };
+        image::Rgb([value, value, value])
+    });
+    let png = deckpress_core::raster::encode_png(&scan).unwrap();
+    let models = compare(&png, &art, &settings, &manager, &CancelToken::default()).unwrap();
+    let ids: Vec<_> = models
+        .iter()
+        .map(|model| model.model_id.as_deref())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            None,
+            Some("realesr-general-x4v3"),
+            Some("realesr-animevideov3")
+        ]
+    );
+    let mut outputs = Vec::new();
+    for model in models {
+        let CropResult::Ready { crop } = model.result else {
+            panic!("comparison failed for {:?}", model.model_id)
+        };
+        let decoded = deckpress_core::images::decode(&crop.png).unwrap();
+        assert_eq!((crop.width, crop.height), (224, 144));
+        assert_eq!(
+            (decoded.width(), decoded.height()),
+            (crop.width, crop.height)
+        );
+        assert!(crop.elapsed_ms.is_finite() && crop.elapsed_ms >= 0.0);
+        outputs.push(crop.png);
+    }
+    assert_ne!(outputs[0], outputs[1]);
+    assert_ne!(outputs[0], outputs[2]);
+}
+
+#[test]
+fn comparison_cancels_during_inference_without_loading_later_models() {
+    struct CancellingModel;
+    impl Upscaler for CancellingModel {
+        fn info(&self) -> UpscalerInfo {
+            Nearest.info()
+        }
+
+        fn upscale(
+            &self,
+            image: &RgbImage,
+            cancel: &CancelToken,
+            _: &mut dyn FnMut(usize, usize),
+        ) -> AppResult<RgbImage> {
+            cancel.cancel();
+            Ok(image.clone())
+        }
+    }
+
+    let png = deckpress_core::raster::encode_png(&RgbImage::new(32, 48)).unwrap();
+    let cancel = CancelToken::default();
+    let result = compare_models(
+        &png,
+        &common::art(0.0, Provider::Scryfall),
+        &PrintSettings::default(),
+        ["first".into(), "second".into()],
+        |id| {
+            assert_eq!(id, "first", "loaded a model after cancellation");
+            Ok(Arc::new(CancellingModel))
+        },
+        &cancel,
+    );
+    assert!(cancel.is_cancelled());
+    assert!(matches!(result, Err(AppError::Cancelled)));
+}
+
 /// Nearest-neighbour 2x "model" with a batch of 2, used to validate tiling.
 struct Nearest;
 
@@ -105,7 +188,7 @@ impl TileModel for Nearest {
             execution_provider: "test".into(),
         }
     }
-    fn run(&mut self, input: &[f32]) -> AppResult<Vec<f32>> {
+    fn run(&mut self, input: &[f32], _cancel: &CancelToken) -> AppResult<Vec<f32>> {
         let (t, s) = (16usize, 2usize);
         let mut out = vec![0f32; input.len() * s * s];
         for n in 0..self.batch() {

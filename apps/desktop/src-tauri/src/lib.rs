@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use tauri::Manager;
 
-use commands::AppState;
+use commands::{AppState, Comparisons};
 
 fn data_dir(app: &tauri::App) -> PathBuf {
     if let Some(dir) = std::env::var_os("DECKPRESS_DATA_DIR") {
@@ -33,6 +33,7 @@ pub fn run() {
             let state = AppState::open(&data_dir(app), &resource_dir, runtime)?;
             log::info!("Deckpress data in {}", state.data_dir.display());
             app.manage(state);
+            app.manage(Comparisons::default());
             window::setup(app)?;
             Ok(())
         })
@@ -41,6 +42,9 @@ pub fn run() {
             commands::settings,
             commands::download_model,
             commands::load_model,
+            commands::begin_upscale_comparison,
+            commands::cancel_upscale_comparison,
+            commands::compare_upscalers,
             commands::list_decks,
             commands::get_deck,
             commands::create_deck,
