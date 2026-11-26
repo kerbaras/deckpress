@@ -201,3 +201,30 @@ it("saves an imported list with the chosen name and format", async () => {
   );
   await waitFor(() => expect(window.location.hash).toBe(`#/decks/${id}`));
 });
+
+it("keeps the focused Add button in view when the import dialog resizes", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(api, "decks").mockResolvedValue([]);
+  vi.spyOn(api, "import").mockResolvedValue({
+    entries: [entry],
+    issues: [],
+    format: "Plain text",
+  });
+  renderApp();
+  await user.click(
+    await screen.findByRole("button", { name: "Import a list" }),
+  );
+  const dialog = within(screen.getByRole("dialog", { name: "Import a list" }));
+  await user.type(dialog.getByLabelText("Decklist"), "4 Lightning Bolt");
+  await user.click(dialog.getByRole("button", { name: "Resolve on Scryfall" }));
+  const add = await dialog.findByRole("button", {
+    name: "Add 4 cards to deck",
+  });
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(add, "scrollIntoView", { value: scrollIntoView });
+  add.focus();
+
+  window.dispatchEvent(new Event("resize"));
+  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
+  expect(add).toHaveFocus();
+});

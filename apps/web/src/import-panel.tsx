@@ -5,7 +5,7 @@ import {
   ListPlus,
   RotateCw,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api, type ImportResult, UrlImportError } from "./api.ts";
 import { isMpcXml } from "./core/index.ts";
 import { ImportReview, importStatus } from "./import-review.tsx";
@@ -27,6 +27,8 @@ export function ImportPanel({
 }) {
   const [mode, setMode] = useState<Mode>("paste");
   const [text, setText] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
+  const fileNameId = useId();
   const [url, setUrl] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [resolvedMode, setResolvedMode] = useState<Mode>("paste");
@@ -37,6 +39,7 @@ export function ImportPanel({
     fromRetry: boolean;
   } | null>(null);
   const [focusPaste, setFocusPaste] = useState(false);
+  const panel = useRef<HTMLElement>(null);
   const decklist = useRef<HTMLTextAreaElement>(null);
   const urlInput = useRef<HTMLInputElement>(null);
   const retry = useRef<HTMLButtonElement>(null);
@@ -53,6 +56,16 @@ export function ImportPanel({
     setMode(next);
     reset();
   };
+  useEffect(() => {
+    const scope = panel.current?.closest("dialog") ?? panel.current;
+    const keepFocusVisible = () => {
+      const focused = document.activeElement;
+      if (focused && scope?.contains(focused))
+        focused.scrollIntoView({ block: "nearest" });
+    };
+    window.addEventListener("resize", keepFocusVisible);
+    return () => window.removeEventListener("resize", keepFocusVisible);
+  }, []);
   useEffect(() => {
     if (!focusPaste || mode !== "paste") return;
     decklist.current?.focus();
@@ -77,7 +90,7 @@ export function ImportPanel({
       }
     });
   return (
-    <section className="panel import-panel">
+    <section ref={panel} className="panel import-panel">
       <div className="section-heading">
         <h3>
           <ListPlus className="size-icon stroke-icon" />
@@ -132,22 +145,33 @@ export function ImportPanel({
                 <input
                   type="file"
                   accept=".txt,.csv,.dek,.xml"
+                  aria-describedby={fileName ? fileNameId : undefined}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
                     if (file)
                       void task.run(async () => {
+                        setFileName(null);
                         if (/\.xml$/i.test(file.name)) {
                           if (file.size > 512 * 1024)
                             throw new Error("XML decklist exceeds 512 KB");
                         } else if (file.size > 200_000)
                           throw new Error("Decklist exceeds 200 KB");
                         setText(await file.text());
+                        setFileName(file.name);
                         reset();
                       });
                     event.target.value = "";
                   }}
                 />
               </label>
+            )}
+            {mode === "file" && fileName && (
+              <p
+                id={fileNameId}
+                className="import-file-name text-meta text-muted"
+              >
+                Loaded file: {fileName}
+              </p>
             )}
             <label className="field">
               Decklist
@@ -161,6 +185,7 @@ export function ImportPanel({
                 value={text}
                 onChange={(event) => {
                   setText(event.target.value);
+                  setFileName(null);
                   reset();
                 }}
               />
