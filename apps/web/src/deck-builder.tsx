@@ -133,25 +133,34 @@ function Wizard({
   const step: StepId = steps[Math.min(index, steps.length - 1)] ?? "format";
   const stop = blocker(state, step, options.themes);
   const spec = toSpec(state);
-  const [pending, setPending] = useState<{
-    next: WizardState;
+  // The only snapshot of earlier choices. `restore` is what Keep brings back;
+  // `next` is the change awaiting confirmation. Commander → Change opens it
+  // with `next: null` because the commander is cleared before a replacement
+  // is picked. Every committed change other than that clear closes it.
+  const [change, setChange] = useState<{
     restore: WizardState;
+    next: WizardState | null;
   } | null>(null);
-  // Commander → Change clears the commander before the replacement is picked;
-  // keeping the current choices has to bring the cleared one back.
-  const [changing, setChanging] = useState<WizardState | null>(null);
-  const apply = (next: WizardState) => {
+  const commit = (next: WizardState) => {
     setEntries(fitEntries(entries, state, next));
     setState(next);
-    setChanging(state.commander && !next.commander ? state : null);
   };
   const update = (patch: Partial<WizardState>) => {
     const next = { ...state, ...patch };
     if (sameChoices(state, next)) return;
-    if (droppedPicks(entries, state, next).length > 0)
-      setPending({ next, restore: changing ?? state });
-    else apply(next);
+    const restore = change?.restore ?? state;
+    if (droppedPicks(entries, state, next).length > 0) {
+      setChange({ restore, next });
+      return;
+    }
+    commit(next);
+    const clearsCommander =
+      Object.keys(patch).length === 1 && patch.commander === null;
+    setChange(
+      clearsCommander && state.commander ? { restore, next: null } : null,
+    );
   };
+  const pending = change?.next ?? null;
   const picked = index > 0 || entries.length > 0 || name.trim() !== "";
   useEffect(() => {
     onDirty(picked);
@@ -292,18 +301,17 @@ function Wizard({
             setName={setName}
           />
         )}
-        {pending && (
+        {change && pending && (
           <DroppedPicksDialog
-            reason={changeReason(state, pending.next)}
-            dropped={droppedPicks(entries, state, pending.next)}
+            reason={changeReason(state, pending)}
+            dropped={droppedPicks(entries, state, pending)}
             onKeep={() => {
-              setState(pending.restore);
-              setChanging(null);
-              setPending(null);
+              setState(change.restore);
+              setChange(null);
             }}
             onApply={() => {
-              apply(pending.next);
-              setPending(null);
+              commit(pending);
+              setChange(null);
             }}
           />
         )}
