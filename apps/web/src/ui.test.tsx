@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import { StatusRegion } from "./ui.tsx";
 
 it("re-inserts changed messages or ids without replacing the live region", () => {
@@ -27,4 +27,42 @@ it("re-inserts changed messages or ids without replacing the live region", () =>
   expect(update("Saved", 2)).not.toBe(saved);
   update("", 3);
   expect(status).toBeEmptyDOMElement();
+});
+
+it("announces only the message that survives the 50 ms coalescing window", () => {
+  vi.useFakeTimers();
+  try {
+    const region = (text: string, id: number) => (
+      <StatusRegion label="Job status" announcementId={id} coalesce>
+        {text}
+      </StatusRegion>
+    );
+    const { rerender } = render(region("Queued", 1));
+    const status = screen.getByRole("status", { name: "Job status" });
+    const advance = (ms: number) =>
+      act(() => {
+        vi.advanceTimersByTime(ms);
+      });
+
+    advance(30);
+    expect(status).toBeEmptyDOMElement();
+    rerender(region("Running", 2));
+    advance(49);
+    expect(status).toBeEmptyDOMElement();
+    advance(1);
+    const running = status.firstChild;
+    expect(status).toHaveTextContent(/^Running$/);
+    rerender(region("Running", 2));
+    advance(50);
+    expect(status.firstChild).toBe(running);
+    rerender(region("Running", 3));
+    advance(50);
+    expect(status.firstChild).not.toBe(running);
+    rerender(region("Completed", 4));
+    rerender(region("", 5));
+    advance(50);
+    expect(status).toBeEmptyDOMElement();
+  } finally {
+    vi.useRealTimers();
+  }
 });

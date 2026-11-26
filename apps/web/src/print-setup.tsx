@@ -146,7 +146,7 @@ export function PrintSetup({
   });
   const [page, setPage] = useState(0);
   const [trim, setTrim] = useState(false);
-  const [presetSaveId, setPresetSaveId] = useState(0);
+  const [preset, setPreset] = useState({ id: 0, saved: false });
   const [previewSettings, setPreviewSettings] = useState(settings);
   const controlPrefix = useId();
   const [jump, setJump] = useState<{ key: string } | null>(null);
@@ -458,25 +458,27 @@ export function PrintSetup({
             <button
               type="button"
               disabled={!!layoutError}
-              onClick={() =>
+              onClick={() => {
+                setPreset((current) => ({ ...current, saved: false }));
                 void task.run(async () => {
                   localStorage.setItem(
                     "deckpress.print-preset",
                     JSON.stringify(settings),
                   );
-                  setPresetSaveId((id) => id + 1);
-                })
-              }
+                  setPreset(({ id }) => ({ id: id + 1, saved: true }));
+                });
+              }}
             >
               <Save size={14} />
               Save preset
             </button>
             <StatusRegion
-              className={presetSaveId ? "hint" : "sr-only"}
+              as="span"
+              className={preset.saved ? "hint" : "sr-only"}
               label="Print preset save status"
-              announcementId={presetSaveId}
+              announcementId={preset.id}
             >
-              {presetSaveId ? "Preset saved on this browser" : ""}
+              {preset.saved ? "Preset saved on this browser" : ""}
             </StatusRegion>
           </div>
           <section className="panel settings-panel">
