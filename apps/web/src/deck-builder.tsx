@@ -22,14 +22,17 @@ import {
   type Suggestion,
 } from "./api.ts";
 import type { Card, DeckEntry } from "./core/index.ts";
+import { DroppedPicksDialog } from "./deck-builder-change.tsx";
 import {
   addCard,
   blocker,
+  changeReason,
   commanderEntry,
   copiesOf,
   copyLimit,
   deckFormatOf,
   defaultDeckName,
+  droppedPicks,
   emptyState,
   fitEntries,
   isLand,
@@ -39,6 +42,7 @@ import {
   roleName,
   roleNames,
   type StepId,
+  sameChoices,
   scorePercent,
   setQuantity,
   stepNames,
@@ -129,11 +133,34 @@ function Wizard({
   const step: StepId = steps[Math.min(index, steps.length - 1)] ?? "format";
   const stop = blocker(state, step, options.themes);
   const spec = toSpec(state);
-  const update = (patch: Partial<WizardState>) => {
-    const next = { ...state, ...patch };
+  // The only snapshot of earlier choices. `restore` is what Keep brings back;
+  // `next` is the change awaiting confirmation. Commander → Change opens it
+  // with `next: null` because the commander is cleared before a replacement
+  // is picked. Every committed change other than that clear closes it.
+  const [change, setChange] = useState<{
+    restore: WizardState;
+    next: WizardState | null;
+  } | null>(null);
+  const commit = (next: WizardState) => {
     setEntries(fitEntries(entries, state, next));
     setState(next);
   };
+  const update = (patch: Partial<WizardState>) => {
+    const next = { ...state, ...patch };
+    if (sameChoices(state, next)) return;
+    const restore = change?.restore ?? state;
+    if (droppedPicks(entries, state, next).length > 0) {
+      setChange({ restore, next });
+      return;
+    }
+    commit(next);
+    const clearsCommander =
+      Object.keys(patch).length === 1 && patch.commander === null;
+    setChange(
+      clearsCommander && state.commander ? { restore, next: null } : null,
+    );
+  };
+  const pending = change?.next ?? null;
   const picked = index > 0 || entries.length > 0 || name.trim() !== "";
   useEffect(() => {
     onDirty(picked);
@@ -274,6 +301,20 @@ function Wizard({
             setName={setName}
           />
         )}
+        {change && pending && (
+          <DroppedPicksDialog
+            reason={changeReason(state, pending)}
+            dropped={droppedPicks(entries, state, pending)}
+            onKeep={() => {
+              setState(change.restore);
+              setChange(null);
+            }}
+            onApply={() => {
+              commit(pending);
+              setChange(null);
+            }}
+          />
+        )}
         {stop && step !== "cards" && (
           <p className="hint builder-blocker" role="status">
             {stop}.
@@ -305,6 +346,15 @@ function CardsStage({
   const fill = useTask();
   const latest = useRef(entries);
   latest.current = entries;
+  // Leaving the cards step abandons a running fill: the wizard may change the
+  // format or colours before the response arrives.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const suggestions = useInfiniteQuery({
     queryKey: ["builder", "suggest", spec],
     queryFn: ({ pageParam, signal }) =>
@@ -337,6 +387,7 @@ function CardsStage({
   const runFill = () =>
     void fill.run(async () => {
       const added = await api.builderFill(spec, entries);
+      if (!mounted.current) return;
       if (latest.current !== entries)
         throw new Error(
           "The deck changed while filling; use Fill remaining slots again",

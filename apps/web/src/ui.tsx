@@ -1,5 +1,12 @@
 import { AlertCircle, ImageOff, LoaderCircle, Search, X } from "lucide-react";
-import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { ZodError } from "zod";
 import { imageSrc } from "./api.ts";
 import type { Art, DeckEntry } from "./core/index.ts";
@@ -182,14 +189,19 @@ export function Modal({
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
+    const opener = document.activeElement;
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
   }, []);
   return (
     <dialog
       ref={ref}
       className={wide ? "modal modal-wide" : "modal"}
       aria-label={title}
+      onKeyDown={(event) => trapTab(event, ref.current)}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onClose();
@@ -210,6 +222,30 @@ export function Modal({
       {children}
     </dialog>
   );
+}
+
+const focusable =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Keeps Tab and Shift+Tab cycling inside an open dialog. */
+function trapTab(
+  event: KeyboardEvent<HTMLElement>,
+  dialog: HTMLElement | null,
+) {
+  if (event.key !== "Tab" || !dialog) return;
+  const items = [...dialog.querySelectorAll<HTMLElement>(focusable)];
+  const first = items[0];
+  const last = items.at(-1);
+  if (!first || !last) return;
+  const active = document.activeElement;
+  const inside = active instanceof Node && dialog.contains(active);
+  if (event.shiftKey && (active === first || !inside)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || !inside)) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 export function useTask() {
