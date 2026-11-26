@@ -156,7 +156,6 @@ struct ScryfallCard {
     image_uris: Option<ScryfallImages>,
     card_faces: Option<Vec<ScryfallFace>>,
     illustration_id: Option<uuid::Uuid>,
-    image_status: Option<String>,
     highres_image: Option<bool>,
     #[serde(default = "unknown")]
     artist: String,
@@ -253,7 +252,7 @@ pub fn normalize_scryfall(value: &Value) -> AppResult<Card> {
                 illustration_id: face.illustration_id,
                 scan_quality: scryfall_quality(card.image_status.as_deref(), card.highres_image),
                 released_at: card.released_at.clone(),
-                dpi: 300.0,
+                dpi: 0.0,
                 tags: tags.clone(),
                 bleed_mm: 0.0,
                 back_image_url: String::new(),
@@ -848,40 +847,24 @@ impl Providers {
         let Some(illustration) = base.illustration_id else {
             return Ok(base);
         };
-        if base.scan_quality == Some(ScanQuality::HighresScan) {
+        if base.scan_quality == Some(ScanQuality::HighresScan)
+            || !SCRYFALL_LANGUAGES.contains(&base.language.as_str())
+        {
             return Ok(base);
         }
-        let mut url = Url::parse("https://api.scryfall.com/cards/search").expect("static URL");
         let query = format!(
             "oracleid:{oracle_id} illustration_id:{illustration} game:paper lang:{}",
             base.language
         );
-        url.query_pairs_mut()
-            .append_pair("q", &query)
-            .append_pair("unique", "prints")
-            .append_pair("order", "released")
-            .append_pair("dir", "desc");
         for page in 1u32.. {
-            let mut url = url.clone();
-            url.query_pairs_mut().append_pair("page", &page.to_string());
-            let response = match self.json_or_status(url.as_str(), None).await? {
-                Ok(value) => value,
-                Err(404) => break,
-                Err(status) => {
-                    return Err(AppError::user(format!(
-                        "Provider returned {status}. Try again."
-                    )))
-                }
-            };
-            let candidates: Vec<_> = response["data"]
-                .as_array()
-                .into_iter()
-                .flatten()
+            let url = print_search(&query, page);
+            let response = self.scryfall_json(url.as_str()).await?;
+            let candidates: Vec<_> = cards_in(&response)
                 .filter_map(|raw| normalize_scryfall(raw).ok())
                 .filter_map(|card| card.faces.into_iter().nth(face))
                 .collect();
             base = prefer_high_res(&base, &candidates).clone();
-            if base.scan_quality == Some(ScanQuality::HighresScan) || response["has_more"] != true {
+            if base.scan_quality == Some(ScanQuality::HighresScan) || !has_more(&response) {
                 break;
             }
         }

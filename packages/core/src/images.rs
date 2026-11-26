@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
+use image::{metadata::Orientation, DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 use reqwest::{redirect, Client, StatusCode};
 use serde::Serialize;
 use serde_json::Value;
@@ -181,6 +181,20 @@ pub fn decode(bytes: &[u8]) -> AppResult<DynamicImage> {
     let mut image = DynamicImage::from_decoder(decoder)?;
     image.apply_orientation(orientation);
     Ok(image)
+}
+
+pub(crate) fn file_dimensions(path: &Path) -> AppResult<(u32, u32)> {
+    let mut decoder = ImageReader::open(path)?
+        .with_guessed_format()?
+        .into_decoder()?;
+    let (w, h) = decoder.dimensions();
+    Ok(match decoder.orientation()? {
+        Orientation::Rotate90
+        | Orientation::Rotate270
+        | Orientation::Rotate90FlipH
+        | Orientation::Rotate270FlipH => (h, w),
+        _ => (w, h),
+    })
 }
 
 pub struct Images {

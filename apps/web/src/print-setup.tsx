@@ -399,9 +399,6 @@ export function PrintSetup({
         .map((art) => [art.id, art]),
     ).values(),
   ];
-  const lowResolution = arts.filter(
-    (art) => art.dpi < settings.dpi * 0.95,
-  ).length;
   const estimatedMB = arts.length * 0.45 * (settings.dpi / 600) ** 2;
   const label =
     pdfPages === 0 || calibration
@@ -1751,15 +1748,6 @@ export function PrintSetup({
             settings={effective}
             model={selectedModel}
           />
-          {lowResolution > 0 && (
-            <p className="notice warning">
-              <AlertTriangle size={16} />
-              {lowResolution} unique images estimated below target DPI.{" "}
-              {settings.upscale
-                ? "Check source DPI to see which images qualify for AI upscaling."
-                : "Resizing alone does not add detail."}
-            </p>
-          )}
           {settings.marginMm < 4 && (
             <p className="notice warning">
               Some printers will clip margins below 4 mm.

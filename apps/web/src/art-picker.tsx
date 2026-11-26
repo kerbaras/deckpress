@@ -22,6 +22,7 @@ import {
   backArt,
   type Deck,
   type DeckEntry,
+  effectivePrintSettings,
   formatCount,
   frontArt,
 } from "./core/index.ts";
@@ -141,6 +142,7 @@ export function filterArt(
     language?: string;
   },
   data: Preferences,
+  resolution: (art: Art) => number = (art) => art.dpi,
 ): Art[] {
   const unique = [...new Map(items.map((art) => [art.id, art])).values()];
   const text = options.search.toLowerCase().trim();
@@ -157,7 +159,7 @@ export function filterArt(
           art.source === options.artist) &&
         (!options.tag || tags.includes(normalizeTag(options.tag))) &&
         (!options.language || art.language === options.language) &&
-        art.dpi >= options.dpi &&
+        resolution(art) >= options.dpi &&
         (!options.favorites || preference?.favorite) &&
         `${art.name} ${art.source} ${art.artist} ${art.set} ${art.collectorNumber} ${art.language} ${tags.join(" ")}`
           .toLowerCase()
@@ -176,7 +178,7 @@ export function filterArt(
           (data.usage[b.id] ?? 0) - (data.usage[a.id] ?? 0) ||
           b.releasedAt.localeCompare(a.releasedAt)
         );
-      if (options.sort === "dpi") return b.dpi - a.dpi;
+      if (options.sort === "dpi") return resolution(b) - resolution(a);
       if (options.sort === "artist") return a.artist.localeCompare(b.artist);
       return options.sort === "oldest"
         ? (a.releasedAt || "9999").localeCompare(b.releasedAt || "9999")
@@ -241,6 +243,7 @@ function ArtSession({
   const [artist, setArtist] = useState("");
   const [tag, setTag] = useState("");
   const [dpi, setDpi] = useState(0);
+  const [loadedSources, setLoadedSources] = useState<string[]>([]);
   const [favorites, setFavorites] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [scope, setScope] = useState("entry");
@@ -310,10 +313,57 @@ function ArtSession({
     ...(community.data?.pages.flatMap((page) => page.items) ?? []),
     ...(uploads.data ?? []),
   ];
+  const printSettings = effectivePrintSettings(deck.printSettings);
+  const measuredItems = [
+    ...new Map(
+      items
+        .filter((art) => art.provider !== "mpc")
+        .map((art) => [art.imageUrl, art]),
+    ).values(),
+  ];
+  const sourceSizes = useQuery({
+    queryKey: [
+      "picker-dpi",
+      printSettings.cardWidthMm,
+      printSettings.cardHeightMm,
+      printSettings.bleedMm,
+      printSettings.dpi,
+      measuredItems.map((art) => [art.imageUrl, art.provider, art.bleedMm]),
+      loadedSources,
+    ],
+    queryFn: () => api.pickerDpi(measuredItems, printSettings),
+    enabled: measuredItems.length > 0,
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const sourceSizeByUrl = new Map(
+    measuredItems.map((art, index) => [
+      art.imageUrl,
+      sourceSizes.data?.[index],
+    ]),
+  );
+  const sourceLabel = (art: Art) => {
+    if (art.provider === "mpc") return `${art.dpi} DPI (provider)`;
+    const reading = sourceSizeByUrl.get(art.imageUrl);
+    if (!reading) return "Source DPI unavailable";
+    const value = Math.floor(reading.effectiveDpi);
+    return reading.estimated
+      ? `~${value} DPI (estimated)`
+      : `${value} effective DPI`;
+  };
+  const sourceLoaded = (url: string) => {
+    setLoadedSources((loaded) =>
+      loaded.includes(url) ? loaded : [...loaded, url],
+    );
+  };
   const shown = filterArt(
     items,
     { search, provider, official, sort, artist, tag, dpi, favorites, language },
     personal,
+    (art) =>
+      art.provider === "mpc"
+        ? art.dpi
+        : (sourceSizeByUrl.get(art.imageUrl)?.effectiveDpi ?? 0),
   );
   const artists = [
     ...new Set(
@@ -572,6 +622,8 @@ function ArtSession({
             <Monitor
               label="Original"
               art={original}
+              sourceDpi={original ? sourceLabel(original) : "Vector"}
+              onSourceLoad={sourceLoaded}
               language={original && languageBadge(entry, original)}
               zoom={zoom}
               states={originalIsSaved ? ["Original", "Saved"] : ["Original"]}
@@ -581,6 +633,8 @@ function ArtSession({
             <Monitor
               label="Saved"
               art={saved}
+              sourceDpi={saved ? sourceLabel(saved) : "Vector"}
+              onSourceLoad={sourceLoaded}
               language={saved && languageBadge(entry, saved)}
               zoom={zoom}
               states={["Saved"]}
@@ -589,6 +643,8 @@ function ArtSession({
           <Monitor
             label="Preview"
             art={candidate}
+            sourceDpi={candidate ? sourceLabel(candidate) : "Vector"}
+            onSourceLoad={sourceLoaded}
             language={candidate && languageBadge(entry, candidate)}
             zoom={zoom}
             states={
@@ -866,6 +922,7 @@ function ArtSession({
           <div className="art-grid">
             {shown.map((art) => {
               const states: ArtState[] = [];
+              const dpiLabel = art.provider !== "mpc" ? sourceLabel(art) : null;
               if (art.id === saved?.id) states.push("Saved");
               if (art.id === candidate?.id) states.push("Preview");
               if (art.id === original?.id) states.push("Original");
@@ -875,7 +932,9 @@ function ArtSession({
                   className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
                   key={art.id}
                   aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}${states.length ? ` — ${states.join(", ")}` : ""}`}
-                  aria-description={scanLabel(art)}
+                  aria-description={[scanLabel(art), dpiLabel]
+                    .filter(Boolean)
+                    .join(" · ")}
                   aria-pressed={candidate?.id === art.id}
                   disabled={busy}
                   onClick={() => pick(art)}
@@ -912,7 +971,7 @@ function ArtSession({
                     <span className="badge" title={languageBadge(entry, art)}>
                       {languageCode(art.language)}
                     </span>
-                    <span className="mono muted">{art.dpi} dpi</span>
+                    {dpiLabel && <span className="mono muted">{dpiLabel}</span>}
                   </div>
                   <ScanQualityBadge art={art} />
                   {personal.preferences[art.id]?.rating ? (
@@ -1091,6 +1150,8 @@ function Monitor({
   language,
   zoom,
   states,
+  sourceDpi,
+  onSourceLoad,
   children,
 }: {
   label: ArtState;
@@ -1098,6 +1159,8 @@ function Monitor({
   language: string | null;
   zoom: number;
   states: ArtState[];
+  sourceDpi: string;
+  onSourceLoad: (url: string) => void;
   children?: React.ReactNode;
 }) {
   return (
@@ -1126,6 +1189,11 @@ function Monitor({
                 }
                 name={`${label}: ${art.name}`}
                 eager
+                onLoad={
+                  art.provider !== "mpc"
+                    ? () => onSourceLoad(art.imageUrl)
+                    : undefined
+                }
               />
             ) : (
               <div className="default-back">
@@ -1153,7 +1221,7 @@ function Monitor({
             </div>
             <div>
               <dt>Source resolution</dt>
-              <dd className="mono">{art ? `~${art.dpi} dpi` : "Vector"}</dd>
+              <dd className="mono">{sourceDpi}</dd>
             </div>
             <div>
               <dt>Existing bleed</dt>

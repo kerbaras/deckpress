@@ -1,5 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { api, type ModelStatus } from "./api.ts";
 import { ScanQualityBadge } from "./art-quality.tsx";
 import type { Art, PrintSettings } from "./core/index.ts";
@@ -14,41 +13,44 @@ export function SourcePreflight({
   settings: PrintSettings;
   model: ModelStatus | undefined;
 }) {
-  const [checked, setChecked] = useState(false);
-  const dpi = useQuery({
-    queryKey: [
-      "source-dpi",
-      settings.cardWidthMm,
-      settings.cardHeightMm,
-      settings.dpi,
-      arts.map((art) => [art.imageUrl, art.provider, art.bleedMm]),
-    ],
-    queryFn: () => api.sourceDpi(arts, settings),
-    enabled: checked && arts.length > 0,
-    staleTime: Number.POSITIVE_INFINITY,
+  const key = JSON.stringify([
+    settings.cardWidthMm,
+    settings.cardHeightMm,
+    settings.dpi,
+    settings.bleedMm,
+    arts.map((art) => [art.imageUrl, art.provider, art.bleedMm]),
+  ]);
+  const dpi = useMutation({
+    mutationFn: (input: {
+      key: string;
+      arts: Art[];
+      settings: PrintSettings;
+    }) => api.sourceDpi(input.arts, input.settings),
     retry: false,
   });
   if (!arts.length) return null;
-  const readings = dpi.data;
+  const stale = !!dpi.variables && dpi.variables.key !== key;
+  const readings = stale ? undefined : dpi.data;
+  const check = () => dpi.mutate({ key, arts, settings });
   const low = readings?.filter(
     (reading) => reading !== null && reading.effectiveDpi < 300,
   ).length;
   const unavailable = readings?.filter((value) => value === null).length;
   return (
     <>
-      {!checked && (
-        <button type="button" onClick={() => setChecked(true)}>
-          Check source DPI
-        </button>
-      )}
+      <button type="button" disabled={dpi.isPending && !stale} onClick={check}>
+        {dpi.variables ? "Recheck source DPI" : "Check source DPI"}
+      </button>
       <StatusRegion className="hint">
-        {dpi.isFetching
-          ? "Checking scan dimensions at the chosen trim…"
-          : readings
-            ? `${low} unique images below 300 effective DPI.${unavailable ? ` ${unavailable} could not be checked.` : ""}`
-            : "Check actual source resolution before upscaling."}
+        {stale
+          ? "Source DPI results are stale. Recheck for the current settings."
+          : dpi.isPending
+            ? "Checking scan dimensions at the chosen trim…"
+            : readings
+              ? `${low} unique images below 300 effective DPI.${unavailable ? ` ${unavailable} could not be checked.` : ""}`
+              : "Check actual source resolution before upscaling."}
       </StatusRegion>
-      <ErrorNotice error={dpi.error} retry={() => void dpi.refetch()} />
+      <ErrorNotice error={stale ? null : dpi.error} retry={check} />
       {readings && (
         <details open={!!low || !!unavailable}>
           <summary>Source quality by image</summary>

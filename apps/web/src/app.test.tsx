@@ -2050,7 +2050,7 @@ it("shows scan quality and only previews the better printing when prefer high-re
   try {
     const view = renderPicker();
     const tile = await screen.findByRole("button", previewButton);
-    expect(tile).toHaveAccessibleDescription("Low-res scan");
+    expect(tile).toHaveAccessibleDescription(/Low-res scan/);
     expect(within(tile).getByText("Low-res scan")).toBeVisible();
     await user.click(tile);
     expect(tile).toHaveAttribute("aria-pressed", "true");
@@ -2104,6 +2104,84 @@ it("lists images below 300 effective DPI with scan quality in print preflight", 
     [low],
     expect.objectContaining({ cardWidthMm: 63, cardHeightMm: 88 }),
   );
+});
+
+it("waits for a recheck after the print settings change", async () => {
+  const user = userEvent.setup();
+  const check = vi
+    .spyOn(api, "sourceDpi")
+    .mockResolvedValue([{ effectiveDpi: 330, belowUpscaleThreshold: true }]);
+  function PrintHarness() {
+    const [value, setValue] = useState(deck);
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={vi.fn()}
+        onJobs={vi.fn()}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  await user.click(screen.getByRole("button", { name: "Check source DPI" }));
+  expect(
+    await screen.findByText("0 unique images below 300 effective DPI."),
+  ).toBeVisible();
+  await user.selectOptions(screen.getByLabelText("Resolution"), "1200");
+  expect(screen.getByText(/results are stale/)).toBeVisible();
+  expect(
+    screen.queryByText("0 unique images below 300 effective DPI."),
+  ).not.toBeInTheDocument();
+  expect(check).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole("button", { name: "Recheck source DPI" }));
+  expect(
+    await screen.findByText("0 unique images below 300 effective DPI."),
+  ).toBeVisible();
+  expect(check).toHaveBeenCalledTimes(2);
+  expect(check).toHaveBeenLastCalledWith(
+    [original],
+    expect.objectContaining({ dpi: 1200 }),
+  );
+});
+
+it("labels cached Scryfall pixel dimensions separately from format estimates at the selected trim", async () => {
+  mockPickerArt();
+  const pickerDpi = vi
+    .spyOn(api, "pickerDpi")
+    .mockImplementation(async (arts) =>
+      arts.map((art) =>
+        art.id === original.id
+          ? { effectiveDpi: 330.16, estimated: false }
+          : { effectiveDpi: 305.9, estimated: true },
+      ),
+    );
+  const printSettings = {
+    ...deck.printSettings,
+    cardWidthMm: 80,
+    cardHeightMm: 80,
+  };
+  renderWithClient(
+    <ArtPicker
+      deck={{ ...deck, printSettings }}
+      entry={entry}
+      onSelect={vi.fn()}
+      onApply={vi.fn()}
+    />,
+  );
+  const originalTile = await screen.findByRole("button", {
+    name: /Select Magic 2010/,
+  });
+  const alternateTile = await screen.findByRole("button", {
+    name: /Select Mystical Archive/,
+  });
+  expect(
+    await within(originalTile).findByText("330 effective DPI"),
+  ).toBeVisible();
+  expect(
+    await within(alternateTile).findByText("~305 DPI (estimated)"),
+  ).toBeVisible();
+  expect(alternateTile).toHaveAccessibleDescription(/305 DPI \(estimated\)/);
+  expect(pickerDpi).toHaveBeenLastCalledWith(expect.any(Array), printSettings);
 });
 
 it("shows MPC Autofill DPI on its picker badge", async () => {

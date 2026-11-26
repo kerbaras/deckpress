@@ -1,11 +1,17 @@
 mod common;
 
 use deckpress_core::art_quality::{
-    assess_source, effective_dpi, prefer_high_res, scryfall_quality, ScanQuality,
+    assess_source, effective_dpi, picker_dpi, prefer_high_res, scryfall_quality, ScanQuality,
 };
+use deckpress_core::images::Images;
 use deckpress_core::models::{PrintSettings, Provider};
 use deckpress_core::providers::normalize_scryfall;
+use deckpress_core::raster::{encode_png, rasterize};
+use deckpress_core::store::Store;
+use deckpress_core::upscaler::CancelToken;
+use image::{Rgb, RgbImage};
 use serde_json::json;
+use std::sync::Arc;
 
 #[test]
 fn ranks_scryfall_status_and_uses_the_highres_flag_when_status_is_absent() {
@@ -136,4 +142,76 @@ fn source_upscale_threshold_uses_trimmed_dimensions_and_both_axes() {
     assert!(assess_source(949, 949, &scan, &settings).below_upscale_threshold);
     assert!(!assess_source(940, 950, &scan, &settings).below_upscale_threshold);
     assert!(!assess_source(950, 940, &scan, &settings).below_upscale_threshold);
+}
+
+#[test]
+fn letterboxed_scan_dpi_and_ai_eligibility_match_the_raster_fitted_area() {
+    let art = common::scryfall_art();
+    let mut settings = PrintSettings {
+        card_width_mm: 80.0,
+        card_height_mm: 80.0,
+        bleed_mm: 0.0,
+        dpi: 340,
+        upscale: true,
+        ..PrintSettings::default()
+    };
+    let scan = RgbImage::from_pixel(744, 1040, Rgb([200, 128, 63]));
+    let reading = assess_source(744, 1040, &art, &settings);
+    assert!(
+        (reading.effective_dpi - 330.16).abs() < 0.3,
+        "{}",
+        reading.effective_dpi
+    );
+    assert!(!reading.below_upscale_threshold);
+    let raster = rasterize(
+        &encode_png(&scan).unwrap(),
+        &art,
+        &settings,
+        None,
+        &CancelToken::default(),
+        &mut |_, _| {},
+    )
+    .unwrap();
+    assert!(!raster.upscaled);
+    let (w, h) = raster.image.dimensions();
+    let active_width = (0..w)
+        .filter(|x| raster.image.get_pixel(*x, h / 2) == &Rgb([200, 128, 63]))
+        .count();
+    let printed_dpi = 744.0 * 25.4 / (80.0 * active_width as f64 / f64::from(w));
+    assert!((reading.effective_dpi - printed_dpi).abs() < 0.3);
+    assert!(active_width < w as usize);
+    assert!((effective_dpi(1040, 1040, &art, &settings) - 330.2).abs() < 0.1);
+    settings.dpi = 400;
+    assert!(assess_source(744, 1040, &art, &settings).below_upscale_threshold);
+}
+
+#[tokio::test]
+async fn picker_uses_cached_original_dimensions_or_a_labeled_format_estimate() {
+    let dir = tempfile::tempdir().unwrap();
+    let images = Images::new(dir.path(), Arc::new(Store::in_memory().unwrap())).unwrap();
+    let mut cached = common::scryfall_art();
+    cached.image_url = "https://cards.scryfall.io/png/front/real.png".into();
+    let mut uncached = cached.clone();
+    uncached.image_url = "https://cards.scryfall.io/large/front/another.jpg".into();
+    let path = images.local_path(&cached.image_url).unwrap();
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    RgbImage::new(744, 1040)
+        .write_to(
+            &mut std::fs::File::create(path).unwrap(),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    let settings = PrintSettings {
+        card_width_mm: 80.0,
+        card_height_mm: 80.0,
+        ..PrintSettings::default()
+    };
+    let mut unknown = cached.clone();
+    unknown.image_url = "https://cards.scryfall.io/art_crop/front/unknown.jpg".into();
+    let readings = picker_dpi(&images, vec![cached, uncached, unknown], &settings).await;
+    let measured = readings[0].as_ref().unwrap();
+    let estimate = readings[1].as_ref().unwrap();
+    assert!(!measured.estimated && (measured.effective_dpi - 330.16).abs() < 0.3);
+    assert!(estimate.estimated && (estimate.effective_dpi - 297.18).abs() < 0.3);
+    assert!(readings[2].is_none());
 }

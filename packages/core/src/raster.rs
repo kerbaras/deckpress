@@ -23,7 +23,7 @@ const TRIM_ASPECT_TOLERANCE: f64 = 0.01;
 
 /// Bump when `rasterize` output changes for identical inputs so cached
 /// previews and PDF rasters are regenerated.
-pub const PIPELINE_VERSION: u32 = 5;
+pub const PIPELINE_VERSION: u32 = 6;
 
 /// Corner radius of a real card.
 pub const CORNER_RADIUS_MM: f64 = 3.0;
@@ -129,12 +129,22 @@ pub fn contain(
     height: u32,
     background: Rgb<u8>,
 ) -> AppResult<RgbImage> {
-    let scale = f64::min(
-        f64::from(width) / f64::from(image.width()),
-        f64::from(height) / f64::from(image.height()),
-    );
-    let w = ((f64::from(image.width()) * scale).round() as u32).clamp(1, width);
-    let h = ((f64::from(image.height()) * scale).round() as u32).clamp(1, height);
+    let fitted = contain_dimensions(image.dimensions(), (width, height));
+    place_face(image, (width, height), fitted, background)
+}
+
+fn contain_dimensions((w, h): (u32, u32), (width, height): (u32, u32)) -> (u32, u32) {
+    let scale = (f64::from(width) / f64::from(w)).min(f64::from(height) / f64::from(h));
+    let round = |input, max| ((f64::from(input) * scale).round() as u32).clamp(1, max);
+    (round(w, width), round(h, height))
+}
+
+fn place_face(
+    image: &RgbImage,
+    (width, height): (u32, u32),
+    (w, h): (u32, u32),
+    background: Rgb<u8>,
+) -> AppResult<RgbImage> {
     let resized = resize(image, w, h)?;
     if w == width && h == height {
         return Ok(resized);
@@ -331,6 +341,39 @@ pub struct RasterOutput {
     pub upscaled: bool,
 }
 
+pub(crate) fn trim_pixels(settings: &PrintSettings) -> (u32, u32) {
+    let pixels = face_pixels(
+        settings.card_width_mm,
+        settings.card_height_mm,
+        settings.bleed_mm,
+        settings.dpi,
+    );
+    (pixels.trim_width, pixels.trim_height)
+}
+
+pub(crate) fn fitted_art_dimensions(
+    source: (u32, u32),
+    target: (u32, u32),
+    art: &Art,
+    settings: &PrintSettings,
+) -> (u32, u32) {
+    let trim_aspect = settings.card_width_mm / settings.card_height_mm;
+    let expected_width = f64::from(source.1) * trim_aspect;
+    // Rounding the two crop edges can cost a source pixel per axis.
+    let crop_rounding = if art.bleed_mm > 0.0 {
+        1.0 + trim_aspect
+    } else {
+        0.0
+    };
+    if (f64::from(source.0) - expected_width).abs()
+        <= expected_width * TRIM_ASPECT_TOLERANCE + crop_rounding
+    {
+        target
+    } else {
+        contain_dimensions(source, target)
+    }
+}
+
 pub(crate) fn below_upscale_threshold(
     width: u32,
     height: u32,
@@ -341,7 +384,7 @@ pub(crate) fn below_upscale_threshold(
 }
 
 /// Full face pipeline. `upscaler` is only used when `settings.upscale` is set
-/// and the source is smaller than 95% of the target in both dimensions.
+/// and the source is smaller than 95% of its fitted area in both dimensions.
 pub fn rasterize(
     source: &[u8],
     art: &Art,
@@ -353,39 +396,20 @@ pub fn rasterize(
     let background = parse_hex_color(&settings.bleed_color);
     let decoded = to_rgb(crate::images::decode(source)?, background);
     let mut face = strip_bleed(&decoded, art, settings);
-    let pixels = face_pixels(
-        settings.card_width_mm,
-        settings.card_height_mm,
-        settings.bleed_mm,
-        settings.dpi,
-    );
-    let (target_w, target_h) = (pixels.trim_width, pixels.trim_height);
-    if target_w == 0 || target_h == 0 {
+    let target = trim_pixels(settings);
+    if target.0 == 0 || target.1 == 0 {
         return Err(AppError::user("Card dimensions are too small to print"));
     }
-    let trim_aspect = settings.card_width_mm / settings.card_height_mm;
-    let expected_width = f64::from(face.height()) * trim_aspect;
-    // Rounding the two crop edges can cost a source pixel per axis.
-    let crop_rounding = if art.bleed_mm > 0.0 {
-        1.0 + trim_aspect
-    } else {
-        0.0
-    };
-    let fills_trim = (f64::from(face.width()) - expected_width).abs()
-        <= expected_width * TRIM_ASPECT_TOLERANCE + crop_rounding;
+    let fitted = fitted_art_dimensions(face.dimensions(), target, art, settings);
     let mut upscaled = false;
-    if settings.upscale && below_upscale_threshold(face.width(), face.height(), target_w, target_h)
+    if settings.upscale && below_upscale_threshold(face.width(), face.height(), fitted.0, fitted.1)
     {
         let upscaler = upscaler.ok_or_else(|| AppError::user("Upscaling model is not loaded"))?;
         face = upscaler.upscale(&face, cancel, progress)?;
         upscaled = true;
     }
     cancel.check()?;
-    let face = if fills_trim {
-        resize(&face, target_w, target_h)?
-    } else {
-        contain(&face, target_w, target_h, background)?
-    };
+    let face = place_face(&face, target, fitted, background)?;
     Ok(RasterOutput {
         image: finish_face(&face, settings, background),
         upscaled,

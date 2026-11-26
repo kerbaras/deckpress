@@ -63,6 +63,7 @@ pub fn run() {
             commands::search_art,
             commands::better_scan,
             commands::source_dpi,
+            commands::picker_dpi,
             commands::match_art_style,
             commands::preferences,
             commands::save_preference,

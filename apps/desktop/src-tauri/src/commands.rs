@@ -268,6 +268,15 @@ pub async fn source_dpi(
     Ok(art_quality::source_dpi(&state.images, arts, &settings).await)
 }
 
+#[tauri::command]
+pub async fn picker_dpi(
+    state: State<'_, AppState>,
+    arts: Vec<Art>,
+    settings: PrintSettings,
+) -> AppResult<Vec<Option<art_quality::PickerDpi>>> {
+    Ok(art_quality::picker_dpi(&state.images, arts, &settings).await)
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StyleProgress {

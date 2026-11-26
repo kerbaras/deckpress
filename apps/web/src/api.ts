@@ -490,6 +490,16 @@ export const api = {
       ),
       { arts, settings },
     ),
+  pickerDpi: (arts: Art[], settings: PrintSettings) =>
+    command(
+      "picker_dpi",
+      z.array(
+        z
+          .object({ effectiveDpi: z.number(), estimated: z.boolean() })
+          .nullable(),
+      ),
+      { arts, settings },
+    ),
   savePreference: (id: string, value: ArtPreference) =>
     command("save_preference", artPreferenceSchema, {
       id,
