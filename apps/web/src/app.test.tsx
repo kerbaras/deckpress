@@ -1332,16 +1332,22 @@ it.each([
     const user = userEvent.setup();
     mockPickerArt([original, alternate]);
     const apply = vi.fn(async (value: Deck) => value);
+    const twoSided = {
+      ...entry,
+      card: {
+        ...entry.card,
+        faces: [original, { ...original, id: "scryfall:original-back" }],
+      },
+    };
     renderWithClient(
       <ArtPicker
-        deck={deck}
-        entry={entry}
+        deck={{ ...deck, entries: [twoSided] }}
+        entry={twoSided}
         onSelect={vi.fn()}
         onApply={apply}
       />,
     );
-    const face = (name: string) =>
-      screen.getByRole("button", { name, exact: true });
+    const face = (name: string) => screen.getByRole("button", { name });
     if (from === "Back") await user.click(face(from));
     expect(face(from)).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
