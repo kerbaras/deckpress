@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
+import type { PrintJob } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
 import { Library } from "./library.tsx";
@@ -34,6 +35,7 @@ import {
   ExternalLink,
   Loading,
   prettyDate,
+  StatusRegion,
   useTask,
 } from "./ui.tsx";
 import { Workspace } from "./workspace.tsx";
@@ -95,6 +97,7 @@ export function App() {
   const activeJobs =
     jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
       .length ?? 0;
+  const { announcements, announceJobs } = usePrintJobAnnouncements(jobs.data);
   const navigate = async (next: string, saved = false) => {
     if (!saved && dirty.current && !(await confirmDiscard())) return false;
     dirty.current = false;
@@ -182,6 +185,11 @@ export function App() {
       >
         Skip to content
       </button>
+      <StatusRegion label="Print job announcements">
+        {announcements.map(({ key, text }) => (
+          <span key={key}>{text} </span>
+        ))}
+      </StatusRegion>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>
           <SidebarToggle
@@ -294,7 +302,10 @@ export function App() {
                 focusHeading={importedDeckId === deckId}
                 onDirty={onDirty}
                 onBack={() => void navigate("decks")}
-                onJobs={() => void navigate("jobs", true)}
+                onJobs={(job) => {
+                  announceJobs([job]);
+                  void navigate("jobs", true);
+                }}
               />
             ) : route === "jobs" ? (
               <PrintJobs active={activeJobs} />
@@ -326,6 +337,42 @@ export function App() {
   );
 }
 
+function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
+  const seen = useRef(new Map<string, Set<PrintJob["status"]>>());
+  const initialized = useRef(false);
+  const [announcements, setAnnouncements] = useState<
+    { key: string; text: string }[]
+  >([]);
+  const announceJobs = useCallback((snapshot: PrintJob[], initial = false) => {
+    const next = [];
+    for (const { id, status, deckName, message } of snapshot) {
+      let statuses = seen.current.get(id);
+      if (!statuses) {
+        statuses = new Set();
+        seen.current.set(id, statuses);
+      }
+      if (statuses.has(status)) continue;
+      statuses.add(status);
+      if (status === "cancelled") continue;
+      if (initial && (status === "completed" || status === "failed")) continue;
+      next.push({
+        key: `${id}:${status}`,
+        text:
+          status === "failed"
+            ? `Print job for ${deckName} failed: ${message}`
+            : `Print job for ${deckName} ${status}.`,
+      });
+    }
+    if (next.length) setAnnouncements(next);
+  }, []);
+  useEffect(() => {
+    if (!jobs) return;
+    announceJobs(jobs, !initialized.current);
+    initialized.current = true;
+  }, [jobs, announceJobs]);
+  return { announcements, announceJobs };
+}
+
 function PrintJobs({ active }: { active: number }) {
   const query = useQuery({
     queryKey: ["jobs"],
@@ -339,6 +386,7 @@ function PrintJobs({ active }: { active: number }) {
         : false,
   });
   const task = useTask();
+  const [saveStatus, setSaveStatus] = useState("");
   const total = query.data?.length ?? 0;
   return (
     <>
@@ -363,6 +411,9 @@ function PrintJobs({ active }: { active: number }) {
         </button>
       </PageToolbar>
       <div className="page-content">
+        <StatusRegion label="Export save status">
+          {task.error ? "" : saveStatus}
+        </StatusRegion>
         <ErrorNotice
           error={query.error ?? task.error}
           retry={() => void query.refetch()}
@@ -390,9 +441,7 @@ function PrintJobs({ active }: { active: number }) {
                     </span>
                   </div>
                   <p className="mono muted">{job.fileName}</p>
-                  <p role={job.status === "running" ? "status" : undefined}>
-                    {job.message}
-                  </p>
+                  <p>{job.message}</p>
                   {["queued", "running"].includes(job.status) && (
                     <progress
                       aria-label={`Export progress for ${job.deckName}`}
@@ -437,12 +486,20 @@ function PrintJobs({ active }: { active: number }) {
                         disabled={task.busy}
                         onClick={() =>
                           void task.run(async () => {
+                            setSaveStatus("");
                             const destination = await save({
                               defaultPath: job.fileName,
                               filters: [{ name: "PDF", extensions: ["pdf"] }],
                             });
-                            if (destination)
+                            if (destination) {
+                              setSaveStatus(
+                                `Saving export for ${job.deckName}…`,
+                              );
                               await api.savePdf(job.id, destination);
+                              setSaveStatus(
+                                `Export for ${job.deckName} saved.`,
+                              );
+                            }
                           })
                         }
                       >
@@ -507,6 +564,9 @@ function LocalSettings() {
   });
   const busy = task.busy || download.isPending;
   const failedModelId = download.isError ? download.variables : undefined;
+  const downloadName = query.data?.models.find(
+    (model) => model.id === download.variables,
+  )?.name;
   const loaded = query.data?.loaded;
   return (
     <>
@@ -528,6 +588,13 @@ function LocalSettings() {
           retry={() => void query.refetch()}
         />
         <section className="panel settings-card">
+          <StatusRegion label="Model download status">
+            {downloadName && download.isPending
+              ? `Downloading ${downloadName}…`
+              : downloadName && download.isSuccess
+                ? `${downloadName} downloaded.`
+                : ""}
+          </StatusRegion>
           <div className="section-heading">
             <h2>Local AI upscaling</h2>
             <span className={`badge ${loaded ? "official" : ""}`}>

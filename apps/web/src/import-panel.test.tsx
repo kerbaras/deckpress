@@ -45,9 +45,10 @@ const card = (name: string, quantity: number, zone: DeckEntry["zone"]) => {
 };
 
 /** Resolves every line except "Lightnig Bolt", which Scryfall reports by position. */
-function mockResolver() {
-  mockIPC((cmd, args) => {
+function mockResolver(beforeResolve?: Promise<void>) {
+  mockIPC(async (cmd, args) => {
     if (cmd !== "resolve_cards") throw new Error(`Unexpected ${cmd}`);
+    await beforeResolve;
     const lines = (
       args as {
         lines: { name: string; quantity: number; zone: DeckEntry["zone"] }[];
@@ -71,19 +72,24 @@ function mockResolver() {
 it("offers the paste fallback and a retry when a deck URL is refused", async () => {
   const user = userEvent.setup();
   let calls = 0;
+  const rejection = Promise.withResolvers<never>();
   mockIPC((cmd) => {
     if (cmd !== "import_url") throw new Error(`Unexpected ${cmd}`);
     calls++;
-    return Promise.reject(refused);
+    return rejection.promise;
   });
   render(<ImportPanel existing={0} onApply={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "URL" }));
   await user.type(screen.getByLabelText("Public deck URL"), url);
+  const status = screen.getByRole("status");
   await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  expect(status).toHaveTextContent("Resolving cards…");
+  rejection.reject(refused);
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("HTTP 403");
   expect(alert).toHaveTextContent("More › Download / Export");
   expect(alert).toHaveTextContent("Copy Plain Text");
+  expect(status).toBeEmptyDOMElement();
   expect(screen.getByLabelText("Public deck URL")).toHaveValue(url);
   expect(screen.getByRole("button", { name: "Retry URL" })).toHaveFocus();
 
@@ -111,16 +117,21 @@ it("offers the paste fallback and a retry when a deck URL is refused", async () 
 
 it("reviews a partial list by line and board, then saves without moving focus", async () => {
   const user = userEvent.setup();
-  mockResolver();
+  const resolution = Promise.withResolvers<void>();
+  const saving = Promise.withResolvers<void>();
+  mockResolver(resolution.promise);
   const onApply =
     vi.fn<(result: ImportResult, replace: boolean) => Promise<void>>();
-  onApply.mockRejectedValueOnce(new Error("Disk full")).mockResolvedValue();
+  onApply.mockReturnValueOnce(saving.promise).mockResolvedValue();
   render(<ImportPanel existing={10} onApply={onApply} />);
+  const status = screen.getByRole("status");
   await user.click(screen.getByLabelText("Decklist"));
   await user.paste(
     "Deck\n4 Shock\n2 Lightnig Bolt\n\nSideboard\n2 Negate\n1 Shock",
   );
   await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  expect(status).toHaveTextContent("Resolving cards…");
+  resolution.resolve();
 
   expect(
     await screen.findByRole("heading", { name: "7 cards resolved" }),
@@ -163,7 +174,11 @@ it("reviews a partial list by line and board, then saves without moving focus", 
   });
 
   await user.click(action);
+  expect(status).toHaveTextContent("Saving imported cards…");
+  saving.reject(new Error("Disk full"));
   expect(await screen.findByText("Disk full")).toBeVisible();
+  expect(screen.getByRole("alert")).toHaveTextContent("Disk full");
+  expect(status).toBeEmptyDOMElement();
   expect(onApply).toHaveBeenLastCalledWith(
     expect.objectContaining({ format: "Text / Arena" }),
     true,
@@ -200,6 +215,34 @@ it("keeps the save action disabled when no cards resolve", async () => {
   expect(
     screen.getByRole("button", { name: "Add 0 cards to deck" }),
   ).toBeDisabled();
+});
+
+it("announces a new resolution after a previous save failed", async () => {
+  const user = userEvent.setup();
+  mockResolver();
+  render(
+    <ImportPanel
+      existing={0}
+      onApply={vi.fn().mockRejectedValue(new Error("Disk full"))}
+    />,
+  );
+  const resolve = screen.getByRole("button", { name: "Resolve on Scryfall" });
+  await user.click(screen.getByLabelText("Decklist"));
+  await user.paste("2 Shock");
+  await user.click(resolve);
+  await user.click(
+    await screen.findByRole("button", { name: "Add 2 cards to deck" }),
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent("Disk full");
+
+  await user.click(resolve);
+  expect(
+    await screen.findByRole("heading", { name: "2 cards resolved" }),
+  ).toHaveFocus();
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "2 cards resolved. No lines need review.",
+  );
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 it("keeps the import status region rendered before it has anything to say", async () => {

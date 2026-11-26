@@ -25,6 +25,7 @@ import {
   MAX_SCM_BLEED_MM,
   mmToPixels,
   mmToPt,
+  type PrintJob,
   type PrintSettings,
   printableEntries,
   printPageCount,
@@ -95,7 +96,7 @@ export function PrintSetup({
   deck: Deck;
   onChange: (deck: Deck) => void;
   onSave: (deck: Deck) => Promise<Deck>;
-  onJobs: () => void;
+  onJobs: (job: PrintJob) => void;
 }) {
   const settings = deck.printSettings;
   const isScm = settings.layoutMode === "scm";
@@ -217,8 +218,7 @@ export function PrintSetup({
   const start = () =>
     void task.run(async () => {
       const saved = await onSave(deck);
-      await api.createJob(saved.id, settings);
-      onJobs();
+      onJobs(await api.createJob(saved.id, settings));
     });
   return (
     <div className="print-workspace px-6 py-4">
