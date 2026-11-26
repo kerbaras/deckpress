@@ -8,6 +8,7 @@ import {
   Image,
   LayoutGrid,
   List,
+  LoaderCircle,
   Printer,
   Save,
   SlidersHorizontal,
@@ -174,8 +175,8 @@ function DeckWorkspace({
     }
   };
   const dirty = deck !== saved;
-  const saveStatus = dirty ? "Unsaved changes" : "Saved";
-  const SaveStatusIcon = dirty ? CircleAlert : Check;
+  const saveStatus = isSaving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
+  const SaveStatusIcon = isSaving ? LoaderCircle : dirty ? CircleAlert : Check;
   const saveChanges = () =>
     void task.run(async () => {
       await commit(deck);
@@ -240,13 +241,16 @@ function DeckWorkspace({
         }
       >
         <span
-          className={dirty ? "save-state unsaved" : "save-state"}
+          className={`save-state${isSaving ? " saving" : dirty ? " unsaved" : ""}`}
           role="status"
           aria-label={saveStatus}
           title={saveStatus}
           data-tauri-drag-region
         >
-          <SaveStatusIcon aria-hidden="true" />
+          <SaveStatusIcon
+            className={isSaving ? "spin" : undefined}
+            aria-hidden="true"
+          />
           <span className="save-state-label" data-tauri-drag-region>
             <span data-tauri-drag-region>{saveStatus}</span>
           </span>

@@ -321,6 +321,44 @@ it("names the save status and exposes its tooltip when switching to Print setup 
   ).toHaveAttribute("title", "Unsaved changes");
 });
 
+it("shows the pending save status until the save fails or succeeds", async () => {
+  const failedSave = Promise.withResolvers<Deck>();
+  const successfulSave = Promise.withResolvers<Deck>();
+  vi.spyOn(api, "saveDeck")
+    .mockReturnValueOnce(failedSave.promise)
+    .mockReturnValueOnce(successfulSave.promise);
+  mockIPC((cmd) => {
+    if (cmd === "list_decks") return [deck];
+    if (cmd === "get_deck") return deck;
+    return [];
+  });
+  const user = userEvent.setup();
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Edit card quantities" }),
+  );
+  fireEvent.change(
+    screen.getByRole("spinbutton", { name: "Copies of Lightning Bolt" }),
+    { target: { value: "5" } },
+  );
+  const expectStatus = async (name: string) => {
+    expect(await screen.findByRole("status", { name })).toHaveAttribute(
+      "title",
+      name,
+    );
+  };
+  const save = screen.getByRole("button", { name: "Save changes" });
+  await user.click(save);
+  await expectStatus("Saving…");
+  failedSave.reject(new Error("Save failed"));
+  await expectStatus("Unsaved changes");
+  await user.click(save);
+  await expectStatus("Saving…");
+  successfulSave.resolve({ ...deck, entries: [{ ...entry, quantity: 5 }] });
+  await expectStatus("Saved");
+});
+
 it("imports an MPC Autofill order without changing image IDs and exports it through the save dialog", async () => {
   const art = { ...community, id: "mpc:front_id" };
   const back = { ...community, id: "mpc:back_id" };

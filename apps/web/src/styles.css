@@ -511,6 +511,9 @@ pre {
 .save-state.unsaved {
   color: var(--accent);
 }
+.save-state.saving {
+  color: var(--text-muted);
+}
 .save-state svg {
   width: var(--icon-size);
   height: var(--icon-size);
