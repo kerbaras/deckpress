@@ -335,4 +335,9 @@ fn summaries_list_the_first_skipped_faces() {
         "2 PNG files ready · 1 face without art skipped: Card (sheet 1, slot 1)"
     );
     assert!(summary(5).ends_with("Card (sheet 1, slot 3); 2 more"));
+    let single = PngExport {
+        faces: 1,
+        skipped: vec![],
+    };
+    assert_eq!(single.summary(), "1 PNG file ready");
 }

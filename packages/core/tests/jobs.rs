@@ -34,33 +34,38 @@ async fn a_single_page_is_singular_when_queued_and_ready() {
     let jobs = Arc::new(Jobs::new(store, images, models, dir.path(), Handle::current()).unwrap());
     jobs.start();
 
-    let queued = jobs
-        .create(
-            deck,
-            PrintSettings {
-                calibration_page: false,
-                dpi: 150,
-                ..PrintSettings::default()
-            },
-            ExportFormat::Pdf,
-        )
-        .unwrap();
-    let ready = tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let job = jobs.get(&queued.id).unwrap();
-            if !matches!(job.status, JobStatus::Queued | JobStatus::Running) {
-                break job;
+    for (format, expected) in [
+        (ExportFormat::Pdf, ("Queued · 1 page", "1 page ready")),
+        (
+            ExportFormat::Png,
+            ("Queued · PNG files", "1 PNG file ready"),
+        ),
+    ] {
+        let queued = jobs
+            .create(
+                deck.clone(),
+                PrintSettings {
+                    calibration_page: false,
+                    dpi: 150,
+                    ..PrintSettings::default()
+                },
+                format,
+            )
+            .unwrap();
+        let ready = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let job = jobs.get(&queued.id).unwrap();
+                if !matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+                    break job;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .expect("print job did not finish");
-    assert_eq!(ready.status, JobStatus::Completed, "{}", ready.message);
-    assert_eq!(
-        (queued.message.as_str(), ready.message.as_str()),
-        ("Queued · 1 page", "1 page ready")
-    );
+        })
+        .await
+        .expect("print job did not finish");
+        assert_eq!(ready.status, JobStatus::Completed, "{}", ready.message);
+        assert_eq!((queued.message.as_str(), ready.message.as_str()), expected);
+    }
 }
 
 #[test]
