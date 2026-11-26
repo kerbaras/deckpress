@@ -3,7 +3,7 @@ import { Crosshair, Download } from "lucide-react";
 import { useState } from "react";
 import { api, confirmAction } from "./api.ts";
 import type { PrinterProfileInput, PrintSettings } from "./core/index.ts";
-import { ErrorNotice, useTask } from "./ui.tsx";
+import { ErrorNotice, StatusRegion, useTask } from "./ui.tsx";
 
 const fields = [
   {
@@ -100,7 +100,9 @@ export function DuplexCalibration({
       ]);
       select(profile.id);
       setName(profile.name);
-      setStatus("Printer profile saved.");
+      setStatus(
+        id === null ? "Printer profile saved." : "Printer profile updated.",
+      );
     });
   const canSave = !task.busy && query.isSuccess && name.trim().length > 0;
 
@@ -229,11 +231,12 @@ export function DuplexCalibration({
         100%, flip on the {flip} edge, and hold it up to the light. Adjust until
         the back crosses line up with the front rings, then save your profile.
       </p>
-      {status && (
-        <p className="hint" role="status">
-          {status}
-        </p>
-      )}
+      <StatusRegion
+        className={status ? "hint" : "sr-only"}
+        label="Duplex calibration status"
+      >
+        {status}
+      </StatusRegion>
       <ErrorNotice error={query.error} retry={() => void query.refetch()} />
       <ErrorNotice error={task.error} />
     </section>

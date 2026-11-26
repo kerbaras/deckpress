@@ -59,6 +59,20 @@ it("applies, creates, updates and deletes profiles and exports the current corre
       <Harness />
     </QueryClientProvider>,
   );
+  const status = screen.getByRole("status", {
+    name: "Duplex calibration status",
+  });
+  expect(status).toBeEmptyDOMElement();
+  const announcements: string[] = [];
+  const observer = new MutationObserver(() => {
+    const text = status.textContent;
+    if (text) announcements.push(text);
+  });
+  observer.observe(status, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
   await screen.findByRole("option", { name: "Office laser" });
   const profile = screen.getByRole("combobox", { name: "Printer profile" });
   await user.selectOptions(profile, existing.id);
@@ -116,4 +130,39 @@ it("applies, creates, updates and deletes profiles and exports the current corre
     destination,
     settings: expect.objectContaining({ backs: "short-edge", ...correction }),
   });
+  observer.disconnect();
+  expect(screen.getAllByRole("status")).toEqual([status]);
+  expect(announcements).toEqual([
+    "Printer profile saved.",
+    "Printer profile updated.",
+    "Printer profile deleted. Current correction kept.",
+    "Duplex calibration sheet saved.",
+  ]);
+});
+
+it("announces a failed calibration export only as an alert", async () => {
+  mockIPC((command) => {
+    if (command === "list_printer_profiles") return [];
+    if (command === "plugin:dialog|save") return "/home/user/calibration.pdf";
+    if (command === "save_duplex_calibration")
+      throw new Error("Could not save calibration sheet");
+  });
+  const settings = printSettingsSchema.parse({});
+  const user = userEvent.setup();
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <DuplexCalibration
+        settings={settings}
+        backs={settings.backs}
+        onChange={vi.fn()}
+      />
+    </QueryClientProvider>,
+  );
+  await user.click(
+    screen.getByRole("button", { name: "Export calibration sheet" }),
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not save calibration sheet",
+  );
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
 });
