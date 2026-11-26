@@ -331,6 +331,15 @@ pub struct RasterOutput {
     pub upscaled: bool,
 }
 
+pub(crate) fn below_upscale_threshold(
+    width: u32,
+    height: u32,
+    target_w: u32,
+    target_h: u32,
+) -> bool {
+    f64::from(width) < f64::from(target_w) * 0.95 && f64::from(height) < f64::from(target_h) * 0.95
+}
+
 /// Full face pipeline. `upscaler` is only used when `settings.upscale` is set
 /// and the source is smaller than 95% of the target in both dimensions.
 pub fn rasterize(
@@ -365,9 +374,7 @@ pub fn rasterize(
     let fills_trim = (f64::from(face.width()) - expected_width).abs()
         <= expected_width * TRIM_ASPECT_TOLERANCE + crop_rounding;
     let mut upscaled = false;
-    if settings.upscale
-        && f64::from(face.width()) < f64::from(target_w) * 0.95
-        && f64::from(face.height()) < f64::from(target_h) * 0.95
+    if settings.upscale && below_upscale_threshold(face.width(), face.height(), target_w, target_h)
     {
         let upscaler = upscaler.ok_or_else(|| AppError::user("Upscaling model is not loaded"))?;
         face = upscaler.upscale(&face, cancel, progress)?;

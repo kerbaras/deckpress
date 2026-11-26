@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api } from "./api.ts";
+import { api, type ModelStatus } from "./api.ts";
 import { ScanQualityBadge } from "./art-quality.tsx";
 import type { Art, PrintSettings } from "./core/index.ts";
 import { ErrorNotice, StatusRegion } from "./ui.tsx";
@@ -8,9 +8,11 @@ import { ErrorNotice, StatusRegion } from "./ui.tsx";
 export function SourcePreflight({
   arts,
   settings,
+  model,
 }: {
   arts: Art[];
   settings: PrintSettings;
+  model: ModelStatus | undefined;
 }) {
   const [checked, setChecked] = useState(false);
   const dpi = useQuery({
@@ -18,6 +20,7 @@ export function SourcePreflight({
       "source-dpi",
       settings.cardWidthMm,
       settings.cardHeightMm,
+      settings.dpi,
       arts.map((art) => [art.imageUrl, art.provider, art.bleedMm]),
     ],
     queryFn: () => api.sourceDpi(arts, settings),
@@ -27,7 +30,9 @@ export function SourcePreflight({
   });
   if (!arts.length) return null;
   const readings = dpi.data;
-  const low = readings?.filter((value) => value !== null && value < 300).length;
+  const low = readings?.filter(
+    (reading) => reading !== null && reading.effectiveDpi < 300,
+  ).length;
   const unavailable = readings?.filter((value) => value === null).length;
   return (
     <>
@@ -49,7 +54,19 @@ export function SourcePreflight({
           <summary>Source quality by image</summary>
           <ul>
             {arts.map((art, index) => {
-              const value = readings[index];
+              const reading = readings[index];
+              const value = reading?.effectiveDpi;
+              const ai = !settings.upscale
+                ? "off"
+                : !model
+                  ? "model unavailable"
+                  : !model.installed
+                    ? `blocked — download ${model.name}`
+                    : !reading
+                      ? `unknown — could not check source dimensions (${model.name})`
+                      : reading.belowUpscaleThreshold
+                        ? `will apply — ${model.name}`
+                        : `not needed at ${settings.dpi} DPI (${model.name})`;
               return (
                 <li key={art.id}>
                   {art.name} · {art.source} {art.collectorNumber}{" "}
@@ -57,6 +74,7 @@ export function SourcePreflight({
                   {value == null
                     ? "DPI unavailable"
                     : `${Math.floor(value)} effective DPI${value < 300 ? " — below 300" : ""}`}
+                  {" · "}AI upscaling: {ai}
                 </li>
               );
             })}

@@ -1,6 +1,8 @@
 mod common;
 
-use deckpress_core::art_quality::{effective_dpi, prefer_high_res, scryfall_quality, ScanQuality};
+use deckpress_core::art_quality::{
+    assess_source, effective_dpi, prefer_high_res, scryfall_quality, ScanQuality,
+};
 use deckpress_core::models::{PrintSettings, Provider};
 use deckpress_core::providers::normalize_scryfall;
 use serde_json::json;
@@ -64,6 +66,24 @@ fn upgrades_only_to_a_better_print_of_the_same_illustration_and_language() {
 }
 
 #[test]
+fn prefers_highres_when_illustration_and_language_are_equal() {
+    let illustration = uuid::Uuid::new_v4();
+    let low = deckpress_core::models::Art {
+        illustration_id: Some(illustration),
+        scan_quality: Some(ScanQuality::Lowres),
+        ..common::scryfall_art()
+    };
+    let high = deckpress_core::models::Art {
+        id: "scryfall:high:0".into(),
+        scan_quality: Some(ScanQuality::HighresScan),
+        ..low.clone()
+    };
+    assert_eq!(prefer_high_res(&low, [&low, &high]).id, high.id);
+    assert_eq!(prefer_high_res(&low, [&high, &low]).id, high.id);
+    assert_eq!(prefer_high_res(&high, [&low]).id, high.id);
+}
+
+#[test]
 fn stores_face_specific_illustrations_and_scan_quality() {
     let front = uuid::Uuid::new_v4();
     let back = uuid::Uuid::new_v4();
@@ -93,4 +113,27 @@ fn effective_dpi_accounts_for_trim_and_removes_provider_bleed() {
     settings.card_width_mm *= 2.0;
     settings.card_height_mm *= 2.0;
     assert!((effective_dpi(822, 1122, &art, &settings) - 150.0).abs() < 0.1);
+}
+
+#[test]
+fn source_upscale_threshold_uses_trimmed_dimensions_and_both_axes() {
+    let mpc = common::art(3.048, Provider::Mpc);
+    let mut settings = PrintSettings {
+        card_width_mm: 63.5,
+        card_height_mm: 88.9,
+        dpi: 300,
+        ..PrintSettings::default()
+    };
+    assert!(!assess_source(822, 1122, &mpc, &settings).below_upscale_threshold);
+    assert!(assess_source(740, 1000, &mpc, &settings).below_upscale_threshold);
+    settings.dpi = 800;
+    assert!(assess_source(822, 1122, &mpc, &settings).below_upscale_threshold);
+
+    let scan = common::scryfall_art();
+    settings.card_width_mm = 100.0;
+    settings.card_height_mm = 100.0;
+    settings.dpi = 254;
+    assert!(assess_source(949, 949, &scan, &settings).below_upscale_threshold);
+    assert!(!assess_source(940, 950, &scan, &settings).below_upscale_threshold);
+    assert!(!assess_source(950, 940, &scan, &settings).below_upscale_threshold);
 }

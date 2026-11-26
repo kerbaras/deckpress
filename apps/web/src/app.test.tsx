@@ -2080,7 +2080,9 @@ it("lists images below 300 effective DPI with scan quality in print preflight", 
   const user = userEvent.setup();
   const low = { ...original, scanQuality: "lowres" as const };
   const value = { ...deck, entries: [{ ...entry, selectedArt: low }] };
-  const check = vi.spyOn(api, "sourceDpi").mockResolvedValue([243.8]);
+  const check = vi
+    .spyOn(api, "sourceDpi")
+    .mockResolvedValue([{ effectiveDpi: 243.8, belowUpscaleThreshold: true }]);
   renderWithClient(
     <PrintSetup
       deck={value}
@@ -2097,9 +2099,84 @@ it("lists images below 300 effective DPI with scan quality in print preflight", 
   const row = screen.getByText(/243 effective DPI — below 300/);
   expect(row).toHaveTextContent("Lightning Bolt · Magic 2010 146");
   expect(within(row).getByText("Low-res scan")).toBeVisible();
+  expect(row).toHaveTextContent("AI upscaling: off");
   expect(check).toHaveBeenCalledExactlyOnceWith(
     [low],
     expect.objectContaining({ cardWidthMm: 63, cardHeightMm: 88 }),
+  );
+});
+
+it("shows MPC Autofill DPI on its picker badge", async () => {
+  mockPickerArt();
+  vi.mocked(api.art).mockImplementation(async (provider, _, __, ___, page) => ({
+    items: provider === "mpc" ? [community] : [],
+    total: provider === "mpc" ? 1 : 0,
+    page,
+    hasMore: false,
+  }));
+  renderWithClient(
+    <ArtPicker
+      deck={deck}
+      entry={entry}
+      onSelect={vi.fn()}
+      onApply={vi.fn()}
+    />,
+  );
+  const tile = await screen.findByRole("button", { name: /Select Creator/ });
+  expect(tile).toHaveAccessibleDescription("MPC · 1200 DPI");
+  expect(within(tile).getByText("MPC · 1200 DPI")).toBeVisible();
+});
+
+it("separates MPC DPI from measured source DPI and reports the selected AI model per image", async () => {
+  const user = userEvent.setup();
+  const missing = {
+    ...compactModel,
+    id: "missing-model",
+    name: "Missing model",
+    installed: false,
+  };
+  vi.mocked(api.settings).mockResolvedValue({
+    ...(await api.settings()),
+    models: [compactModel, missing],
+  });
+  const model = compactModel.name;
+  vi.spyOn(api, "sourceDpi").mockResolvedValue([
+    { effectiveDpi: 245.6, belowUpscaleThreshold: true },
+    { effectiveDpi: 296.1, belowUpscaleThreshold: false },
+  ]);
+  function PrintHarness() {
+    const [value, setValue] = useState<Deck>({
+      ...deck,
+      entries: [
+        { ...entry, selectedArt: community },
+        { ...otherEntry, selectedArt: original },
+      ],
+    });
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={vi.fn()}
+        onJobs={vi.fn()}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  await user.click(screen.getByRole("button", { name: "Check source DPI" }));
+  const mpc = await screen.findByText(/245 effective DPI/);
+  const scan = screen.getByText(/296 effective DPI/);
+  expect(within(mpc).getByText("MPC · 1200 DPI")).toBeVisible();
+  expect(mpc).toHaveTextContent("AI upscaling: off");
+  await user.click(
+    screen.getByRole("checkbox", { name: "Use local AI upscaling" }),
+  );
+  expect(mpc).toHaveTextContent(`AI upscaling: will apply — ${model}`);
+  expect(scan).toHaveTextContent(
+    `AI upscaling: not needed at 800 DPI (${model})`,
+  );
+  await user.selectOptions(screen.getByLabelText("Model"), missing.id);
+  expect(mpc).toHaveTextContent(
+    "AI upscaling: blocked — download Missing model",
   );
 });
 

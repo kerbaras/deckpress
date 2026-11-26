@@ -1746,13 +1746,17 @@ export function PrintSetup({
               <dd>~{Math.max(0.1, estimatedMB).toFixed(1)} MB</dd>
             </div>
           </dl>
-          <SourcePreflight arts={arts} settings={effective} />
+          <SourcePreflight
+            arts={arts}
+            settings={effective}
+            model={selectedModel}
+          />
           {lowResolution > 0 && (
             <p className="notice warning">
               <AlertTriangle size={16} />
               {lowResolution} unique images estimated below target DPI.{" "}
               {settings.upscale
-                ? "AI will process lower-resolution sources."
+                ? "Check source DPI to see which images qualify for AI upscaling."
                 : "Resizing alone does not add detail."}
             </p>
           )}

@@ -2,8 +2,9 @@ use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 
 use crate::images::{decode, Images};
+use crate::layout::mm_to_pixels;
 use crate::models::{Art, PrintSettings, Provider};
-use crate::raster::trim_bounds;
+use crate::raster::{below_upscale_threshold, trim_bounds};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,23 +56,48 @@ pub fn prefer_high_res<'a>(
 }
 
 pub fn effective_dpi(width: u32, height: u32, art: &Art, settings: &PrintSettings) -> f64 {
+    assess_source(width, height, art, settings).effective_dpi
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceReading {
+    pub effective_dpi: f64,
+    pub below_upscale_threshold: bool,
+}
+
+pub fn assess_source(
+    width: u32,
+    height: u32,
+    art: &Art,
+    settings: &PrintSettings,
+) -> SourceReading {
     let (_, _, width, height) = trim_bounds(width, height, art, settings);
-    25.4 * (f64::from(width) / settings.card_width_mm)
-        .min(f64::from(height) / settings.card_height_mm)
+    SourceReading {
+        effective_dpi: 25.4
+            * (f64::from(width) / settings.card_width_mm)
+                .min(f64::from(height) / settings.card_height_mm),
+        below_upscale_threshold: below_upscale_threshold(
+            width,
+            height,
+            mm_to_pixels(settings.card_width_mm, settings.dpi),
+            mm_to_pixels(settings.card_height_mm, settings.dpi),
+        ),
+    }
 }
 
 pub async fn source_dpi(
     images: &Images,
     arts: Vec<Art>,
     settings: &PrintSettings,
-) -> Vec<Option<f64>> {
+) -> Vec<Option<SourceReading>> {
     stream::iter(arts)
         .map(|art| async move {
             let bytes = images.read(&art.image_url).await.ok()?;
             let settings = settings.clone();
             tokio::task::spawn_blocking(move || {
                 let image = decode(&bytes).ok()?;
-                Some(effective_dpi(
+                Some(assess_source(
                     image.width(),
                     image.height(),
                     &art,

@@ -264,7 +264,7 @@ pub async fn source_dpi(
     state: State<'_, AppState>,
     arts: Vec<Art>,
     settings: PrintSettings,
-) -> AppResult<Vec<Option<f64>>> {
+) -> AppResult<Vec<Option<art_quality::SourceReading>>> {
     Ok(art_quality::source_dpi(&state.images, arts, &settings).await)
 }
 

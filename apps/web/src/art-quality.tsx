@@ -2,7 +2,7 @@ import type { Art } from "./core/index.ts";
 
 export function scanLabel(art: Art): string {
   if (art.provider !== "scryfall")
-    return art.provider === "mpc" ? "MPC source" : "Uploaded source";
+    return art.provider === "mpc" ? `MPC · ${art.dpi} DPI` : "Uploaded source";
   switch (art.scanQuality) {
     case "highres_scan":
       return "High-res scan";
