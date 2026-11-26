@@ -199,6 +199,7 @@ export function Library({
               <button
                 type="button"
                 className={value === format ? "chip active" : "chip"}
+                aria-pressed={value === format}
                 onClick={() => setFormat(value)}
                 key={value}
               >

@@ -71,7 +71,7 @@ export function ImportPanel({
     <section className="panel import-panel">
       <div className="section-heading">
         <h3>
-          <ListPlus size={17} />
+          <ListPlus className="size-icon stroke-icon" />
           Import cards
         </h3>
         <span className="badge">Auto-detect</span>
@@ -179,7 +179,7 @@ export function ImportPanel({
       <ErrorNotice error={task.error} />
       {urlError && mode === "url" && (
         <div className="notice error import-url-error" role="alert">
-          <AlertCircle size={17} />
+          <AlertCircle className="size-icon shrink-0 stroke-icon" />
           <span>{urlError}</span>
           <div className="actions">
             <button
@@ -220,7 +220,7 @@ export function ImportPanel({
           }
         />
       )}
-      <p className="import-status" role="status">
+      <p className="import-status text-meta text-muted" role="status">
         {saved === null && result ? (
           <span className="sr-only">{importStatus(result, saved)}</span>
         ) : (

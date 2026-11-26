@@ -193,11 +193,13 @@ export function PrintSetup({
       onJobs();
     });
   return (
-    <div className="print-workspace">
+    <div className="print-workspace px-6 py-4">
       <div className="print-title toolbar">
         <div>
           <h2>Print setup</h2>
-          <p className="muted">Physical dimensions first. No hidden scaling.</p>
+          <p className="text-meta text-muted">
+            Physical dimensions first. No hidden scaling.
+          </p>
         </div>
         <div className="spacer" />
         <span className="mono muted">
@@ -385,7 +387,11 @@ export function PrintSetup({
                 {layout?.scm && (
                   <>
                     <h3>Fixed by template</h3>
-                    <dl className="my-0" aria-live="polite" aria-atomic="true">
+                    <dl
+                      className="scm-template-details"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
                       <div>
                         <dt>Paper & orientation</dt>
                         <dd>
@@ -423,12 +429,12 @@ export function PrintSetup({
                     {template.variant === "borderless" &&
                       (template.paper === "a3" ||
                         template.paper === "arch_b") && (
-                        <p className="hint">
+                        <p className="my-0 text-meta text-warning-ink">
                           SCM does not publish a cut file for this borderless
                           layout.
                         </p>
                       )}
-                    <p className="hint">
+                    <p className="my-0 text-meta text-muted">
                       Registration marks replace crop guides. Template spacing
                       replaces free margins and gaps. Duplex uses long-edge
                       alignment.
@@ -1265,8 +1271,19 @@ function ProofImage({
   const [loaded, setLoaded] = useState(false);
   return failed ? (
     <g>
-      <rect x={x} y={y} width={width} height={height} fill="#f4dedb" />
-      <text x={x + 8} y={y + height / 2} fill="#8c2323" fontSize={10}>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill="var(--preview-error-bg)"
+      />
+      <text
+        x={x + 8}
+        y={y + height / 2}
+        fill="var(--preview-error-text)"
+        fontSize={10}
+      >
         Image failed to load
       </text>
     </g>
@@ -1284,9 +1301,17 @@ function ProofImage({
         onError={() => setFailed(true)}
       />
       {!loaded && (
-        <text x={x + 8} y={y + height / 2} fill="#cccccc" fontSize={9}>
-          Preparing preview…
-        </text>
+        <>
+          <rect x={x} y={y} width={width} height={height} fill="var(--paper)" />
+          <text
+            x={x + 8}
+            y={y + height / 2}
+            fill="var(--preview-loading-text)"
+            fontSize={9}
+          >
+            Preparing preview…
+          </text>
+        </>
       )}
     </g>
   );

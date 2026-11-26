@@ -834,9 +834,25 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   for (const button of screen.getAllByRole("button", { name: "Generate PDF" }))
     expect(button).toBeDisabled();
   await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
-  expect(
-    screen.getByRole("img", { name: /Print preview, A4, 3 columns by 3 rows/ }),
-  ).toBeVisible();
+  const proof = screen.getByRole("img", {
+    name: /Print preview, A4, 3 columns by 3 rows/,
+  });
+  expect(proof).toBeVisible();
+  const loading = within(proof).getAllByText("Preparing preview…")[0];
+  expect(loading).toHaveAttribute("fill", "var(--preview-loading-text)");
+  expect(loading?.previousElementSibling).toHaveAttribute(
+    "fill",
+    "var(--paper)",
+  );
+  const image = proof.querySelector("image");
+  expect(image).not.toBeNull();
+  if (image) fireEvent.error(image);
+  const error = within(proof).getByText("Image failed to load");
+  expect(error).toHaveAttribute("fill", "var(--preview-error-text)");
+  expect(error.previousElementSibling).toHaveAttribute(
+    "fill",
+    "var(--preview-error-bg)",
+  );
   await user.click(
     screen.getAllByRole("button", { name: "Generate PDF" })[0] as HTMLElement,
   );
@@ -1071,6 +1087,41 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
   expect(
     screen.queryByRole("link", { name: "SCM cutting templates" }),
   ).toBeNull();
+});
+
+it("exposes the active library format and keeps filters available with the sidebar closed", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  mockIPC(() => ({ status: "ok", service: "@deckpress/desktop" }));
+  renderWithClient(<App />);
+
+  const all = await screen.findByRole("button", {
+    name: /^All/,
+    pressed: true,
+  });
+  const modern = await screen.findByRole("button", {
+    name: /^Modern/,
+    pressed: false,
+  });
+  await user.click(modern);
+  expect(all).toHaveAttribute("aria-pressed", "false");
+  expect(modern).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(screen.getByRole("button", { name: "Show sidebar" })).toBeVisible();
+  expect(
+    screen.queryByRole("navigation", { name: "Main navigation" }),
+  ).toBeNull();
+  expect(
+    screen.getByRole("searchbox", { name: "Search decks, formats, cards" }),
+  ).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: /^Modern/, pressed: true }),
+  ).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Show sidebar" }));
+  expect(
+    screen.getByRole("navigation", { name: "Main navigation" }),
+  ).toBeVisible();
 });
 
 it("keeps a failed library request visible and lets the user retry", async () => {
