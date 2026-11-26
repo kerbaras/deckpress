@@ -33,7 +33,6 @@ export function Library({
   createRequest = 0,
   onCreateHandled,
   onBuild,
-  openImported,
 }: {
   open: (id: string) => void;
   openImported: (id: string, importedCards?: number) => void;
