@@ -55,6 +55,7 @@ export function ArtPicker(props: {
   onApply: (deck: Deck) => Promise<Deck>;
   onPreviewChange?: (changed: boolean) => void;
   onUploadEdited?: (art: Art) => void;
+  preservePreview?: boolean;
   canLocalize?: boolean;
   onLocalize?: (
     entryId: string,
@@ -208,6 +209,7 @@ function ArtSession({
   onMatchSummary,
   onApplied,
   onPreviewChange,
+  preservePreview,
 }: {
   deck: Deck;
   entry: DeckEntry;
@@ -227,16 +229,21 @@ function ArtSession({
   onMatchSummary: (summary: string) => void;
   onApplied: (printing: string) => void;
   onPreviewChange?: (changed: boolean) => void;
+  preservePreview?: boolean;
 }) {
   const client = useQueryClient();
   const original = entry.card.faces[face] ?? null;
   const savedArt = face === 0 ? frontArt : backArt;
-  const saved = savedArt(entry);
+  const saved = useMemo(() => savedArt(entry), [entry, savedArt]);
   const [candidate, setCandidate] = useState<Art | null>(saved);
   const [previousSaved, setPreviousSaved] = useState(saved);
   if (saved !== previousSaved) {
     setPreviousSaved(saved);
-    if (candidate?.id === previousSaved?.id) setCandidate(saved);
+    if (
+      candidate?.id === previousSaved?.id ||
+      (!preservePreview && saved?.id !== previousSaved?.id)
+    )
+      setCandidate(saved);
   }
   const changed = candidate?.id !== saved?.id;
   useEffect(() => {

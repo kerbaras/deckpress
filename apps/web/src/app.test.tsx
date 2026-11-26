@@ -1866,6 +1866,88 @@ async function openArtStudio(user: ReturnType<typeof userEvent.setup>) {
   return screen.findByRole("button", previewButton);
 }
 
+it("keeps an unapplied Art Studio pick guarded through policy Keep, Apply, and Undo", async () => {
+  const user = userEvent.setup();
+  const pick = await openArtStudio(user);
+  const policyArt = {
+    ...original,
+    id: "scryfall:policy",
+    source: "Policy set",
+  };
+  const previewId = crypto.randomUUID();
+  vi.spyOn(api, "previewArtPolicy").mockResolvedValue({
+    previewId,
+    canApply: true,
+    changes: [
+      {
+        entryId: entry.id,
+        name: entry.card.name,
+        quantity: entry.quantity,
+        before: original,
+        after: policyArt,
+        kind: "changed",
+        reason: "Latest printing",
+      },
+    ],
+  });
+  const apply = vi.spyOn(api, "applyArtPreview").mockResolvedValue({
+    ...deck,
+    revision: deck.revision + 1,
+    artPolicy: { kind: "latest" },
+    entries: [{ ...entry, policyArt: [policyArt] }],
+  });
+  const undo = vi
+    .spyOn(api, "undoArtChange")
+    .mockResolvedValue({ ...deck, revision: deck.revision + 2 });
+  const openSettings = async () => {
+    await user.click(screen.getByRole("button", { name: "Deck settings" }));
+    return within(screen.getByRole("dialog", { name: "Deck settings" }));
+  };
+  const openPolicy = async (settings: ReturnType<typeof within>) => {
+    await user.click(
+      settings.getByRole("button", { name: "Preview art policy" }),
+    );
+    expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+    return within(
+      await screen.findByRole("dialog", { name: "Preview art changes" }),
+    );
+  };
+  const editor = screen.getByRole("button", { name: "Deck editor" });
+
+  await user.click(pick);
+  const settings = await openSettings();
+  let policy = await openPolicy(settings);
+  await user.click(
+    policy.getByRole("button", { name: "Keep current choices" }),
+  );
+  expect(apply).not.toHaveBeenCalled();
+  expect(pick).toHaveAttribute("aria-pressed", "true");
+  policy = await openPolicy(settings);
+  await user.click(policy.getByRole("button", { name: "Apply art changes" }));
+  expect(apply).toHaveBeenCalledWith(deck.id, deck.revision, previewId);
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.click(settings.getByRole("button", { name: "Close dialog" }));
+
+  await user.click(editor);
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Keep preview",
+    }),
+  );
+  expect(pick).toHaveAttribute("aria-pressed", "true");
+
+  const reopened = await openSettings();
+  await user.click(
+    reopened.getByRole("button", { name: "Undo last art change" }),
+  );
+  expect(undo).toHaveBeenCalledWith(deck.id, deck.revision + 1);
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.click(reopened.getByRole("button", { name: "Close dialog" }));
+  await user.click(editor);
+  expect(screen.getByRole("dialog", promptName)).toBeVisible();
+  expect(pick).toHaveAttribute("aria-pressed", "true");
+});
+
 it.each([
   [
     "Deck editor",

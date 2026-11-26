@@ -141,6 +141,8 @@ async function openPolicy() {
           focusHeading={false}
           onBack={vi.fn()}
           onDirty={vi.fn()}
+          onPreviewChange={vi.fn()}
+          confirmArtExit={() => true}
           onJobs={vi.fn()}
         />
       </ToolbarSlotProvider>

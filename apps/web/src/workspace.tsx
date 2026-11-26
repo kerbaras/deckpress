@@ -193,6 +193,7 @@ function DeckWorkspace({
     result?: ArtPreview;
     error?: unknown;
   } | null>(null);
+  const [preserveStudioPreview, setPreserveStudioPreview] = useState(false);
   const [canUndoArt, setCanUndoArt] = useState(false);
   const [artStatus, setArtStatus] = useState("");
   const [mpcExportStatus, setMpcExportStatus] = useState("");
@@ -229,12 +230,19 @@ function DeckWorkspace({
     onDirty(deck !== saved);
     return () => onDirty(false);
   }, [deck, saved, onDirty]);
-  const writeDeck = async (save: () => Promise<Deck>, toolbarDeck?: Deck) => {
+  const writeDeck = async (
+    save: () => Promise<Deck>,
+    {
+      toolbarDeck,
+      preservePreview = false,
+    }: { toolbarDeck?: Deck; preservePreview?: boolean } = {},
+  ) => {
     if (saving.current) throw new Error("Wait for the current save to finish");
     saving.current = true;
     setSaveMode(toolbarDeck ? "toolbar" : "editor");
     try {
       const result = await save();
+      setPreserveStudioPreview(preservePreview);
       setDeck((current) =>
         toolbarDeck && current !== toolbarDeck
           ? {
@@ -257,7 +265,7 @@ function DeckWorkspace({
   const commit = (next: Deck, mode: "toolbar" | "editor" = "editor") =>
     writeDeck(
       () => api.saveDeck(deckSchema.parse(next)),
-      mode === "toolbar" ? next : undefined,
+      mode === "toolbar" ? { toolbarDeck: next } : undefined,
     );
   const dirty = deck !== saved;
   const saveStatus = isSaving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
@@ -315,8 +323,9 @@ function DeckWorkspace({
       if (!result || dirty) return;
       setArtPreview({ result });
       try {
-        await writeDeck(() =>
-          api.applyArtPreview(deck.id, deck.revision, result.previewId),
+        await writeDeck(
+          () => api.applyArtPreview(deck.id, deck.revision, result.previewId),
+          { preservePreview: metadata },
         );
       } catch (error) {
         setArtPreview({ result, error });
@@ -330,7 +339,9 @@ function DeckWorkspace({
     void artTask.run(async () => {
       if (dirty) return;
       setArtStatus("");
-      await writeDeck(() => api.undoArtChange(deck.id, deck.revision));
+      await writeDeck(() => api.undoArtChange(deck.id, deck.revision), {
+        preservePreview: true,
+      });
       setCanUndoArt(false);
       setArtStatus("Art changes undone.");
     });
@@ -516,6 +527,7 @@ function DeckWorkspace({
             );
             void client.invalidateQueries({ queryKey: ["decks"] });
           }}
+          preservePreview={preserveStudioPreview}
         />
       )}
       {!metadata && !artPreview && <ErrorNotice error={artTask.error} />}
