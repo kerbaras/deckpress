@@ -24,6 +24,7 @@ pub fn art(bleed_mm: f64, provider: Provider) -> Art {
         bleed_mm,
         back_image_url: String::new(),
         back_thumbnail_url: String::new(),
+        english_fallback: false,
     }
 }
 

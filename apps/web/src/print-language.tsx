@@ -186,11 +186,14 @@ export function isEnglishFallback(entry: DeckEntry, art = frontArt(entry)) {
     requested?.length &&
       !requested.includes("en") &&
       art.language === "en" &&
-      entry.card.faces.some(
-        (face) =>
-          face.id === art.id ||
-          (face.backImageUrl && `${face.id}:back` === art.id),
-      ),
+      (art.englishFallback ||
+        [entry.card.faces, entry.policyArt ?? []].some((faces) =>
+          faces.some(
+            (face) =>
+              face.id === art.id ||
+              (face.backImageUrl && `${face.id}:back` === art.id),
+          ),
+        )),
   );
 }
 
@@ -207,8 +210,9 @@ export function entryLanguageLabel(entry: DeckEntry) {
   const front = frontArt(entry);
   const label = languageBadge(entry, front);
   const back = backArt(entry);
-  return back && back.language !== front.language
-    ? `${label} / ${languageBadge(entry, back)} back`
+  const backLabel = back && languageBadge(entry, back);
+  return backLabel && backLabel !== label
+    ? `${label} / ${backLabel} back`
     : label;
 }
 
@@ -229,7 +233,11 @@ export function DeckLanguageSummary({ deck }: { deck: Deck }) {
   for (const item of deck.missingPrints ?? [])
     group(item.languages).skipped.add(item.input);
   for (const entry of deck.entries) {
-    if (isEnglishFallback(entry) && entry.requestedLanguages) {
+    const back = backArt(entry);
+    if (
+      entry.requestedLanguages &&
+      (isEnglishFallback(entry) || (back && isEnglishFallback(entry, back)))
+    ) {
       group(entry.requestedLanguages).fallbacks.add(entry.card.name);
     }
   }

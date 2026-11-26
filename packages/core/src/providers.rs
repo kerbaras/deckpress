@@ -119,6 +119,7 @@ impl MpcCard {
                 bleed_mm: 3.048,
                 back_image_url: String::new(),
                 back_thumbnail_url: String::new(),
+                english_fallback: false,
             },
         }
     }
@@ -239,6 +240,7 @@ pub fn normalize_scryfall(value: &Value) -> AppResult<Card> {
             let image_url = images.png.or(images.large).unwrap_or_default();
             Art {
                 id: format!("scryfall:{}:{}", card.id, index),
+                english_fallback: false,
                 provider: Provider::Scryfall,
                 name: face.name,
                 thumbnail_url: images.normal.unwrap_or_else(|| image_url.clone()),

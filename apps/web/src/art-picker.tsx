@@ -56,7 +56,11 @@ export function ArtPicker(props: {
   onPreviewChange?: (changed: boolean) => void;
   onUploadEdited?: (art: Art) => void;
   canLocalize?: boolean;
-  onLocalize?: (entryId: string, artId: string) => void;
+  onLocalize?: (
+    entryId: string,
+    artId: string,
+    opener: HTMLButtonElement,
+  ) => void;
 }) {
   const { entry, onSelect } = props;
   const [activeFace, setActiveFace] = useState({
@@ -211,7 +215,11 @@ function ArtSession({
   onApply: (deck: Deck) => Promise<Deck>;
   onUploadEdited?: (art: Art) => void;
   canLocalize?: boolean;
-  onLocalize?: (entryId: string, artId: string) => void;
+  onLocalize?: (
+    entryId: string,
+    artId: string,
+    opener: HTMLButtonElement,
+  ) => void;
   face: number;
   activeFaceControl: React.Ref<HTMLButtonElement>;
   setFace: (face: number, restoreFocus: boolean) => void;
@@ -551,7 +559,9 @@ function ArtSession({
             <button
               type="button"
               disabled={!canLocalize || task.busy}
-              onClick={() => onLocalize(entry.id, candidate.id)}
+              onClick={(event) =>
+                onLocalize(entry.id, candidate.id, event.currentTarget)
+              }
             >
               Localize same illustration
             </button>

@@ -280,8 +280,12 @@ fn plan_change(
     let mut next = entry.clone();
     if manual {
         next.art_pinned = true;
-        next.selected_art = scans.first().cloned();
-        next.selected_back = scans.get(1).cloned();
+        let mark_fallback = |scan: &Art| Art {
+            english_fallback: fallback,
+            ..scan.clone()
+        };
+        next.selected_art = scans.first().map(mark_fallback);
+        next.selected_back = scans.get(1).map(mark_fallback);
     } else {
         next.policy_art = Some(scans.clone());
     }
@@ -319,7 +323,7 @@ pub struct ArtPreview {
 
 struct Pending {
     id: String,
-    next: Deck,
+    next: Option<Deck>,
 }
 
 struct Undo {
@@ -361,9 +365,27 @@ impl ArtPolicies {
         Ok(deck)
     }
 
+    fn begin_preview(&self, deck_id: &str, revision: u64) -> AppResult<(Deck, String)> {
+        let mut history = self
+            .history
+            .lock()
+            .map_err(|_| AppError::user("Art previews are unavailable."))?;
+        let before = self.at_revision(deck_id, revision)?;
+        let id = new_id();
+        history.pending.insert(
+            deck_id.to_owned(),
+            Pending {
+                id: id.clone(),
+                next: None,
+            },
+        );
+        Ok((before, id))
+    }
+
     fn save_preview(
         &self,
         before: &Deck,
+        preview_id: String,
         next: Deck,
         changes: Vec<ArtChange>,
     ) -> AppResult<ArtPreview> {
@@ -372,19 +394,13 @@ impl ArtPolicies {
             .lock()
             .map_err(|_| AppError::user("Art previews are unavailable."))?;
         self.at_revision(&before.id, before.revision)?;
-        let preview_id = new_id();
+        let pending = history
+            .pending
+            .get_mut(&before.id)
+            .filter(|pending| pending.id == preview_id)
+            .ok_or_else(|| AppError::user("This art preview was superseded."))?;
         let can_apply = *before != next;
-        if can_apply {
-            history.pending.insert(
-                before.id.clone(),
-                Pending {
-                    id: preview_id.clone(),
-                    next,
-                },
-            );
-        } else {
-            history.pending.remove(&before.id);
-        }
+        pending.next = can_apply.then_some(next);
         Ok(ArtPreview {
             preview_id,
             changes,
@@ -399,7 +415,7 @@ impl ArtPolicies {
         policy: ArtPolicy,
     ) -> AppResult<ArtPreview> {
         policy.validate()?;
-        let before = self.at_revision(deck_id, revision)?;
+        let (before, preview_id) = self.begin_preview(deck_id, revision)?;
         let preferences = self.providers.print_language_preferences()?;
         let mut next = before.clone();
         next.art_policy = Some(policy.clone());
@@ -479,7 +495,7 @@ impl ArtPolicies {
                 *entry = replacement;
             }
         }
-        self.save_preview(&before, next, changes)
+        self.save_preview(&before, preview_id, next, changes)
     }
 
     pub async fn preview_localization(
@@ -489,7 +505,7 @@ impl ArtPolicies {
         entry_id: &str,
         art_id: &str,
     ) -> AppResult<ArtPreview> {
-        let before = self.at_revision(deck_id, revision)?;
+        let (before, preview_id) = self.begin_preview(deck_id, revision)?;
         let entry = before
             .entries
             .iter()
@@ -532,7 +548,7 @@ impl ArtPolicies {
                 *entry = replacement;
             }
         }
-        self.save_preview(&before, next, vec![change])
+        self.save_preview(&before, preview_id, next, vec![change])
     }
 
     pub fn apply(&self, deck_id: &str, revision: u64, preview_id: &str) -> AppResult<Deck> {
@@ -541,14 +557,16 @@ impl ArtPolicies {
             .lock()
             .map_err(|_| AppError::user("Art previews are unavailable."))?;
         let before = self.at_revision(deck_id, revision)?;
-        let pending = history
+        let next = history
             .pending
             .get(deck_id)
-            .filter(|pending| pending.id == preview_id && pending.next.revision == revision)
+            .filter(|pending| pending.id == preview_id)
+            .and_then(|pending| pending.next.as_ref())
+            .filter(|next| next.revision == revision)
             .ok_or_else(|| {
                 AppError::user("This art preview expired. Preview the changes again.")
             })?;
-        let applied = self.store.update_deck(pending.next.clone())?;
+        let applied = self.store.update_deck(next.clone())?;
         history.pending.remove(deck_id);
         history.undo.insert(
             deck_id.to_owned(),

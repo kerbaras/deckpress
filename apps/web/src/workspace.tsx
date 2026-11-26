@@ -189,7 +189,10 @@ function DeckWorkspace({
   );
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
-  const [artPreview, setArtPreview] = useState<ArtPreview | null>(null);
+  const [artPreview, setArtPreview] = useState<{
+    result?: ArtPreview;
+    error?: unknown;
+  } | null>(null);
   const [canUndoArt, setCanUndoArt] = useState(false);
   const [artStatus, setArtStatus] = useState("");
   const [mpcExportStatus, setMpcExportStatus] = useState("");
@@ -197,6 +200,11 @@ function DeckWorkspace({
   const artTask = useTask();
   const heading = useRef<HTMLHeadingElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
+  const previewButton = useRef<HTMLButtonElement>(null);
+  const previewRequest = useRef<symbol | null>(null);
+  const restorePreviewFocus = useRef<(() => HTMLButtonElement | null) | null>(
+    null,
+  );
   const exportMpc = async () => {
     const exported = await task.run(() => {
       setMpcExportStatus("Preparing MPC Autofill XML…");
@@ -254,30 +262,62 @@ function DeckWorkspace({
   const dirty = deck !== saved;
   const saveStatus = isSaving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
   const SaveStatusIcon = isSaving ? LoaderCircle : dirty ? CircleAlert : Check;
-  const previewArt = (request: () => Promise<ArtPreview>) =>
-    void artTask.run(async () => {
-      if (dirty || saving.current) return;
-      setArtStatus("Finding matching printings on Scryfall…");
-      try {
-        setArtPreview(await request());
-      } finally {
-        setArtStatus("");
-      }
-    });
+  useEffect(() => {
+    if (artPreview || isSaving) return;
+    const opener = restorePreviewFocus.current?.();
+    restorePreviewFocus.current = null;
+    if (opener?.isConnected) opener.focus();
+  }, [artPreview, isSaving]);
+  useEffect(
+    () => () => {
+      previewRequest.current = null;
+    },
+    [],
+  );
+  const keepArt = () => {
+    previewRequest.current = null;
+    setArtPreview(null);
+  };
+  const previewArt = async (
+    request: () => Promise<ArtPreview>,
+    opener: () => HTMLButtonElement | null,
+  ) => {
+    if (dirty || saving.current || previewRequest.current) return;
+    const id = Symbol();
+    previewRequest.current = id;
+    restorePreviewFocus.current = opener;
+    setArtStatus("");
+    setArtPreview({});
+    try {
+      const result = await request();
+      if (previewRequest.current === id) setArtPreview({ result });
+    } catch (error) {
+      if (previewRequest.current === id) setArtPreview({ error });
+    }
+  };
   const previewPolicy = (policy: ArtPolicy) =>
-    previewArt(() => api.previewArtPolicy(deck.id, deck.revision, policy));
-  const previewLocalization = (entryId: string, artId: string) =>
-    previewArt(() =>
-      api.previewArtLocalization(deck.id, deck.revision, entryId, artId),
+    void previewArt(
+      () => api.previewArtPolicy(deck.id, deck.revision, policy),
+      () => previewButton.current,
+    );
+  const previewLocalization = (
+    entryId: string,
+    artId: string,
+    opener: HTMLButtonElement,
+  ) =>
+    void previewArt(
+      () => api.previewArtLocalization(deck.id, deck.revision, entryId, artId),
+      () => opener,
     );
   const applyArt = () =>
     void artTask.run(async () => {
-      if (!artPreview || dirty) return;
+      const result = artPreview?.result;
+      if (!result || dirty) return;
       await writeDeck(() =>
-        api.applyArtPreview(deck.id, deck.revision, artPreview.previewId),
+        api.applyArtPreview(deck.id, deck.revision, result.previewId),
       );
       setCanUndoArt(true);
-      setArtPreview(null);
+      keepArt();
       setArtStatus("Art changes applied.");
     });
   const undoArt = () =>
@@ -558,6 +598,7 @@ function DeckWorkspace({
               current={deck.artPolicy}
               disabled={dirty || isSaving}
               busy={artTask.busy}
+              previewButton={previewButton}
               canUndo={canUndoArt}
               onPreview={previewPolicy}
               onUndo={undoArt}
@@ -579,10 +620,10 @@ function DeckWorkspace({
       )}
       {artPreview && (
         <ArtPreviewDialog
-          preview={artPreview}
+          preview={artPreview.result}
           busy={artTask.busy}
-          error={artTask.error}
-          onKeep={() => setArtPreview(null)}
+          error={artPreview.error ?? artTask.error}
+          onKeep={keepArt}
           onApply={applyArt}
         />
       )}

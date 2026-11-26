@@ -17,6 +17,8 @@ fn default_artist() -> String {
 #[serde(rename_all = "camelCase")]
 pub struct Art {
     pub id: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub english_fallback: bool,
     pub provider: Provider,
     #[serde(default)]
     pub name: String,

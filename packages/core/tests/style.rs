@@ -40,6 +40,7 @@ fn art(id: &str, artist: &str, set: &str, year: &str, tags: &[&str]) -> Art {
         bleed_mm: 0.0,
         back_image_url: String::new(),
         back_thumbnail_url: String::new(),
+        english_fallback: false,
     }
 }
 

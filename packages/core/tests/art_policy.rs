@@ -206,6 +206,12 @@ async fn same_illustration_localization_skips_placeholder_and_looks_through_sear
     let after = fallback.changes[0].after.as_ref().unwrap();
     assert_eq!((&*after.set, &*after.language), ("m11", "en"));
     assert_eq!(fallback.changes[0].kind, ArtChangeKind::Fallback);
+    let applied_fallback = service
+        .apply(&deck.id, applied.revision, &fallback.preview_id)
+        .unwrap();
+    assert!(applied_fallback.entries[0].front_art().english_fallback);
+    let restored = service.undo(&deck.id, applied_fallback.revision).unwrap();
+    assert!(!restored.entries[0].front_art().english_fallback);
 }
 
 #[tokio::test]

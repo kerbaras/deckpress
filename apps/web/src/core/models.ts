@@ -24,6 +24,7 @@ export const formats = [
 
 export const artSchema = z.object({
   id: z.string().min(1).max(160),
+  englishFallback: z.boolean().optional(),
   provider: z.enum(["scryfall", "mpc", "upload"]),
   name: z.string().max(300),
   imageUrl: z.string().min(1).max(2048),

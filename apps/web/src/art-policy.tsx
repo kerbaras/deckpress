@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type Ref, useState } from "react";
 import type { ArtPreview } from "./api.ts";
 import {
   type Art,
@@ -8,12 +8,13 @@ import {
   artTreatments,
 } from "./core/index.ts";
 import { languageCode } from "./print-language.tsx";
-import { CardImage, ErrorNotice, Modal } from "./ui.tsx";
+import { CardImage, ErrorNotice, Modal, StatusRegion } from "./ui.tsx";
 
 export function ArtPolicyFields({
   current,
   disabled,
   busy,
+  previewButton,
   canUndo,
   onPreview,
   onUndo,
@@ -21,6 +22,7 @@ export function ArtPolicyFields({
   current: ArtPolicy | undefined;
   disabled: boolean;
   busy: boolean;
+  previewButton: Ref<HTMLButtonElement>;
   canUndo: boolean;
   onPreview: (policy: ArtPolicy) => void;
   onUndo: () => void;
@@ -141,6 +143,7 @@ export function ArtPolicyFields({
           </button>
         )}
         <button
+          ref={previewButton}
           type="button"
           aria-disabled={busy}
           disabled={
@@ -190,7 +193,7 @@ export function ArtPreviewDialog({
   onKeep,
   onApply,
 }: {
-  preview: ArtPreview;
+  preview: ArtPreview | undefined;
   busy: boolean;
   error: unknown;
   onKeep: () => void;
@@ -202,22 +205,27 @@ export function ArtPreviewDialog({
         Review the proposed printings. Your deck changes only if you apply this
         preview.
       </p>
-      <ul className="art-change-list" aria-label="Proposed print changes">
-        {preview.changes.map((row) => (
-          <li key={row.entryId}>
-            <strong>
-              {row.quantity}× {row.name}
-            </strong>
-            <p>
-              <span className="badge">{labels[row.kind]}</span> {row.reason}
-            </p>
-            <div className="art-change-prints">
-              <PrintSummary art={row.before} label="Current" />
-              {row.after && <PrintSummary art={row.after} label="Proposed" />}
-            </div>
-          </li>
-        ))}
-      </ul>
+      <StatusRegion className="hint" label="Art preview status">
+        {!preview && !error && "Finding matching printings on Scryfall…"}
+      </StatusRegion>
+      {preview && (
+        <ul className="art-change-list" aria-label="Proposed print changes">
+          {preview.changes.map((row) => (
+            <li key={row.entryId}>
+              <strong>
+                {row.quantity}× {row.name}
+              </strong>
+              <p>
+                <span className="badge">{labels[row.kind]}</span> {row.reason}
+              </p>
+              <div className="art-change-prints">
+                <PrintSummary art={row.before} label="Current" />
+                {row.after && <PrintSummary art={row.after} label="Proposed" />}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
       <ErrorNotice error={error} />
       <div className="modal-actions">
         <button
@@ -231,7 +239,7 @@ export function ArtPreviewDialog({
         <button
           type="button"
           onClick={onApply}
-          disabled={busy || !preview.canApply}
+          disabled={busy || !preview?.canApply}
         >
           Apply art changes
         </button>
