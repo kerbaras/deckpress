@@ -94,13 +94,9 @@ fn deck_settings_keep_an_optional_profile_id_and_corrections_across_restarts() {
     assert!(settings.printer_profile_id.is_none());
     assert_eq!(settings.back_offset_xmm, 1.25);
     settings.printer_profile_id = Some("642f6d09-ae39-469b-980f-4ad95b52f3af".into());
-    let deck = Store::open(&path)
-        .unwrap()
-        .create_deck(Deck {
-            print_settings: settings.clone(),
-            ..common::new_deck("Profile settings")
-        })
-        .unwrap();
+    let mut input = common::new_deck("Profile settings");
+    input.print_settings = settings.clone();
+    let deck = Store::open(&path).unwrap().create_deck(input).unwrap();
     let saved = Store::open(&path)
         .unwrap()
         .get::<Deck>("deck", &deck.id)
