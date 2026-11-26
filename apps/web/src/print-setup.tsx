@@ -109,7 +109,10 @@ export function PrintSetup({
   });
   const task = useTask();
   const cutTemplateTask = useTask();
-  const [cutTemplatePath, setCutTemplatePath] = useState("");
+  const [cutTemplateStatus, setCutTemplateStatus] = useState({
+    path: "",
+    id: 0,
+  });
   const [page, setPage] = useState(0);
   const [trim, setTrim] = useState(false);
   const [presetMessage, setPresetMessage] = useState("");
@@ -262,8 +265,10 @@ export function PrintSetup({
             disabled={!layout || cutTemplateTask.busy}
             onClick={() =>
               void cutTemplateTask.run(async () => {
-                setCutTemplatePath("");
-                setCutTemplatePath((await downloadCutTemplate(deck)) ?? "");
+                setCutTemplateStatus(({ id }) => ({ path: "", id }));
+                const path = await downloadCutTemplate(deck);
+                if (path)
+                  setCutTemplateStatus(({ id }) => ({ path, id: id + 1 }));
               })
             }
           >
@@ -283,10 +288,12 @@ export function PrintSetup({
       <ErrorNotice error={task.error ?? layoutError} />
       <ErrorNotice error={cutTemplateTask.error} />
       <StatusRegion
-        className={cutTemplatePath ? "notice success" : "sr-only"}
+        className={cutTemplateStatus.path ? "notice success" : "sr-only"}
         label="Cut template export status"
+        announcementId={cutTemplateStatus.id}
       >
-        {cutTemplatePath && `Cut template saved to ${cutTemplatePath}`}
+        {cutTemplateStatus.path &&
+          `Cut template saved to ${cutTemplateStatus.path}`}
       </StatusRegion>
       <UpscaleComparison
         entries={entries}

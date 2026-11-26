@@ -218,10 +218,11 @@ export function App() {
       >
         Skip to content
       </button>
-      <StatusRegion label="Print job announcements">
-        {announcements.status.map(({ key, text }) => (
-          <span key={key}>{text} </span>
-        ))}
+      <StatusRegion
+        label="Print job announcements"
+        announcementId={announcements.status.map(({ key }) => key).join(",")}
+      >
+        {announcements.status.map(({ text }) => text).join(" ")}
       </StatusRegion>
       <p
         className="sr-only"
@@ -230,13 +231,17 @@ export function App() {
         aria-atomic="true"
       >
         {announcements.alert.map(({ key, text }) => (
-          <span key={key}>{text} </span>
+          // biome-ignore lint/a11y/useSemanticElements: Expose the inline announcement as a child in WebKitGTK's accessibility tree.
+          <span key={key} role="group">
+            {text}{" "}
+          </span>
         ))}
       </p>
-      <StatusRegion label="Import announcements">
-        {importAnnouncement && (
-          <span key={importAnnouncement.id}>{importAnnouncement.text}</span>
-        )}
+      <StatusRegion
+        label="Import announcements"
+        announcementId={importAnnouncement?.id}
+      >
+        {importAnnouncement?.text}
       </StatusRegion>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>

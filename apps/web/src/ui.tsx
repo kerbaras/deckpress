@@ -1,5 +1,6 @@
 import { AlertCircle, ImageOff, LoaderCircle, Search, X } from "lucide-react";
 import {
+  Children,
   type KeyboardEvent,
   type ReactNode,
   type Ref,
@@ -75,11 +76,28 @@ export function StatusRegion({
   children,
   className = "sr-only",
   label,
+  announcementId,
 }: {
   children: ReactNode;
   className?: string;
   label?: string;
+  announcementId?: string | number | undefined;
 }) {
+  const [announcement, setAnnouncement] = useState({
+    children,
+    announcementId,
+    sequence: 0,
+  });
+  if (
+    !Object.is(children, announcement.children) ||
+    !Object.is(announcementId, announcement.announcementId)
+  ) {
+    setAnnouncement({
+      children,
+      announcementId,
+      sequence: announcement.sequence + 1,
+    });
+  }
   return (
     <p
       className={className}
@@ -87,7 +105,12 @@ export function StatusRegion({
       aria-atomic="true"
       aria-label={label}
     >
-      {children}
+      {Children.toArray(children).some((child) => child !== "") && (
+        // biome-ignore lint/a11y/useSemanticElements: Expose the inline announcement as a child in WebKitGTK's accessibility tree.
+        <span key={announcement.sequence} role="group">
+          {children}
+        </span>
+      )}
     </p>
   );
 }
