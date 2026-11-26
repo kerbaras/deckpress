@@ -863,8 +863,10 @@ it("announces PNG export phases once, naming skipped faces on completion", async
   jobs = [completed];
   await user.click(refresh);
   expect(await screen.findByText(message)).toBeVisible();
-  expect(status).toHaveTextContent(
-    `PNG export for Burn started and completed: ${message}`,
+  await waitFor(() =>
+    expect(status).toHaveTextContent(
+      `PNG export for Burn started and completed: ${message}`,
+    ),
   );
   const announcement = status.firstChild;
   await user.click(refresh);
