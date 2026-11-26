@@ -110,6 +110,24 @@ async fn jobs_persist_the_export_calibration_setting_and_read_legacy_records() {
     }
 }
 
+#[tokio::test]
+async fn png_jobs_do_not_claim_a_calibration_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::in_memory().unwrap());
+    let images = Arc::new(Images::new(dir.path(), store.clone()).unwrap());
+    let models = Arc::new(ModelManager::new(dir.path(), dir.path()).unwrap());
+    let jobs = Jobs::new(store, images, models, dir.path(), Handle::current()).unwrap();
+    let settings = PrintSettings {
+        calibration_page: true,
+        upscale: false,
+        ..PrintSettings::default()
+    };
+    let job = jobs
+        .create(common::deck(1), settings, ExportFormat::Png)
+        .unwrap();
+    assert!(!job.calibration_page);
+}
+
 #[test]
 fn long_deck_names_are_cut_by_bytes_on_a_char_boundary() {
     let settings = PrintSettings {

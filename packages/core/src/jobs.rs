@@ -235,7 +235,7 @@ impl Jobs {
             file_name: file_name(&deck, &settings, format),
             bytes: 0,
             pages: 0,
-            calibration_page: settings.calibration_page,
+            calibration_page: settings.calibration_page && format == ExportFormat::Pdf,
             format,
         };
         self.store.put(KIND, &job.id, &job)?;
