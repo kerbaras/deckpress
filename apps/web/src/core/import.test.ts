@@ -572,6 +572,30 @@ describe("decklist import", () => {
     },
   );
 
+  it("keeps quoted multiline Board values byte-for-byte", () => {
+    const result = parseDecklist(
+      [
+        "Name,Quantity,Board",
+        'Opt,1,"Testing',
+        '  // Board: notes"',
+        'Opt,2,"Testing',
+        '// Board: notes"',
+        "  // Board: testing Pool",
+        "Shock,1,",
+      ].join("\r\n"),
+    );
+    expect(result.entries).toMatchObject([
+      { name: "Opt", quantity: 1, board: "Testing\n  // Board: notes" },
+      { name: "Opt", quantity: 2, board: "Testing\n// Board: notes" },
+      { name: "Shock", quantity: 1, zone: "main", board: "testing Pool" },
+    ]);
+    expect(result.lines).toEqual([2, 4, 7]);
+    expect(result.issues).toEqual([
+      expect.objectContaining({ line: 2, input: "Testing\n  // Board: notes" }),
+      expect.objectContaining({ line: 4, input: "Testing\n// Board: notes" }),
+    ]);
+  });
+
   it("reports CSV rows that produce no cards instead of an empty import", () => {
     const parse = Papa.parse;
     const spy = vi.spyOn(Papa, "parse").mockImplementationOnce(((
