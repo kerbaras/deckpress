@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::art_quality::ScanQuality;
+
 fn default_dpi() -> f64 {
     300.0
 }
@@ -34,6 +36,10 @@ pub struct Art {
     pub collector_number: String,
     #[serde(default)]
     pub language: String,
+    #[serde(default)]
+    pub illustration_id: Option<uuid::Uuid>,
+    #[serde(default)]
+    pub scan_quality: Option<ScanQuality>,
     #[serde(default)]
     pub released_at: String,
     #[serde(default)]
@@ -125,6 +131,11 @@ impl DeckEntry {
                 } else {
                     front.back_thumbnail_url.clone()
                 },
+                illustration_id: self.card.faces.get(1).and_then(|back| {
+                    (back.image_url == front.back_image_url)
+                        .then_some(back.illustration_id)
+                        .flatten()
+                }),
                 ..front.clone()
             });
         }

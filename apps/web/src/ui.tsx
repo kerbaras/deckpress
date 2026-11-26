@@ -201,12 +201,14 @@ export function CardImage({
   name,
   className = "",
   eager = false,
+  onLoad,
 }: {
   url: string;
   src?: string | undefined;
   name: string;
   className?: string;
   eager?: boolean;
+  onLoad?: (() => void) | undefined;
 }) {
   return (
     <ImageContent
@@ -215,6 +217,7 @@ export function CardImage({
       name={name}
       className={className}
       eager={eager}
+      onLoad={onLoad}
     />
   );
 }
@@ -224,11 +227,13 @@ function ImageContent({
   name,
   className,
   eager,
+  onLoad,
 }: {
   src: string;
   name: string;
   className: string;
   eager: boolean;
+  onLoad?: (() => void) | undefined;
 }) {
   const [failed, setFailed] = useState(false);
   return (
@@ -245,6 +250,7 @@ function ImageContent({
           alt={name}
           loading={eager ? "eager" : "lazy"}
           decoding="async"
+          onLoad={onLoad}
           onError={() => setFailed(true)}
         />
       )}

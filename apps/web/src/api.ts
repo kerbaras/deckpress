@@ -475,6 +475,31 @@ export const api = {
   },
   preferences: (_signal?: AbortSignal) =>
     command("preferences", preferencesSchema),
+  betterScan: (selected: Art, oracleId: string, face: number) =>
+    command("better_scan", artSchema, { selected, oracleId, face }),
+  sourceDpi: (arts: Art[], settings: PrintSettings) =>
+    command(
+      "source_dpi",
+      z.array(
+        z
+          .object({
+            effectiveDpi: z.number(),
+            belowUpscaleThreshold: z.boolean(),
+          })
+          .nullable(),
+      ),
+      { arts, settings },
+    ),
+  pickerDpi: (arts: Art[], settings: PrintSettings) =>
+    command(
+      "picker_dpi",
+      z.array(
+        z
+          .object({ effectiveDpi: z.number(), estimated: z.boolean() })
+          .nullable(),
+      ),
+      { arts, settings },
+    ),
   savePreference: (id: string, value: ArtPreference) =>
     command("save_preference", artPreferenceSchema, {
       id,

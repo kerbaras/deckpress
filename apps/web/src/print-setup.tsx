@@ -50,6 +50,7 @@ import {
 import { DuplexCalibration } from "./duplex-calibration.tsx";
 import { type MenuAction, MenuButton } from "./export-menu.tsx";
 import { isEnglishFallback } from "./print-language.tsx";
+import { SourcePreflight } from "./source-preflight.tsx";
 import {
   countCards,
   ErrorNotice,
@@ -398,9 +399,6 @@ export function PrintSetup({
         .map((art) => [art.id, art]),
     ).values(),
   ];
-  const lowResolution = arts.filter(
-    (art) => art.dpi < settings.dpi * 0.95,
-  ).length;
   const estimatedMB = arts.length * 0.45 * (settings.dpi / 600) ** 2;
   const label =
     pdfPages === 0 || calibration
@@ -1745,15 +1743,11 @@ export function PrintSetup({
               <dd>~{Math.max(0.1, estimatedMB).toFixed(1)} MB</dd>
             </div>
           </dl>
-          {lowResolution > 0 && (
-            <p className="notice warning">
-              <AlertTriangle size={16} />
-              {lowResolution} unique images below target DPI.{" "}
-              {settings.upscale
-                ? "AI will process lower-resolution sources."
-                : "Resizing alone does not add detail."}
-            </p>
-          )}
+          <SourcePreflight
+            arts={arts}
+            settings={effective}
+            model={selectedModel}
+          />
           {settings.marginMm < 4 && (
             <p className="notice warning">
               Some printers will clip margins below 4 mm.

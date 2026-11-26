@@ -2022,6 +2022,246 @@ it("protects the preview on hash navigation and Settings shortcut, but not on si
   expect(screen.getByRole("main")).toHaveFocus();
 });
 
+it("shows scan quality and only previews the better printing when prefer high-res is enabled", async () => {
+  const user = userEvent.setup();
+  const key = "deckpress.prefer-high-res";
+  const low = {
+    ...alternate,
+    illustrationId: id,
+    scanQuality: "lowres" as const,
+  };
+  const high = {
+    ...low,
+    id: "scryfall:better",
+    source: "Better edition",
+    scanQuality: "highres_scan" as const,
+  };
+  mockPickerArt([low, high]);
+  const betterScan = vi.spyOn(api, "betterScan").mockResolvedValue(high);
+  const renderPicker = () =>
+    renderWithClient(
+      <ArtPicker
+        deck={pickerDeck}
+        entry={entry}
+        onSelect={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+  try {
+    const view = renderPicker();
+    const tile = await screen.findByRole("button", previewButton);
+    expect(tile).toHaveAccessibleDescription(/Low-res scan/);
+    expect(within(tile).getByText("Low-res scan")).toBeVisible();
+    await user.click(tile);
+    expect(tile).toHaveAttribute("aria-pressed", "true");
+    expect(betterScan).not.toHaveBeenCalled();
+    const toggle = screen.getByRole("checkbox", { name: "Prefer high-res" });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    view.unmount();
+    renderPicker();
+    expect(
+      screen.getByRole("checkbox", { name: "Prefer high-res" }),
+    ).toBeChecked();
+    await user.click(await screen.findByRole("button", previewButton));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Select Better edition/ }),
+      ).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(betterScan).toHaveBeenCalledExactlyOnceWith(low, id, 0);
+    expect(screen.getByText("High-res scan")).toBeVisible();
+  } finally {
+    localStorage.removeItem(key);
+  }
+});
+
+it("lists images below 300 effective DPI with scan quality in print preflight", async () => {
+  const user = userEvent.setup();
+  const low = { ...original, scanQuality: "lowres" as const };
+  const value = { ...deck, entries: [{ ...entry, selectedArt: low }] };
+  const check = vi
+    .spyOn(api, "sourceDpi")
+    .mockResolvedValue([{ effectiveDpi: 243.8, belowUpscaleThreshold: true }]);
+  renderWithClient(
+    <PrintSetup
+      deck={value}
+      onChange={vi.fn()}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+      mpcExport={{ busy: false, run: () => {} }}
+    />,
+  );
+  expect(check).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Check source DPI" }));
+  expect(
+    await screen.findByText("1 unique images below 300 effective DPI."),
+  ).toBeVisible();
+  const row = screen.getByText(/243 effective DPI — below 300/);
+  expect(row).toHaveTextContent("Lightning Bolt · Magic 2010 146");
+  expect(within(row).getByText("Low-res scan")).toBeVisible();
+  expect(row).toHaveTextContent("AI upscaling: off");
+  expect(check).toHaveBeenCalledExactlyOnceWith(
+    [low],
+    expect.objectContaining({ cardWidthMm: 63, cardHeightMm: 88 }),
+  );
+});
+
+it("waits for a recheck after the print settings change", async () => {
+  const user = userEvent.setup();
+  const check = vi
+    .spyOn(api, "sourceDpi")
+    .mockResolvedValue([{ effectiveDpi: 330, belowUpscaleThreshold: true }]);
+  function PrintHarness() {
+    const [value, setValue] = useState(deck);
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={vi.fn()}
+        onJobs={vi.fn()}
+        mpcExport={{ busy: false, run: () => {} }}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  await user.click(screen.getByRole("button", { name: "Check source DPI" }));
+  expect(
+    await screen.findByText("0 unique images below 300 effective DPI."),
+  ).toBeVisible();
+  await user.selectOptions(screen.getByLabelText("Resolution"), "1200");
+  expect(screen.getByText(/results are stale/)).toBeVisible();
+  expect(
+    screen.queryByText("0 unique images below 300 effective DPI."),
+  ).not.toBeInTheDocument();
+  expect(check).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole("button", { name: "Recheck source DPI" }));
+  expect(
+    await screen.findByText("0 unique images below 300 effective DPI."),
+  ).toBeVisible();
+  expect(check).toHaveBeenCalledTimes(2);
+  expect(check).toHaveBeenLastCalledWith(
+    [original],
+    expect.objectContaining({ dpi: 1200 }),
+  );
+});
+
+it("labels cached Scryfall pixel dimensions separately from format estimates at the selected trim", async () => {
+  const print = artSchema.parse({ ...alternate, dpi: 0 });
+  mockPickerArt([original, print, community]);
+  const pickerDpi = vi
+    .spyOn(api, "pickerDpi")
+    .mockImplementation(async (arts) =>
+      arts.map((art) =>
+        art.id === original.id
+          ? { effectiveDpi: 330.16, estimated: false }
+          : { effectiveDpi: 305.9, estimated: true },
+      ),
+    );
+  const printSettings = {
+    ...deck.printSettings,
+    cardWidthMm: 80,
+    cardHeightMm: 80,
+  };
+  renderWithClient(
+    <ArtPicker
+      deck={{ ...deck, printSettings }}
+      entry={entry}
+      onSelect={vi.fn()}
+      onApply={vi.fn()}
+    />,
+  );
+  const originalTile = await screen.findByRole("button", {
+    name: /Select Magic 2010/,
+  });
+  const alternateTile = await screen.findByRole("button", {
+    name: /Select Mystical Archive/,
+  });
+  expect(
+    await within(originalTile).findByText("330 effective DPI"),
+  ).toBeVisible();
+  expect(
+    await within(alternateTile).findByText("~305 DPI (estimated)"),
+  ).toBeVisible();
+  expect(alternateTile).toHaveAccessibleDescription(/305 DPI \(estimated\)/);
+  expect(pickerDpi).toHaveBeenLastCalledWith(expect.any(Array), printSettings);
+});
+
+it("shows MPC Autofill DPI on its picker badge", async () => {
+  mockPickerArt();
+  vi.mocked(api.art).mockImplementation(async (provider, _, __, ___, page) => ({
+    items: provider === "mpc" ? [community] : [],
+    total: provider === "mpc" ? 1 : 0,
+    page,
+    hasMore: false,
+  }));
+  renderWithClient(
+    <ArtPicker
+      deck={deck}
+      entry={entry}
+      onSelect={vi.fn()}
+      onApply={vi.fn()}
+    />,
+  );
+  const tile = await screen.findByRole("button", { name: /Select Creator/ });
+  expect(tile).toHaveAccessibleDescription("MPC · 1200 DPI");
+  expect(within(tile).getByText("MPC · 1200 DPI")).toBeVisible();
+});
+
+it("separates MPC DPI from measured source DPI and reports the selected AI model per image", async () => {
+  const user = userEvent.setup();
+  const missing = {
+    ...compactModel,
+    id: "missing-model",
+    name: "Missing model",
+    installed: false,
+  };
+  vi.mocked(api.settings).mockResolvedValue({
+    ...(await api.settings()),
+    models: [compactModel, missing],
+  });
+  const model = compactModel.name;
+  vi.spyOn(api, "sourceDpi").mockResolvedValue([
+    { effectiveDpi: 245.6, belowUpscaleThreshold: true },
+    { effectiveDpi: 296.1, belowUpscaleThreshold: false },
+  ]);
+  function PrintHarness() {
+    const [value, setValue] = useState<Deck>({
+      ...deck,
+      entries: [
+        { ...entry, selectedArt: community },
+        { ...otherEntry, selectedArt: original },
+      ],
+    });
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={vi.fn()}
+        onJobs={vi.fn()}
+        mpcExport={{ busy: false, run: () => {} }}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  await user.click(screen.getByRole("button", { name: "Check source DPI" }));
+  const mpc = await screen.findByText(/245 effective DPI/);
+  const scan = screen.getByText(/296 effective DPI/);
+  expect(within(mpc).getByText("MPC · 1200 DPI")).toBeVisible();
+  expect(mpc).toHaveTextContent("AI upscaling: off");
+  await user.click(
+    screen.getByRole("checkbox", { name: "Use local AI upscaling" }),
+  );
+  expect(mpc).toHaveTextContent(`AI upscaling: will apply — ${model}`);
+  expect(scan).toHaveTextContent(
+    `AI upscaling: not needed at 800 DPI (${model})`,
+  );
+  await user.selectOptions(screen.getByLabelText("Model"), missing.id);
+  expect(mpc).toHaveTextContent(
+    "AI upscaling: blocked — download Missing model",
+  );
+});
+
 it("shows original, saved and preview art separately, even when saved art is outside the results", async () => {
   const user = userEvent.setup();
   mockPickerArt([original, alternate]);
