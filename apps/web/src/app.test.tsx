@@ -540,6 +540,32 @@ it("shows the model download error and retries the same model", async () => {
   ]);
 });
 
+it.each([
+  [0, "0 PNG files"],
+  [1, "1 PNG file"],
+  [2, "2 PNG files"],
+])("counts %i PNG files on the job card", async (pages, label) => {
+  const job: PrintJob = {
+    id,
+    deckId: id,
+    deckName: "Burn",
+    status: "completed",
+    completed: pages,
+    total: pages,
+    message: "Ready",
+    createdAt: deck.createdAt,
+    fileName: "Burn-800dpi-png.zip",
+    bytes: 0,
+    pages,
+    calibrationPage: false,
+    format: "png",
+  };
+  mockIPC((cmd) => (cmd === "list_jobs" ? [job] : []));
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  expect(await screen.findByText(label, { exact: true })).toBeVisible();
+});
+
 it("announces PNG export phases once, naming skipped faces on completion", async () => {
   const user = userEvent.setup();
   const queued: PrintJob = {

@@ -133,6 +133,16 @@ fn long_names_are_cut_by_bytes_on_a_char_boundary() {
 }
 
 #[test]
+fn whole_entry_names_stay_within_a_safe_byte_limit() {
+    for card in ["𝔞".repeat(200), "ñ".repeat(200), "a".repeat(300)] {
+        for back in [false, true] {
+            let name = face_name(usize::MAX, usize::MAX, back, &card);
+            assert!(name.len() <= 143, "{} bytes: {name}", name.len());
+        }
+    }
+}
+
+#[test]
 fn writes_one_png_per_printed_front_honouring_quantities_and_exclusions() {
     let (output, bytes) = export(&deck(), &settings(Backs::None), &CancelToken::default()).unwrap();
     assert_eq!(output.faces, 4);

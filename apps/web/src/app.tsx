@@ -26,7 +26,7 @@ import {
   fetchHealth,
   type ModelStatus,
 } from "./api.ts";
-import type { PrintJob } from "./core/index.ts";
+import { formatCount, type PrintJob } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
 import { importStatus } from "./import-review.tsx";
@@ -520,8 +520,9 @@ function PrintJobs({ active }: { active: number }) {
                   <div className="job-meta">
                     <span>{prettyDate(job.createdAt)}</span>
                     <span>
-                      {job.pages}{" "}
-                      {job.format === "png" ? "PNG files" : "PDF pages"}
+                      {job.format === "png"
+                        ? formatCount(job.pages, "PNG file")
+                        : `${job.pages} PDF pages`}
                     </span>
                     {job.bytes > 0 && (
                       <span>{(job.bytes / 1024 / 1024).toFixed(1)} MB</span>

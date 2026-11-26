@@ -48,8 +48,10 @@ impl PngExport {
     }
 }
 
-/// Keeps entry names well under the 255-byte file name limit of common
-/// filesystems even when every character is four bytes of UTF-8.
+/// Byte cap for the card part of an entry name. The rest of [`face_name`] is
+/// ASCII and at most 63 bytes even for `usize::MAX` sheets and slots, so a
+/// whole entry name stays at or under 143 bytes, well inside the 255-byte
+/// file name limit of common filesystems.
 const MAX_SLUG_BYTES: usize = 80;
 
 /// The longest prefix of `text` that fits in `max_bytes` without splitting a
