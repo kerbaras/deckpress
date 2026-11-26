@@ -1,0 +1,78 @@
+[
+  {
+    "name": "fronts only with calibration",
+    "quantity": 60,
+    "settings": { "backs": "none", "calibrationPage": true },
+    "cardSheets": 7,
+    "pdfPages": 8,
+    "calibrationPages": 1
+  },
+  {
+    "name": "fronts only without calibration",
+    "quantity": 60,
+    "settings": { "backs": "none", "calibrationPage": false },
+    "cardSheets": 7,
+    "pdfPages": 7,
+    "calibrationPages": 0
+  },
+  {
+    "name": "long-edge duplex",
+    "quantity": 60,
+    "settings": { "backs": "long-edge", "calibrationPage": true },
+    "cardSheets": 7,
+    "pdfPages": 16,
+    "calibrationPages": 2
+  },
+  {
+    "name": "short-edge duplex",
+    "quantity": 60,
+    "settings": { "backs": "short-edge", "calibrationPage": true },
+    "cardSheets": 7,
+    "pdfPages": 16,
+    "calibrationPages": 2
+  },
+  {
+    "name": "separate backs",
+    "quantity": 60,
+    "settings": { "backs": "separate", "calibrationPage": true },
+    "cardSheets": 7,
+    "pdfPages": 15,
+    "calibrationPages": 1
+  },
+  {
+    "name": "selected sheet range",
+    "quantity": 60,
+    "settings": { "pageFrom": 2, "pageTo": 3, "calibrationPage": true },
+    "cardSheets": 2,
+    "pdfPages": 3,
+    "calibrationPages": 1
+  },
+  {
+    "name": "no printable cards",
+    "quantity": 0,
+    "settings": { "calibrationPage": true },
+    "cardSheets": 0,
+    "pdfPages": 0,
+    "calibrationPages": 0
+  },
+  {
+    "name": "range outside the deck",
+    "quantity": 60,
+    "settings": { "pageFrom": 8, "calibrationPage": true },
+    "cardSheets": 0,
+    "pdfPages": 0,
+    "calibrationPages": 0
+  },
+  {
+    "name": "SCM with stored short-edge duplex",
+    "quantity": 4,
+    "settings": {
+      "layoutMode": "scm",
+      "backs": "short-edge",
+      "calibrationPage": true
+    },
+    "cardSheets": 1,
+    "pdfPages": 4,
+    "calibrationPages": 2
+  }
+]

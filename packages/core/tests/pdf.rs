@@ -5,6 +5,76 @@ use deckpress_core::models::{Backs, LayoutMode, PrintSettings, ScmTemplate, ScmV
 use deckpress_core::pdf::{build_pdf, print_plan, PdfServices};
 use deckpress_core::providers::normalize_scryfall;
 use deckpress_core::upscaler::CancelToken;
+use serde::Deserialize;
+
+#[test]
+fn pdf_page_tree_matches_the_print_setup_counts() {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Case {
+        name: String,
+        quantity: u32,
+        settings: PrintSettings,
+        card_sheets: usize,
+        pdf_pages: usize,
+        calibration_pages: usize,
+    }
+
+    let cases: Vec<Case> =
+        serde_json::from_str(include_str!("fixtures/print-page-counts.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let png = common::png(372, 520, [30, 90, 200]);
+    for case in cases {
+        let mut deck = common::deck(case.quantity);
+        if case.quantity == 0 {
+            deck.entries.clear();
+        }
+        let settings = PrintSettings {
+            dpi: 150,
+            ..case.settings
+        };
+        let output = build_pdf(
+            &deck,
+            &settings,
+            &PdfServices {
+                raster_dir: dir.path(),
+                upscaler: None,
+            },
+            &CancelToken::default(),
+            &mut |_, _, _| {},
+            &mut |_| Ok(png.clone()),
+        );
+        if case.card_sheets == 0 {
+            let message = if case.quantity == 0 {
+                "No cards are included in this print job"
+            } else {
+                "Page range is outside the deck"
+            };
+            assert!(
+                matches!(output, Err(error) if error.to_string() == message),
+                "{}",
+                case.name
+            );
+            assert_eq!(case.pdf_pages, 0, "{}", case.name);
+            assert_eq!(case.calibration_pages, 0, "{}", case.name);
+            continue;
+        }
+        let output = output.unwrap_or_else(|error| panic!("{}: {error}", case.name));
+        let plan = print_plan(&deck, &settings).unwrap();
+        let pdf = lopdf::Document::load_mem(&output.bytes).unwrap();
+        let pdf_pages = pdf.get_pages().len();
+        let card_sheets = plan.sides.iter().filter(|side| !side.back).count();
+        assert_eq!(card_sheets, case.card_sheets, "{}", case.name);
+        assert_eq!(output.pages, case.pdf_pages, "{}", case.name);
+        assert_eq!(pdf_pages, case.pdf_pages, "{}", case.name);
+        assert_eq!(
+            pdf_pages - plan.sides.len(),
+            case.calibration_pages,
+            "{}",
+            case.name
+        );
+    }
+}
 
 #[test]
 fn plans_sheets_and_duplex_sides() {
