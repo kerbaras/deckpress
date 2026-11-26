@@ -105,23 +105,43 @@ export function App() {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [artExitOpen, setArtExitOpen] = useState(false);
   const artPreview = useRef(false);
+  const policyPreview = useRef<{
+    discard: () => void;
+    canDiscard: () => boolean;
+  } | null>(null);
   const artExit = useRef<((discard: boolean) => void) | null>(null);
   const artExitDestination = useRef<string | null>(null);
   const onPreviewChange = useCallback((changed: boolean) => {
     artPreview.current = changed;
   }, []);
-  const confirmArtExit = useCallback((trigger?: HTMLElement) => {
-    if (artExit.current) return false;
-    if (!artPreview.current) return true;
-    trigger?.focus();
-    setArtExitOpen(true);
-    return new Promise<boolean>((resolve) => {
-      artExit.current = resolve;
-    });
-  }, []);
+  const registerPolicyPreview = useCallback(
+    (preview: typeof policyPreview.current) => {
+      policyPreview.current = preview;
+    },
+    [],
+  );
+  const hasArtPreview = useCallback(
+    () => artPreview.current || policyPreview.current !== null,
+    [],
+  );
+  const confirmArtExit = useCallback(
+    (trigger?: HTMLElement) => {
+      if (artExit.current) return false;
+      if (!hasArtPreview()) return true;
+      if (policyPreview.current) {
+        if (!policyPreview.current.canDiscard()) return false;
+      } else trigger?.focus();
+      setArtExitOpen(true);
+      return new Promise<boolean>((resolve) => {
+        artExit.current = resolve;
+      });
+    },
+    [hasArtPreview],
+  );
   const finishArtExit = (discard: boolean) => {
     const resolve = artExit.current;
     artExit.current = null;
+    if (discard) policyPreview.current?.discard();
     setArtExitOpen(false);
     resolve?.(discard);
   };
@@ -161,7 +181,7 @@ export function App() {
   const navigate = useCallback(
     async (next: string, saved = false, trigger?: HTMLElement) => {
       if (next === routeRef.current) return true;
-      const hadPreview = artPreview.current;
+      const hadPreview = hasArtPreview();
       const exit = confirmArtExit(trigger);
       if (exit === false || (exit !== true && !(await exit))) return false;
       if (!saved && dirty.current && !(await confirmDiscard())) return false;
@@ -171,7 +191,7 @@ export function App() {
       applyRoute(next);
       return true;
     },
-    [applyRoute, confirmArtExit],
+    [applyRoute, confirmArtExit, hasArtPreview],
   );
   const openImportedDeck = async (
     id: string,
@@ -197,7 +217,7 @@ export function App() {
     const onChange = () => {
       const next = routeFromHash();
       if (next === routeRef.current) return;
-      if (dirty.current || artPreview.current) {
+      if (dirty.current || hasArtPreview()) {
         window.history.replaceState(null, "", `#/${routeRef.current}`);
         void navigate(next);
         return;
@@ -205,7 +225,7 @@ export function App() {
       applyRoute(next);
     };
     const unload = (event: BeforeUnloadEvent) => {
-      if (dirty.current || artPreview.current) event.preventDefault();
+      if (dirty.current || hasArtPreview()) event.preventDefault();
     };
     window.addEventListener("hashchange", onChange);
     window.addEventListener("beforeunload", unload);
@@ -213,7 +233,7 @@ export function App() {
       window.removeEventListener("hashchange", onChange);
       window.removeEventListener("beforeunload", unload);
     };
-  }, [applyRoute, navigate]);
+  }, [applyRoute, hasArtPreview, navigate]);
   useEffect(() => {
     if (artExitDestination.current !== route) return;
     artExitDestination.current = null;
@@ -433,6 +453,7 @@ export function App() {
                 }
                 onDirty={onDirty}
                 onPreviewChange={onPreviewChange}
+                registerPolicyPreview={registerPolicyPreview}
                 confirmArtExit={confirmArtExit}
                 onBack={(trigger) => void navigate("decks", false, trigger)}
                 onJobs={(job) => {
@@ -478,7 +499,7 @@ export function App() {
       </div>
       {artExitOpen && (
         <DiscardPreview
-          leaving="studio"
+          leaving={policyPreview.current ? "workspace" : "studio"}
           onStay={() => finishArtExit(false)}
           onDiscard={() => finishArtExit(true)}
           focusFallback={focusMain}

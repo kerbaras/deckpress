@@ -630,6 +630,7 @@ impl Images {
             tags: vec!["custom".into()],
             back_image_url: String::new(),
             back_thumbnail_url: String::new(),
+            english_fallback: false,
         };
         self.store.put(
             "upload",

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
 
+use deckpress_core::art_policy::{ArtPolicy, ArtPreview};
 use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, ExternalDeck};
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::{RestoreResult, UploadInput};
@@ -184,6 +185,54 @@ pub async fn restore_deck(
 pub async fn save_deck(state: State<'_, AppState>, deck: Deck) -> AppResult<Deck> {
     let store = Arc::clone(&state.store);
     tokio::task::spawn_blocking(move || store.update_deck(deck)).await?
+}
+
+#[tauri::command]
+pub async fn preview_art_policy(
+    state: State<'_, AppState>,
+    deck_id: String,
+    expected_revision: u64,
+    policy: ArtPolicy,
+) -> AppResult<ArtPreview> {
+    state
+        .art_policy
+        .preview_policy(&deck_id, expected_revision, policy)
+        .await
+}
+
+#[tauri::command]
+pub async fn preview_art_localization(
+    state: State<'_, AppState>,
+    deck_id: String,
+    expected_revision: u64,
+    entry_id: String,
+    art_id: String,
+) -> AppResult<ArtPreview> {
+    state
+        .art_policy
+        .preview_localization(&deck_id, expected_revision, &entry_id, &art_id)
+        .await
+}
+
+#[tauri::command]
+pub fn apply_art_preview(
+    state: State<'_, AppState>,
+    deck_id: String,
+    expected_revision: u64,
+    preview_id: String,
+) -> AppResult<Deck> {
+    state
+        .art_policy
+        .apply(&deck_id, expected_revision, &preview_id)
+}
+
+#[tauri::command]
+pub fn undo_art_change(
+    state: State<'_, AppState>,
+    deck_id: String,
+    expected_revision: u64,
+) -> AppResult<Deck> {
+    state.art_policy.undo(&deck_id, expected_revision)
 }
 
 #[tauri::command]

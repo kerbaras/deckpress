@@ -1,0 +1,602 @@
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use serde::{Deserialize, Serialize};
+
+use crate::error::{AppError, AppResult};
+use crate::models::{new_id, Art, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences};
+use crate::providers::Providers;
+use crate::store::Store;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum ArtPolicy {
+    Original,
+    Latest,
+    MatchSet {
+        set: String,
+    },
+    Style {
+        frame: Option<Frame>,
+        border: Option<Border>,
+        treatment: Option<Treatment>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Frame {
+    #[serde(rename = "1993")]
+    Original,
+    #[serde(rename = "1997")]
+    Classic,
+    #[serde(rename = "2003")]
+    Modern,
+    #[serde(rename = "2015")]
+    Current,
+    #[serde(rename = "future")]
+    Future,
+}
+
+impl Frame {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Original => "1993",
+            Self::Classic => "1997",
+            Self::Modern => "2003",
+            Self::Current => "2015",
+            Self::Future => "future",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Border {
+    Black,
+    White,
+    Borderless,
+}
+
+impl Border {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Black => "black",
+            Self::White => "white",
+            Self::Borderless => "borderless",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Treatment {
+    None,
+    FullArt,
+    Showcase,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Printing {
+    pub id: String,
+    pub oracle_id: String,
+    pub set: String,
+    pub collector: String,
+    pub date: String,
+    pub language: String,
+    pub frame: String,
+    pub border: String,
+    pub full_art: bool,
+    pub showcase: bool,
+    pub paper: bool,
+    pub promo: bool,
+    pub illustrations: Vec<Option<uuid::Uuid>>,
+    pub scans: Option<Vec<Art>>,
+}
+
+impl ArtPolicy {
+    fn validate(&self) -> AppResult<()> {
+        match self {
+            Self::MatchSet { set }
+                if set.is_empty()
+                    || set.len() > 20
+                    || !set
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) =>
+            {
+                Err(AppError::user("Enter a valid set code."))
+            }
+            Self::Style {
+                frame: None,
+                border: None,
+                treatment: None,
+            } => Err(AppError::user("Choose a frame, border, or treatment.")),
+            _ => Ok(()),
+        }
+    }
+
+    fn permits(&self, printing: &Printing) -> bool {
+        printing.paper
+            && !printing.promo
+            && match self {
+                Self::MatchSet { set } => printing.set == *set,
+                Self::Style { frame, border, .. } => {
+                    frame.is_none_or(|frame| frame.code() == printing.frame)
+                        && border.is_none_or(|border| border.code() == printing.border)
+                }
+                _ => true,
+            }
+    }
+
+    fn treatment_matches(&self, printing: &Printing) -> bool {
+        match self {
+            Self::Style {
+                treatment: Some(Treatment::None),
+                ..
+            } => !printing.full_art && !printing.showcase,
+            Self::Style {
+                treatment: Some(Treatment::FullArt),
+                ..
+            } => printing.full_art,
+            Self::Style {
+                treatment: Some(Treatment::Showcase),
+                ..
+            } => printing.showcase,
+            _ => true,
+        }
+    }
+
+    fn compare(&self, a: &Printing, b: &Printing, deck_policy: bool) -> Ordering {
+        let release = if matches!(self, Self::Original) {
+            a.date.cmp(&b.date)
+        } else {
+            b.date.cmp(&a.date)
+        };
+        self.treatment_matches(b)
+            .cmp(&self.treatment_matches(a))
+            .then_with(|| a.date.is_empty().cmp(&b.date.is_empty()))
+            .then(release)
+            .then_with(|| {
+                if deck_policy {
+                    compare_scan_quality(
+                        a.scans.as_ref().and_then(|faces| faces.first()),
+                        b.scans.as_ref().and_then(|faces| faces.first()),
+                    )
+                } else {
+                    Ordering::Equal
+                }
+            })
+            .then_with(|| a.set.cmp(&b.set))
+            .then_with(|| a.collector.cmp(&b.collector))
+            .then_with(|| (a.language != "en").cmp(&(b.language != "en")))
+            .then_with(|| a.id.cmp(&b.id))
+    }
+}
+
+fn compare_scan_quality(a: Option<&Art>, b: Option<&Art>) -> Ordering {
+    b.and_then(|art| art.scan_quality)
+        .cmp(&a.and_then(|art| art.scan_quality))
+}
+
+fn same_illustrations(anchor: &Printing, candidate: &Printing) -> bool {
+    anchor.oracle_id == candidate.oracle_id
+        && (anchor.id == candidate.id
+            || (!anchor.illustrations.is_empty()
+                && anchor.illustrations.iter().all(Option::is_some)
+                && anchor.illustrations == candidate.illustrations))
+}
+
+fn localized<'a>(
+    anchor: &Printing,
+    candidates: impl IntoIterator<Item = &'a Printing>,
+    language: &str,
+    policy: Option<&ArtPolicy>,
+) -> Option<&'a Printing> {
+    candidates
+        .into_iter()
+        .filter(|print| {
+            print.paper
+                && print.language == language
+                && print.scans.is_some()
+                && same_illustrations(anchor, print)
+                && policy.is_none_or(|policy| {
+                    policy.permits(print)
+                        && (!policy.treatment_matches(anchor) || policy.treatment_matches(print))
+                })
+        })
+        .min_by(|a, b| {
+            let exact =
+                |print: &Printing| print.set == anchor.set && print.collector == anchor.collector;
+            exact(b).cmp(&exact(a)).then_with(|| {
+                policy
+                    .unwrap_or(&ArtPolicy::Latest)
+                    .compare(a, b, policy.is_some())
+            })
+        })
+}
+
+fn languages(preferences: &PrintLanguagePreferences) -> impl Iterator<Item = &str> {
+    preferences.languages.iter().map(String::as_str).chain(
+        (preferences.policy == PrintLanguagePolicy::FallbackToEnglish
+            && !preferences.languages.iter().any(|lang| lang == "en"))
+        .then_some("en"),
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ArtChangeKind {
+    Changed,
+    Unchanged,
+    Pinned,
+    Unmatched,
+    Fallback,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtChange {
+    pub entry_id: String,
+    pub name: String,
+    pub quantity: u32,
+    pub before: Art,
+    pub after: Option<Art>,
+    pub kind: ArtChangeKind,
+    pub reason: String,
+}
+
+impl ArtChange {
+    fn new(entry: &DeckEntry, kind: ArtChangeKind, after: Option<Art>, reason: &str) -> Self {
+        Self {
+            entry_id: entry.id.clone(),
+            name: entry.card.name.clone(),
+            quantity: entry.quantity,
+            before: entry.front_art().clone(),
+            after,
+            kind,
+            reason: reason.into(),
+        }
+    }
+}
+
+fn plan_change(
+    entry: &DeckEntry,
+    candidate: Option<&Printing>,
+    preferences: &PrintLanguagePreferences,
+    manual: bool,
+) -> (ArtChange, Option<DeckEntry>) {
+    let Some((print, scans)) = candidate.and_then(|print| Some((print, print.scans.as_ref()?)))
+    else {
+        return (
+            ArtChange::new(
+                entry,
+                ArtChangeKind::Unmatched,
+                None,
+                "No usable same-illustration scan matches the requested language and policy.",
+            ),
+            None,
+        );
+    };
+    let fallback = print.language == "en" && !preferences.languages.iter().any(|lang| lang == "en");
+    let mut next = entry.clone();
+    if manual {
+        next.art_pinned = true;
+        let mark_fallback = |scan: &Art| Art {
+            english_fallback: fallback,
+            ..scan.clone()
+        };
+        next.selected_art = scans.first().map(mark_fallback);
+        next.selected_back = scans.get(1).map(mark_fallback);
+    } else {
+        next.policy_art = Some(scans.clone());
+    }
+    next.requested_languages = preferences.languages.clone();
+    let (kind, reason) = if fallback {
+        (
+            ArtChangeKind::Fallback,
+            if manual {
+                "Same illustration; using the English scan."
+            } else {
+                "No preferred-language scan for the policy illustration; using English."
+            },
+        )
+    } else if next.front_art() == entry.front_art() && next.back_art() == entry.back_art() {
+        (
+            ArtChangeKind::Unchanged,
+            "The displayed printing already matches.",
+        )
+    } else {
+        (ArtChangeKind::Changed, "A matching printing is available.")
+    };
+    (
+        ArtChange::new(entry, kind, scans.first().cloned(), reason),
+        (next != *entry).then_some(next),
+    )
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtPreview {
+    pub preview_id: String,
+    pub changes: Vec<ArtChange>,
+    pub can_apply: bool,
+}
+
+struct Pending {
+    id: String,
+    next: Option<Deck>,
+}
+
+struct Undo {
+    applied_revision: u64,
+    before: Deck,
+}
+
+#[derive(Default)]
+struct History {
+    pending: HashMap<String, Pending>,
+    undo: HashMap<String, Undo>,
+}
+
+pub struct ArtPolicies {
+    store: Arc<Store>,
+    providers: Arc<Providers>,
+    history: Mutex<History>,
+}
+
+impl ArtPolicies {
+    pub fn new(store: Arc<Store>, providers: Arc<Providers>) -> Self {
+        Self {
+            store,
+            providers,
+            history: Mutex::default(),
+        }
+    }
+
+    fn at_revision(&self, deck_id: &str, revision: u64) -> AppResult<Deck> {
+        let deck = self
+            .store
+            .get::<Deck>("deck", deck_id)?
+            .ok_or_else(|| AppError::not_found("Deck not found"))?;
+        if deck.revision != revision {
+            return Err(AppError::Conflict(
+                "The deck changed. Reload it before previewing or applying art.".into(),
+            ));
+        }
+        Ok(deck)
+    }
+
+    fn begin_preview(&self, deck_id: &str, revision: u64) -> AppResult<(Deck, String)> {
+        let mut history = self
+            .history
+            .lock()
+            .map_err(|_| AppError::user("Art previews are unavailable."))?;
+        let before = self.at_revision(deck_id, revision)?;
+        let id = new_id();
+        history.pending.insert(
+            deck_id.to_owned(),
+            Pending {
+                id: id.clone(),
+                next: None,
+            },
+        );
+        Ok((before, id))
+    }
+
+    fn save_preview(
+        &self,
+        before: &Deck,
+        preview_id: String,
+        next: Deck,
+        changes: Vec<ArtChange>,
+    ) -> AppResult<ArtPreview> {
+        let mut history = self
+            .history
+            .lock()
+            .map_err(|_| AppError::user("Art previews are unavailable."))?;
+        self.at_revision(&before.id, before.revision)?;
+        let pending = history
+            .pending
+            .get_mut(&before.id)
+            .filter(|pending| pending.id == preview_id)
+            .ok_or_else(|| AppError::user("This art preview was superseded."))?;
+        let can_apply = *before != next;
+        pending.next = can_apply.then_some(next);
+        Ok(ArtPreview {
+            preview_id,
+            changes,
+            can_apply,
+        })
+    }
+
+    pub async fn preview_policy(
+        &self,
+        deck_id: &str,
+        revision: u64,
+        policy: ArtPolicy,
+    ) -> AppResult<ArtPreview> {
+        policy.validate()?;
+        let (before, preview_id) = self.begin_preview(deck_id, revision)?;
+        let preferences = self.providers.print_language_preferences()?;
+        let mut next = before.clone();
+        next.art_policy = Some(policy.clone());
+        let mut inventory = HashMap::<String, Vec<Printing>>::new();
+        let mut translations = HashMap::<(String, String), Vec<Printing>>::new();
+        let mut changes = Vec::with_capacity(before.entries.len());
+        for entry in &mut next.entries {
+            if entry.is_art_pinned()
+                || entry
+                    .card
+                    .faces
+                    .iter()
+                    .any(|art| art.provider != crate::models::Provider::Scryfall)
+            {
+                changes.push(ArtChange::new(
+                    entry,
+                    ArtChangeKind::Pinned,
+                    None,
+                    "Manual art is protected.",
+                ));
+                continue;
+            }
+            let oracle = entry.card.oracle_id.as_str();
+            if let std::collections::hash_map::Entry::Vacant(slot) =
+                inventory.entry(oracle.to_owned())
+            {
+                slot.insert(self.providers.policy_printings(oracle, None).await?);
+            }
+            let options = &inventory[oracle];
+            let anchor = options
+                .iter()
+                .filter(|print| {
+                    policy.permits(print) && print.illustrations.len() == entry.card.faces.len()
+                })
+                .min_by(|a, b| policy.compare(a, b, true));
+            let selected = if let Some(anchor) = anchor {
+                let mut selected = None;
+                for language in languages(&preferences) {
+                    let known = localized(anchor, options, language, Some(&policy));
+                    if let Some(print) = known.filter(|print| {
+                        print.set == anchor.set && print.collector == anchor.collector
+                    }) {
+                        selected = Some(print.clone());
+                        break;
+                    }
+                    // The general search does not necessarily include each localized printing.
+                    let key = (oracle.to_owned(), language.to_owned());
+                    if let std::collections::hash_map::Entry::Vacant(slot) =
+                        translations.entry(key.clone())
+                    {
+                        slot.insert(
+                            self.providers
+                                .policy_printings(oracle, Some(language))
+                                .await?,
+                        );
+                    }
+                    if let Some(print) = localized(
+                        anchor,
+                        options.iter().chain(&translations[&key]),
+                        language,
+                        Some(&policy),
+                    ) {
+                        selected = Some(print.clone());
+                        break;
+                    }
+                }
+                selected
+            } else {
+                None
+            };
+            let (change, replacement) = plan_change(entry, selected.as_ref(), &preferences, false);
+            changes.push(change);
+            if let Some(replacement) = replacement {
+                *entry = replacement;
+            }
+        }
+        self.save_preview(&before, preview_id, next, changes)
+    }
+
+    pub async fn preview_localization(
+        &self,
+        deck_id: &str,
+        revision: u64,
+        entry_id: &str,
+        art_id: &str,
+    ) -> AppResult<ArtPreview> {
+        let (before, preview_id) = self.begin_preview(deck_id, revision)?;
+        let entry = before
+            .entries
+            .iter()
+            .find(|item| item.id == entry_id)
+            .ok_or_else(|| AppError::not_found("Card not found"))?;
+        let preferences = self.providers.print_language_preferences()?;
+        let anchor = self.providers.policy_printing(art_id).await?;
+        let mut candidate = None;
+        if let Some(anchor) = anchor.filter(|anchor| {
+            anchor.oracle_id == entry.card.oracle_id
+                && anchor.illustrations.len() == entry.card.faces.len()
+        }) {
+            for language in languages(&preferences) {
+                if localized(&anchor, [&anchor], language, None).is_some() {
+                    candidate = Some(anchor);
+                    break;
+                }
+                if let Some(exact) = self.providers.policy_exact(&anchor, language).await? {
+                    if localized(&anchor, [&exact], language, None).is_some() {
+                        candidate = Some(exact);
+                        break;
+                    }
+                }
+                let options = self
+                    .providers
+                    .policy_printings(&anchor.oracle_id, Some(language))
+                    .await?;
+                if let Some(index) = localized(&anchor, &options, language, None)
+                    .and_then(|print| options.iter().position(|item| item.id == print.id))
+                {
+                    candidate = options.into_iter().nth(index);
+                    break;
+                }
+            }
+        }
+        let (change, replacement) = plan_change(entry, candidate.as_ref(), &preferences, true);
+        let mut next = before.clone();
+        if let Some(replacement) = replacement {
+            if let Some(entry) = next.entries.iter_mut().find(|item| item.id == entry_id) {
+                *entry = replacement;
+            }
+        }
+        self.save_preview(&before, preview_id, next, vec![change])
+    }
+
+    pub fn apply(&self, deck_id: &str, revision: u64, preview_id: &str) -> AppResult<Deck> {
+        let mut history = self
+            .history
+            .lock()
+            .map_err(|_| AppError::user("Art previews are unavailable."))?;
+        let before = self.at_revision(deck_id, revision)?;
+        let next = history
+            .pending
+            .get(deck_id)
+            .filter(|pending| pending.id == preview_id)
+            .and_then(|pending| pending.next.as_ref())
+            .filter(|next| next.revision == revision)
+            .ok_or_else(|| {
+                AppError::user("This art preview expired. Preview the changes again.")
+            })?;
+        let applied = self.store.update_deck(next.clone())?;
+        history.pending.remove(deck_id);
+        history.undo.insert(
+            deck_id.to_owned(),
+            Undo {
+                applied_revision: applied.revision,
+                before,
+            },
+        );
+        Ok(applied)
+    }
+
+    pub fn undo(&self, deck_id: &str, revision: u64) -> AppResult<Deck> {
+        let mut history = self
+            .history
+            .lock()
+            .map_err(|_| AppError::user("Art previews are unavailable."))?;
+        self.at_revision(deck_id, revision)?;
+        let undo = history
+            .undo
+            .get(deck_id)
+            .ok_or_else(|| AppError::user("There is no art change to undo."))?;
+        if revision != undo.applied_revision {
+            return Err(AppError::Conflict(
+                "The deck changed since applying art. Undo would overwrite those changes.".into(),
+            ));
+        }
+        let restored = self.store.update_deck(Deck {
+            revision,
+            ..undo.before.clone()
+        })?;
+        history.undo.remove(deck_id);
+        history.pending.remove(deck_id);
+        Ok(restored)
+    }
+}

@@ -1290,6 +1290,8 @@ pub fn plan_fill(
                 board: None,
                 selected_art: None,
                 selected_back: None,
+                art_pinned: false,
+                policy_art: None,
                 excluded: false,
                 requested_languages: Vec::new(),
             }

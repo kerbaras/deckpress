@@ -24,6 +24,7 @@ pub fn art(bleed_mm: f64, provider: Provider) -> Art {
         bleed_mm,
         back_image_url: String::new(),
         back_thumbnail_url: String::new(),
+        english_fallback: false,
     }
 }
 
@@ -54,6 +55,8 @@ pub fn entry(face: Art, quantity: u32) -> DeckEntry {
         board: None,
         selected_art: None,
         selected_back: None,
+        art_pinned: false,
+        policy_art: None,
         excluded: false,
         requested_languages: Vec::new(),
     }
@@ -69,6 +72,7 @@ pub fn deck(quantity: u32) -> Deck {
         missing_prints: Vec::new(),
         cover_entry_id: String::new(),
         print_settings: PrintSettings::default(),
+        art_policy: None,
         revision: 0,
         created_at: String::new(),
         updated_at: String::new(),
@@ -84,6 +88,7 @@ pub fn new_deck(name: &str) -> NewDeck {
         missing_prints: Vec::new(),
         cover_entry_id: String::new(),
         print_settings: PrintSettings::default(),
+        art_policy: None,
     }
 }
 

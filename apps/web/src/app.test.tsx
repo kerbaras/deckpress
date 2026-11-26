@@ -1866,6 +1866,88 @@ async function openArtStudio(user: ReturnType<typeof userEvent.setup>) {
   return screen.findByRole("button", previewButton);
 }
 
+it("keeps an unapplied Art Studio pick guarded through policy Keep, Apply, and Undo", async () => {
+  const user = userEvent.setup();
+  const pick = await openArtStudio(user);
+  const policyArt = {
+    ...original,
+    id: "scryfall:policy",
+    source: "Policy set",
+  };
+  const previewId = crypto.randomUUID();
+  vi.spyOn(api, "previewArtPolicy").mockResolvedValue({
+    previewId,
+    canApply: true,
+    changes: [
+      {
+        entryId: entry.id,
+        name: entry.card.name,
+        quantity: entry.quantity,
+        before: original,
+        after: policyArt,
+        kind: "changed",
+        reason: "Latest printing",
+      },
+    ],
+  });
+  const apply = vi.spyOn(api, "applyArtPreview").mockResolvedValue({
+    ...deck,
+    revision: deck.revision + 1,
+    artPolicy: { kind: "latest" },
+    entries: [{ ...entry, policyArt: [policyArt] }],
+  });
+  const undo = vi
+    .spyOn(api, "undoArtChange")
+    .mockResolvedValue({ ...deck, revision: deck.revision + 2 });
+  const openSettings = async () => {
+    await user.click(screen.getByRole("button", { name: "Deck settings" }));
+    return within(screen.getByRole("dialog", { name: "Deck settings" }));
+  };
+  const openPolicy = async (settings: ReturnType<typeof within>) => {
+    await user.click(
+      settings.getByRole("button", { name: "Preview art policy" }),
+    );
+    expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+    return within(
+      await screen.findByRole("dialog", { name: "Preview art changes" }),
+    );
+  };
+  const editor = screen.getByRole("button", { name: "Deck editor" });
+
+  await user.click(pick);
+  const settings = await openSettings();
+  let policy = await openPolicy(settings);
+  await user.click(
+    policy.getByRole("button", { name: "Keep current choices" }),
+  );
+  expect(apply).not.toHaveBeenCalled();
+  expect(pick).toHaveAttribute("aria-pressed", "true");
+  policy = await openPolicy(settings);
+  await user.click(policy.getByRole("button", { name: "Apply art changes" }));
+  expect(apply).toHaveBeenCalledWith(deck.id, deck.revision, previewId);
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.click(settings.getByRole("button", { name: "Close dialog" }));
+
+  await user.click(editor);
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Keep preview",
+    }),
+  );
+  expect(pick).toHaveAttribute("aria-pressed", "true");
+
+  const reopened = await openSettings();
+  await user.click(
+    reopened.getByRole("button", { name: "Undo last art change" }),
+  );
+  expect(undo).toHaveBeenCalledWith(deck.id, deck.revision + 1);
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.click(reopened.getByRole("button", { name: "Close dialog" }));
+  await user.click(editor);
+  expect(screen.getByRole("dialog", promptName)).toBeVisible();
+  expect(pick).toHaveAttribute("aria-pressed", "true");
+});
+
 it.each([
   [
     "Deck editor",
@@ -2262,6 +2344,149 @@ it("separates MPC DPI from measured source DPI and reports the selected AI model
   );
 });
 
+async function openGuardedPolicy(user: ReturnType<typeof userEvent.setup>) {
+  window.history.replaceState(null, "", `/#/decks/${id}`);
+  vi.spyOn(api, "deck").mockResolvedValue(deck);
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  const preview = vi.spyOn(api, "previewArtPolicy").mockResolvedValue({
+    previewId: crypto.randomUUID(),
+    canApply: true,
+    changes: [],
+  });
+  const apply = vi.spyOn(api, "applyArtPreview");
+  const save = vi.spyOn(api, "saveDeck");
+  renderWithClient(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: "Deck settings" }),
+  );
+  const opener = screen.getByRole("button", { name: "Preview art policy" });
+  await user.click(opener);
+  const review = screen.getByRole("dialog", { name: "Preview art changes" });
+  await waitFor(() =>
+    expect(
+      within(review).getByRole("button", { name: "Apply art changes" }),
+    ).toBeEnabled(),
+  );
+  return { review, preview, apply, save, opener };
+}
+
+it("traps policy exit focus and keeps the same review on Keep and Escape", async () => {
+  const user = userEvent.setup();
+  const { review, preview, apply, save } = await openGuardedPolicy(user);
+  const reviewKeep = within(review).getByRole("button", {
+    name: "Keep current choices",
+  });
+  reviewKeep.focus();
+  await user.keyboard("{Control>}b{/Control}");
+  expect(screen.getByRole("button", { name: "Show sidebar" })).toBeVisible();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.keyboard("{Control>}b{/Control}");
+
+  const unload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+
+  const leave = async () => {
+    await user.keyboard("{Control>},{/Control}");
+    return screen.getByRole("dialog", promptName);
+  };
+  let prompt = await leave();
+  const keep = within(prompt).getByRole("button", { name: "Keep preview" });
+  const discard = within(prompt).getByRole("button", { name: "Discard" });
+  discard.focus();
+  await user.tab();
+  expect(keep).toHaveFocus();
+  await user.tab({ shift: true });
+  expect(discard).toHaveFocus();
+  await user.click(keep);
+  expect(reviewKeep).toHaveFocus();
+
+  prompt = await leave();
+  fireEvent(prompt, new Event("cancel", { cancelable: true }));
+  expect(reviewKeep).toHaveFocus();
+  expect(preview).toHaveBeenCalledOnce();
+  expect(review).toBeVisible();
+
+  prompt = await leave();
+  await user.click(within(prompt).getByRole("button", { name: "Discard" }));
+  expect(
+    await screen.findByRole("heading", { name: "Settings", level: 1 }),
+  ).toBeVisible();
+  expect(review).not.toBeInTheDocument();
+  expect(screen.getByRole("main")).toHaveFocus();
+  expect(apply).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
+
+it.each(["hash", "new deck shortcut", "sidebar", "workspace tab"])(
+  "guards a policy-only preview from %s navigation",
+  async (exit) => {
+    const user = userEvent.setup();
+    const { review, apply, opener } = await openGuardedPolicy(user);
+    if (exit === "hash") {
+      act(() => {
+        window.history.replaceState(null, "", "#/jobs");
+        window.dispatchEvent(new Event("hashchange"));
+      });
+    } else if (exit === "new deck shortcut") {
+      await user.keyboard("{Control>}n{/Control}");
+    } else {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: exit === "sidebar" ? "Settings" : "Print setup",
+        }),
+      );
+    }
+    const prompt = screen.getByRole("dialog", promptName);
+    expect(window.location.hash).toBe(`#/decks/${id}`);
+    await user.click(within(prompt).getByRole("button", { name: "Discard" }));
+    expect(review).not.toBeInTheDocument();
+    expect(apply).not.toHaveBeenCalled();
+    if (exit === "workspace tab") {
+      expect(
+        screen.getByRole("button", { name: "Print setup" }),
+      ).toHaveAttribute("aria-current", "page");
+      expect(opener).toHaveFocus();
+    }
+  },
+);
+
+it("guards a policy-only preview when Tauri requests window close", async () => {
+  const user = userEvent.setup();
+  const commands = vi.fn((command: string) =>
+    command === "plugin:window|is_fullscreen" ? false : [],
+  );
+  mockWindows("main");
+  mockIPC(commands, { shouldMockEvents: true });
+  const { review, apply, save } = await openGuardedPolicy(user);
+  const keep = within(review).getByRole("button", {
+    name: "Keep current choices",
+  });
+  keep.focus();
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  fireEvent(
+    screen.getByRole("dialog", promptName),
+    new Event("cancel", { cancelable: true }),
+  );
+  expect(keep).toHaveFocus();
+  expect(commands).not.toHaveBeenCalledWith("plugin:window|destroy", {
+    label: "main",
+  });
+  await act(() => emit(TauriEvent.WINDOW_CLOSE_REQUESTED));
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  await waitFor(() =>
+    expect(commands).toHaveBeenCalledWith("plugin:window|destroy", {
+      label: "main",
+    }),
+  );
+  expect(review).not.toBeInTheDocument();
+  expect(apply).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});
 it("shows original, saved and preview art separately, even when saved art is outside the results", async () => {
   const user = userEvent.setup();
   mockPickerArt([original, alternate]);
@@ -3611,7 +3836,9 @@ it("keys candidate collection on the chosen printing and includes it", async () 
     total: 1,
   });
   const swapped: DeckEntry = { ...entry, selectedArt: community };
+  const policy: DeckEntry = { ...entry, policyArt: [alternate] };
   expect(optionsKey(swapped)).not.toEqual(optionsKey(entry));
+  expect(optionsKey(policy)).not.toEqual(optionsKey(entry));
   expect(optionsKey({ ...entry, id: "other-entry" })).toEqual(
     optionsKey(entry),
   );
@@ -3621,6 +3848,10 @@ it("keys candidate collection on the chosen printing and includes it", async () 
   expect((await collectOptions(swapped)).map((art) => art.id)).toEqual([
     original.id,
     community.id,
+  ]);
+  expect((await collectOptions(policy)).map((art) => art.id)).toEqual([
+    original.id,
+    alternate.id,
   ]);
 });
 

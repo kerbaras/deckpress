@@ -14,8 +14,9 @@ import {
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type ArtPreview,
   api,
   confirmAction,
   downloadJson,
@@ -23,14 +24,17 @@ import {
   importedDeckFields,
 } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
+import { ArtPolicyFields, ArtPreviewDialog } from "./art-policy.tsx";
 import {
   type Art,
+  type ArtPolicy,
   type Deck,
   type DeckEntry,
   deckSchema,
   formatCount,
   formats,
   frontArt,
+  hasChosenArt,
   mergeImport,
   mpcXmlFormat,
   type PrintJob,
@@ -59,6 +63,9 @@ type PrintSetupRequest = {
   failure: Pick<PrintJob, "failureTarget" | "message"> | undefined;
 };
 
+type RegisterPolicyPreview = (
+  preview: { discard: () => void; canDiscard: () => boolean } | null,
+) => void;
 export function Workspace({
   id,
   printSetup,
@@ -67,6 +74,7 @@ export function Workspace({
   onBack,
   onDirty,
   onPreviewChange,
+  registerPolicyPreview,
   confirmArtExit,
   onJobs,
 }: {
@@ -77,6 +85,7 @@ export function Workspace({
   onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
+  registerPolicyPreview: RegisterPolicyPreview;
   confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
@@ -104,6 +113,7 @@ export function Workspace({
       onBack={onBack}
       onDirty={onDirty}
       onPreviewChange={onPreviewChange}
+      registerPolicyPreview={registerPolicyPreview}
       confirmArtExit={confirmArtExit}
       onJobs={onJobs}
     />
@@ -163,6 +173,7 @@ function DeckWorkspace({
   onBack,
   onDirty,
   onPreviewChange,
+  registerPolicyPreview,
   confirmArtExit,
   onJobs,
 }: {
@@ -173,6 +184,7 @@ function DeckWorkspace({
   onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
+  registerPolicyPreview: RegisterPolicyPreview;
   confirmArtExit: (trigger: HTMLButtonElement) => boolean | Promise<boolean>;
   onJobs: (job: PrintJob) => void;
 }) {
@@ -185,10 +197,23 @@ function DeckWorkspace({
   );
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
+  const [artPreview, setArtPreview] = useState<{
+    result?: ArtPreview;
+    error?: unknown;
+  } | null>(null);
+  const [preserveStudioPreview, setPreserveStudioPreview] = useState(false);
+  const [canUndoArt, setCanUndoArt] = useState(false);
+  const [artStatus, setArtStatus] = useState("");
   const [mpcExportStatus, setMpcExportStatus] = useState("");
   const task = useTask();
+  const artTask = useTask();
   const heading = useRef<HTMLHeadingElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
+  const previewButton = useRef<HTMLButtonElement>(null);
+  const previewRequest = useRef<symbol | null>(null);
+  const restorePreviewFocus = useRef<(() => HTMLButtonElement | null) | null>(
+    null,
+  );
   const exportMpc = async () => {
     const exported = await task.run(() => {
       setMpcExportStatus("Preparing MPC Autofill XML…");
@@ -213,14 +238,21 @@ function DeckWorkspace({
     onDirty(deck !== saved);
     return () => onDirty(false);
   }, [deck, saved, onDirty]);
-  const commit = async (next: Deck, mode: "toolbar" | "editor" = "editor") => {
+  const writeDeck = async (
+    save: () => Promise<Deck>,
+    {
+      toolbarDeck,
+      preservePreview = false,
+    }: { toolbarDeck?: Deck; preservePreview?: boolean } = {},
+  ) => {
     if (saving.current) throw new Error("Wait for the current save to finish");
     saving.current = true;
-    setSaveMode(mode);
+    setSaveMode(toolbarDeck ? "toolbar" : "editor");
     try {
-      const result = await api.saveDeck(deckSchema.parse(next));
+      const result = await save();
+      setPreserveStudioPreview(preservePreview);
       setDeck((current) =>
-        mode === "toolbar" && current !== next
+        toolbarDeck && current !== toolbarDeck
           ? {
               ...current,
               revision: result.revision,
@@ -238,9 +270,95 @@ function DeckWorkspace({
       setSaveMode(null);
     }
   };
+  const commit = (next: Deck, mode: "toolbar" | "editor" = "editor") =>
+    writeDeck(
+      () => api.saveDeck(deckSchema.parse(next)),
+      mode === "toolbar" ? { toolbarDeck: next } : undefined,
+    );
   const dirty = deck !== saved;
   const saveStatus = isSaving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
   const SaveStatusIcon = isSaving ? LoaderCircle : dirty ? CircleAlert : Check;
+  useEffect(() => {
+    if (artPreview || isSaving) return;
+    const opener = restorePreviewFocus.current?.();
+    restorePreviewFocus.current = null;
+    if (opener?.isConnected) opener.focus();
+  }, [artPreview, isSaving]);
+  useEffect(
+    () => () => {
+      previewRequest.current = null;
+      registerPolicyPreview(null);
+    },
+    [registerPolicyPreview],
+  );
+  const keepArt = useCallback(() => {
+    previewRequest.current = null;
+    registerPolicyPreview(null);
+    setArtPreview(null);
+  }, [registerPolicyPreview]);
+  const previewArt = async (
+    request: () => Promise<ArtPreview>,
+    opener: () => HTMLButtonElement | null,
+  ) => {
+    if (dirty || saving.current || previewRequest.current) return;
+    const id = Symbol();
+    previewRequest.current = id;
+    registerPolicyPreview({
+      discard: keepArt,
+      canDiscard: () => !saving.current,
+    });
+    restorePreviewFocus.current = opener;
+    setArtStatus("");
+    setArtPreview({});
+    try {
+      const result = await request();
+      if (previewRequest.current === id) setArtPreview({ result });
+    } catch (error) {
+      if (previewRequest.current === id) setArtPreview({ error });
+    }
+  };
+  const previewPolicy = (policy: ArtPolicy) =>
+    void previewArt(
+      () => api.previewArtPolicy(deck.id, deck.revision, policy),
+      () => previewButton.current,
+    );
+  const previewLocalization = (
+    entryId: string,
+    artId: string,
+    opener: HTMLButtonElement,
+  ) =>
+    void previewArt(
+      () => api.previewArtLocalization(deck.id, deck.revision, entryId, artId),
+      () => opener,
+    );
+  const applyArt = () =>
+    void artTask.run(async () => {
+      const result = artPreview?.result;
+      if (!result || dirty) return;
+      setArtPreview({ result });
+      try {
+        await writeDeck(
+          () => api.applyArtPreview(deck.id, deck.revision, result.previewId),
+          { preservePreview: metadata },
+        );
+      } catch (error) {
+        setArtPreview({ result, error });
+        return;
+      }
+      setCanUndoArt(true);
+      keepArt();
+      setArtStatus("Art changes applied.");
+    });
+  const undoArt = () =>
+    void artTask.run(async () => {
+      if (dirty) return;
+      setArtStatus("");
+      await writeDeck(() => api.undoArtChange(deck.id, deck.revision), {
+        preservePreview: true,
+      });
+      setCanUndoArt(false);
+      setArtStatus("Art changes undone.");
+    });
   const saveChanges = () =>
     void task.run(async () => {
       await commit(deck, "toolbar");
@@ -299,7 +417,7 @@ function DeckWorkspace({
                 aria-current={view === id ? "page" : undefined}
                 title={name}
                 onClick={async (event) => {
-                  if (view === "art" && id !== "art") {
+                  if (id !== view) {
                     const exit = confirmArtExit(event.currentTarget);
                     if (exit === false || (exit !== true && !(await exit)))
                       return;
@@ -380,6 +498,9 @@ function DeckWorkspace({
       <StatusRegion label="MPC Autofill XML export status">
         {mpcExportStatus}
       </StatusRegion>
+      {!metadata && (
+        <StatusRegion label="Art policy status">{artStatus}</StatusRegion>
+      )}
       <ErrorNotice error={task.error} />
       {view === "edit" && (
         <div className="editor-layout">
@@ -408,6 +529,8 @@ function DeckWorkspace({
           entry={selected}
           onSelect={setSelectedId}
           onApply={commit}
+          canLocalize={!dirty && !isSaving && !artTask.busy}
+          onLocalize={previewLocalization}
           onPreviewChange={onPreviewChange}
           onUploadEdited={(art) => {
             const nextDeck = withEditedUpload(deck, art);
@@ -418,8 +541,10 @@ function DeckWorkspace({
             );
             void client.invalidateQueries({ queryKey: ["decks"] });
           }}
+          preservePreview={preserveStudioPreview}
         />
       )}
+      {!metadata && !artPreview && <ErrorNotice error={artTask.error} />}
       {view === "print" && (
         <PrintSetup
           deck={deck}
@@ -433,7 +558,7 @@ function DeckWorkspace({
       {metadata && (
         <Modal
           title="Deck settings"
-          busy={task.busy}
+          busy={task.busy || artTask.busy}
           onClose={() => setMetadata(false)}
         >
           <form
@@ -500,18 +625,39 @@ function DeckWorkspace({
                 ))}
               </select>
             </label>
+            <ArtPolicyFields
+              key={JSON.stringify(deck.artPolicy)}
+              current={deck.artPolicy}
+              disabled={dirty || isSaving}
+              busy={artTask.busy}
+              previewButton={previewButton}
+              canUndo={canUndoArt}
+              onPreview={previewPolicy}
+              onUndo={undoArt}
+            />
+            <StatusRegion label="Art policy status">{artStatus}</StatusRegion>
+            {!artPreview && <ErrorNotice error={artTask.error} />}
             <ErrorNotice error={task.error} />
             <div className="modal-actions">
               <button
                 type="submit"
                 className="primary"
-                disabled={task.busy || !deck.name.trim()}
+                disabled={task.busy || artTask.busy || !deck.name.trim()}
               >
                 Save deck settings
               </button>
             </div>
           </form>
         </Modal>
+      )}
+      {artPreview && (
+        <ArtPreviewDialog
+          preview={artPreview.result}
+          busy={artTask.busy}
+          error={artPreview.error}
+          onKeep={keepArt}
+          onApply={applyArt}
+        />
       )}
     </fieldset>
   );
@@ -581,7 +727,7 @@ function DeckCards({
   )) {
     const label =
       group === "art"
-        ? entry.selectedArt
+        ? hasChosenArt(entry)
           ? "Chosen art"
           : "Original printing"
         : group === "type"
@@ -785,7 +931,7 @@ function DeckCards({
                   <button
                     type="button"
                     key={entry.id}
-                    className={`playing-card ${entry.selectedArt ? "custom-art" : ""} ${entry.excluded ? "excluded" : ""}`}
+                    className={`playing-card ${hasChosenArt(entry) ? "custom-art" : ""} ${entry.excluded ? "excluded" : ""}`}
                     aria-label={`Choose art for ${entry.card.name}`}
                     aria-description={entryLanguageLabel(entry)}
                     title={entryLanguageLabel(entry)}
@@ -813,8 +959,7 @@ function DeckCards({
         <span className="status-dot" />
         <div>
           <strong>
-            Art chosen for{" "}
-            {countCards(deck.entries.filter((entry) => entry.selectedArt))} of{" "}
+            Art chosen for {countCards(deck.entries.filter(hasChosenArt))} of{" "}
             {formatCount(countCards(deck.entries), "card")}
           </strong>
           <p>

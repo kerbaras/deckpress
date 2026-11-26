@@ -307,6 +307,7 @@ impl Store {
             missing_prints: input.missing_prints,
             cover_entry_id: input.cover_entry_id,
             print_settings: input.print_settings,
+            art_policy: input.art_policy,
             revision: 0,
             created_at: now.clone(),
             updated_at: now,

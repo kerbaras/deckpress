@@ -18,6 +18,7 @@ import {
   formatCount,
   formats,
   frontArt,
+  hasChosenArt,
 } from "./core/index.ts";
 import { FirstRun } from "./first-run.tsx";
 import { PageToolbar } from "./titlebar.tsx";
@@ -245,9 +246,7 @@ export function Library({
                 deck.entries.find((entry) => entry.zone === "commander") ??
                 deck.entries[0];
               const cover = coverEntry ? frontArt(coverEntry) : null;
-              const customized = countCards(
-                deck.entries.filter((entry) => entry.selectedArt),
-              );
+              const customized = countCards(deck.entries.filter(hasChosenArt));
               const colors = ["W", "U", "B", "R", "G"].filter((color) =>
                 deck.entries.some((entry) => entry.card.colors.includes(color)),
               );
@@ -413,7 +412,7 @@ export function Library({
 
 function coverage(deck: Deck) {
   return (
-    (countCards(deck.entries.filter((entry) => entry.selectedArt)) /
+    (countCards(deck.entries.filter(hasChosenArt)) /
       Math.max(1, countCards(deck.entries))) *
     100
   );

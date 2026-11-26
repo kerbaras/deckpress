@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use url::Url;
 
+use crate::art_policy::Printing;
 use crate::art_quality::{prefer_high_res, scryfall_quality, ScanQuality};
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -118,6 +119,7 @@ impl MpcCard {
                 bleed_mm: 3.048,
                 back_image_url: String::new(),
                 back_thumbnail_url: String::new(),
+                english_fallback: false,
             },
         }
     }
@@ -227,17 +229,18 @@ pub fn normalize_scryfall(value: &Value) -> AppResult<Card> {
     }
     let mut faces: Vec<Art> = raw_faces
         .into_iter()
-        .filter(|face| {
+        .enumerate()
+        .filter(|(_, face)| {
             face.image_uris
                 .as_ref()
                 .is_some_and(|images| images.png.is_some() || images.large.is_some())
         })
-        .enumerate()
         .map(|(index, face)| {
             let images = face.image_uris.unwrap_or_default();
             let image_url = images.png.or(images.large).unwrap_or_default();
             Art {
                 id: format!("scryfall:{}:{}", card.id, index),
+                english_fallback: false,
                 provider: Provider::Scryfall,
                 name: face.name,
                 thumbnail_url: images.normal.unwrap_or_else(|| image_url.clone()),
@@ -323,6 +326,46 @@ fn has_more(response: &Value) -> bool {
         .get("has_more")
         .and_then(Value::as_bool)
         .unwrap_or(false)
+}
+
+fn policy_printing(raw: &Value) -> Option<Printing> {
+    let string = |key: &str| raw[key].as_str().unwrap_or_default().to_owned();
+    let flag = |key: &str| raw[key].as_bool().unwrap_or(false);
+    let illustration = |face: &Value| uuid::Uuid::parse_str(face["illustration_id"].as_str()?).ok();
+    let illustrations: Vec<_> = if raw["image_uris"].is_object() || !raw["card_faces"].is_array() {
+        vec![illustration(raw)]
+    } else {
+        raw["card_faces"]
+            .as_array()?
+            .iter()
+            .map(illustration)
+            .collect()
+    };
+    let scans = normalize_scryfall(raw)
+        .ok()
+        .map(|card| card.faces)
+        .filter(|faces| faces.len() == illustrations.len());
+    Some(Printing {
+        id: raw["id"].as_str()?.into(),
+        oracle_id: scryfall_oracle_id(raw)?.into(),
+        set: string("set"),
+        collector: string("collector_number"),
+        date: string("released_at"),
+        language: string("lang"),
+        frame: string("frame"),
+        border: string("border_color"),
+        full_art: flag("full_art"),
+        showcase: raw["frame_effects"]
+            .as_array()
+            .is_some_and(|effects| effects.iter().any(|effect| effect == "showcase")),
+        paper: !flag("digital")
+            && raw["games"]
+                .as_array()
+                .is_some_and(|games| games.iter().any(|game| game == "paper")),
+        promo: flag("promo"),
+        illustrations,
+        scans,
+    })
 }
 
 fn import_label(line: &ImportLine) -> String {
@@ -585,6 +628,8 @@ impl Providers {
                         board: line.board.clone(),
                         selected_art: None,
                         selected_back: None,
+                        art_pinned: false,
+                        policy_art: None,
                         excluded: false,
                         requested_languages: if english_only { Vec::new() } else { languages.clone() },
                     }),
@@ -685,6 +730,8 @@ impl Providers {
                 board: None,
                 selected_art: None,
                 selected_back: None,
+                art_pinned: false,
+                policy_art: None,
                 excluded: false,
                 requested_languages: Vec::new(),
             })
@@ -768,6 +815,71 @@ impl Providers {
             }
         }
         Ok(None)
+    }
+
+    pub(crate) async fn policy_printing(&self, art_id: &str) -> AppResult<Option<Printing>> {
+        let Some(id) = art_id
+            .strip_prefix("scryfall:")
+            .and_then(|rest| rest.split(':').next())
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+        else {
+            return Ok(None);
+        };
+        let raw = self
+            .scryfall_json(&format!("https://api.scryfall.com/cards/{id}"))
+            .await?;
+        Ok(policy_printing(&raw).filter(|print| print.id == id.to_string()))
+    }
+
+    pub(crate) async fn policy_exact(
+        &self,
+        anchor: &Printing,
+        language: &str,
+    ) -> AppResult<Option<Printing>> {
+        let mut url = Url::parse("https://api.scryfall.com/cards").expect("static URL");
+        url.path_segments_mut().expect("static URL").extend([
+            &anchor.set,
+            &anchor.collector,
+            language,
+        ]);
+        let raw = self.scryfall_json(url.as_str()).await?;
+        Ok(policy_printing(&raw)
+            .filter(|print| print.set == anchor.set && print.collector == anchor.collector))
+    }
+
+    pub(crate) async fn policy_printings(
+        &self,
+        oracle_id: &str,
+        language: Option<&str>,
+    ) -> AppResult<Vec<Printing>> {
+        if uuid::Uuid::parse_str(oracle_id).is_err()
+            || language.is_some_and(|lang| !SCRYFALL_LANGUAGES.contains(&lang))
+        {
+            return Ok(Vec::new());
+        }
+        let mut query = format!("oracleid:{oracle_id} game:paper");
+        if let Some(language) = language {
+            query.push_str(&format!(" lang:{language}"));
+        }
+        let mut printings = Vec::new();
+        for page in 1..=100 {
+            let url = print_search(&query, page);
+            let response = self.scryfall_json(url.as_str()).await?;
+            printings.extend(
+                cards_in(&response)
+                    .filter_map(policy_printing)
+                    .filter(|print| {
+                        print.oracle_id == oracle_id
+                            && language.is_none_or(|lang| print.language == lang)
+                    }),
+            );
+            if !has_more(&response) {
+                return Ok(printings);
+            }
+        }
+        Err(AppError::user(
+            "Scryfall has too many printings to evaluate this art policy.",
+        ))
     }
 
     pub async fn prints(
