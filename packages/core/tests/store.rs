@@ -23,7 +23,10 @@ fn printer_profiles_round_trip_across_sqlite_connections() {
     assert_eq!(profile.input.back_offset_ymm, 1.25);
     assert_eq!(profile.input.back_rotation_deg, -0.42);
     let store = Store::open(&path).unwrap();
-    assert_eq!(store.printer_profiles().unwrap(), [profile.clone()]);
+    assert_eq!(
+        store.printer_profiles().unwrap(),
+        std::slice::from_ref(&profile)
+    );
     let updated = store
         .save_printer_profile(
             Some(profile.id.clone()),
@@ -48,7 +51,10 @@ fn printer_profiles_round_trip_across_sqlite_connections() {
         .is_err());
     drop(store);
     let store = Store::open(&path).unwrap();
-    assert_eq!(store.printer_profiles().unwrap(), [updated.clone()]);
+    assert_eq!(
+        store.printer_profiles().unwrap(),
+        std::slice::from_ref(&updated)
+    );
     store.delete_printer_profile(&profile.id).unwrap();
     assert!(matches!(
         store.save_printer_profile(Some(profile.id), updated.input),
