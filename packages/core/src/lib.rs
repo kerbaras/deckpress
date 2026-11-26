@@ -1,3 +1,4 @@
+pub fn   ci_fmt_probe( ) {}
 //! Deckpress core. Everything the desktop app does that is not window
 //! plumbing lives here: the deck store, art providers, image cache, ONNX
 //! upscaling and the raster/PDF print pipeline. The crate has no knowledge of
