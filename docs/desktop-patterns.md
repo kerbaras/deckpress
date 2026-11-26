@@ -41,9 +41,8 @@ Deckpress: the shell is a two-column grid. The sidebar column is full height
 and hosts the traffic lights (macOS) and the sidebar toggle. The content column
 starts with a toolbar of the same height that carries the view title and the
 view's own controls. The bar is 52 px on macOS to match the unified toolbar
-and the traffic-light inset, 46 px on Linux and Windows (between GNOME's 46
-and Fluent's 48-with-search). Every non-interactive pixel of both segments is a
-drag region.
+and the traffic-light inset, and 38 px on Linux and Windows. Every
+non-interactive pixel of both segments is a drag region.
 
 ## Titles: inline, short, never the app name
 
