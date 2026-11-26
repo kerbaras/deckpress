@@ -479,6 +479,7 @@ it.each([false, true])(
         return restored ? [original, restored] : [original];
       if (cmd === "get_deck")
         return (args as { id: string }).id === restoredId ? restored : original;
+      if (cmd === "export_file_name") return exportFileName(args);
       if (cmd === "plugin:dialog|save") return "/chosen/deck.deckpress.json";
       if (cmd === "save_text") return saveText(args);
       if (cmd === "create_deck") {
