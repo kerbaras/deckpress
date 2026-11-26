@@ -19,6 +19,10 @@
 - Return focus to the URL field when an import retry fails. (#69)
 - Include calibration pages in the PDF page count shown in Print Setup. (#59)
 - Improve focus visibility, control contrast, and readability in the compact title bar and SCM picker. (#55)
+- Protect selected cards in the guided builder when changing an earlier choice. (#44)
+- Only show cut files available in Silhouette Card Maker's `cutting_templates` folder. (#77)
+- Reduce repetitive screen-reader announcements in style matching and confirm cut-template saves. (#81)
+- Align preview pagination with exported sheets and clarify when to use calibration. (#82)
 - Verify the quality upscaling model before using it and allow failed downloads to be retried. (#27)
 
 ### Build and tests
