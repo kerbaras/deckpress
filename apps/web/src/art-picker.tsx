@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { api, type Preferences } from "./api.ts";
-import { formatCount } from "./core/format-count.ts";
 import {
   type Art,
   artPreferenceSchema,
