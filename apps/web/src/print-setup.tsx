@@ -18,12 +18,18 @@ import {
   createLayout,
   type Deck,
   duplexSlot,
+  effectiveBacks,
+  effectivePrintSettings,
   frontArt,
   LABEL_SIZE_PT,
   mmToPixels,
   type PrintSettings,
   printableEntries,
   printSettingsSchema,
+  SCM_MAX_BLEED_MM,
+  scmCards,
+  scmPapers,
+  scmRotatesBack,
 } from "./core/index.ts";
 import { ErrorNotice, useTask } from "./ui.tsx";
 
@@ -34,6 +40,7 @@ const paperNames = {
   a5: "A5",
   legal: "US Legal",
   tabloid: "Tabloid",
+  arch_b: "Arch B (12 × 18 in)",
   custom: "Custom",
 };
 
@@ -75,6 +82,8 @@ export function PrintSetup({
   onJobs: () => void;
 }) {
   const settings = deck.printSettings;
+  const scm = settings.layoutMode === "scm";
+  const backs = effectiveBacks(settings);
   const system = useQuery({
     queryKey: ["settings"],
     queryFn: ({ signal }) => api.settings(signal),
@@ -84,6 +93,7 @@ export function PrintSetup({
   const [back, setBack] = useState(false);
   const [trim, setTrim] = useState(false);
   const [presetMessage, setPresetMessage] = useState("");
+  const [bleedClamped, setBleedClamped] = useState(false);
   const [previewSettings, setPreviewSettings] = useState(settings);
   useEffect(() => {
     const timer = setTimeout(() => setPreviewSettings(settings), 250);
@@ -100,6 +110,14 @@ export function PrintSetup({
   } catch (error) {
     layoutError = error;
   }
+  const effective = effectivePrintSettings(settings, layout);
+  const template = settings.scmTemplate;
+  const proofPaper = scm
+    ? (paperNames[template.paper as keyof typeof paperNames] ?? template.paper)
+    : paperNames[settings.paper];
+  const proofSettings = scm
+    ? effectivePrintSettings(previewSettings, layout)
+    : previewSettings;
   const entries = printableEntries(deck, settings);
   const cards = entries.flatMap((entry) =>
     Array.from({ length: entry.quantity }, () => entry),
@@ -248,143 +266,265 @@ export function PrintSetup({
           <section className="panel settings-panel">
             <h3>Sheet</h3>
             <label className="setting-row">
-              Paper size
+              Layout mode
               <select
-                value={settings.paper}
-                onChange={(event) =>
-                  change({
-                    paper: event.target.value as PrintSettings["paper"],
-                  })
-                }
-              >
-                {Object.entries(paperNames).map(([key, name]) => (
-                  <option value={key} key={key}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {settings.paper === "custom" && (
-              <>
-                <NumberSetting
-                  label="Sheet width"
-                  value={settings.customWidthMm}
-                  min={40}
-                  max={1000}
-                  set={(value) => change({ customWidthMm: value })}
-                />
-                <NumberSetting
-                  label="Sheet height"
-                  value={settings.customHeightMm}
-                  min={40}
-                  max={1000}
-                  set={(value) => change({ customHeightMm: value })}
-                />
-              </>
-            )}
-            <label className="setting-row">
-              Orientation
-              <select
-                value={settings.orientation}
-                onChange={(event) =>
-                  change({
-                    orientation: event.target
-                      .value as PrintSettings["orientation"],
-                  })
-                }
-              >
-                <option value="portrait">Portrait</option>
-                <option value="landscape">Landscape</option>
-              </select>
-            </label>
-            <NumberSetting
-              label="Printer margin"
-              value={settings.marginMm}
-              min={0}
-              max={50}
-              set={(value) => change({ marginMm: value })}
-            />
-            <p className="hint">
-              Check your printer's non-printable margins. The default 4 mm fits
-              3 × 3 on A4 and Letter.
-            </p>
-          </section>
-          <section className="panel settings-panel">
-            <h3>Cards & layout</h3>
-            <label className="setting-row">
-              Card size
-              <select
-                value={`${settings.cardWidthMm}x${settings.cardHeightMm}`}
+                value={settings.layoutMode}
                 onChange={(event) => {
-                  if (event.target.value === "custom") return;
-                  const [width, height] = event.target.value
-                    .split("x")
-                    .map(Number);
-                  if (width && height)
-                    change({ cardWidthMm: width, cardHeightMm: height });
+                  change({
+                    layoutMode: event.target.value === "scm" ? "scm" : "free",
+                  });
+                  setBleedClamped(false);
+                  setBack(false);
                 }}
               >
-                <option value="63x88">MTG · 63 × 88 mm</option>
-                <option value="63.5x88.9">Poker · 2.5 × 3.5 in</option>
-                <option value="59x86">Japanese · 59 × 86 mm</option>
-                <option value="89x127">Oversized · 89 × 127 mm</option>
-                <option
-                  value={`${settings.cardWidthMm}x${settings.cardHeightMm}`}
-                  hidden
-                >
-                  Custom
-                </option>
+                <option value="free">Free layout</option>
+                <option value="scm">Silhouette Card Maker (SCM)</option>
               </select>
             </label>
-            <NumberSetting
-              label="Card width"
-              min={25}
-              max={200}
-              value={settings.cardWidthMm}
-              set={(value) => change({ cardWidthMm: value })}
-            />
-            <NumberSetting
-              label="Card height"
-              min={25}
-              max={250}
-              value={settings.cardHeightMm}
-              set={(value) => change({ cardHeightMm: value })}
-            />
-            <NumberSetting
-              label="Gap between bleeds"
-              min={0}
-              max={20}
-              value={settings.gapMm}
-              set={(value) => change({ gapMm: value })}
-            />
-            <NumberSetting
-              label="Columns · 0 is auto"
-              min={0}
-              max={20}
-              step={1}
-              unit=""
-              value={settings.columns}
-              set={(value) => change({ columns: value })}
-            />
-            <NumberSetting
-              label="Rows · 0 is auto"
-              min={0}
-              max={20}
-              step={1}
-              unit=""
-              value={settings.rows}
-              set={(value) => change({ rows: value })}
-            />
+            {scm ? (
+              <>
+                <label className="setting-row">
+                  Template paper
+                  <select
+                    value={template.paper}
+                    onChange={(event) => {
+                      const paper = event.target.value;
+                      const cards = scmCards(paper);
+                      change({
+                        scmTemplate: {
+                          ...template,
+                          paper,
+                          card: cards.includes(template.card)
+                            ? template.card
+                            : (cards[0] ?? "standard"),
+                        },
+                      });
+                    }}
+                  >
+                    {scmPapers.map((paper) => (
+                      <option key={paper} value={paper}>
+                        {paperNames[paper as keyof typeof paperNames] ?? paper}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="setting-row">
+                  Template card
+                  <select
+                    value={template.card}
+                    onChange={(event) =>
+                      change({
+                        scmTemplate: { ...template, card: event.target.value },
+                      })
+                    }
+                  >
+                    {scmCards(template.paper).map((card) => (
+                      <option key={card} value={card}>
+                        {card.replaceAll("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="setting-row">
+                  Template variant
+                  <select
+                    value={template.variant}
+                    onChange={(event) =>
+                      change({
+                        scmTemplate: {
+                          ...template,
+                          variant:
+                            event.target.value === "borderless"
+                              ? "borderless"
+                              : "default",
+                        },
+                      })
+                    }
+                  >
+                    <option value="default">Default</option>
+                    <option value="borderless">Borderless</option>
+                  </select>
+                </label>
+                <label className="setting-row">
+                  Registration marks
+                  <select
+                    value={template.marks}
+                    onChange={(event) =>
+                      change({
+                        scmTemplate: {
+                          ...template,
+                          marks: event.target.value === "4" ? 4 : 3,
+                        },
+                      })
+                    }
+                  >
+                    <option value="3">3 marks</option>
+                    <option value="4">4 marks</option>
+                  </select>
+                </label>
+                <p className="hint">
+                  Use the matching .studio3 template:{" "}
+                  <strong>{layout?.templateName}</strong>. SCM sets the grid and
+                  replaces crop marks.
+                </p>
+              </>
+            ) : (
+              <>
+                <label className="setting-row">
+                  Paper size
+                  <select
+                    value={settings.paper}
+                    onChange={(event) =>
+                      change({
+                        paper: event.target.value as PrintSettings["paper"],
+                      })
+                    }
+                  >
+                    {Object.entries(paperNames).map(([key, name]) => (
+                      <option value={key} key={key}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {settings.paper === "custom" && (
+                  <>
+                    <NumberSetting
+                      label="Sheet width"
+                      value={settings.customWidthMm}
+                      min={40}
+                      max={1000}
+                      set={(value) => change({ customWidthMm: value })}
+                    />
+                    <NumberSetting
+                      label="Sheet height"
+                      value={settings.customHeightMm}
+                      min={40}
+                      max={1000}
+                      set={(value) => change({ customHeightMm: value })}
+                    />
+                  </>
+                )}
+                <label className="setting-row">
+                  Orientation
+                  <select
+                    value={settings.orientation}
+                    onChange={(event) =>
+                      change({
+                        orientation: event.target
+                          .value as PrintSettings["orientation"],
+                      })
+                    }
+                  >
+                    <option value="portrait">Portrait</option>
+                    <option value="landscape">Landscape</option>
+                  </select>
+                </label>
+                <NumberSetting
+                  label="Printer margin"
+                  value={settings.marginMm}
+                  min={0}
+                  max={50}
+                  set={(value) => change({ marginMm: value })}
+                />
+                <p className="hint">
+                  Check your printer's non-printable margins. The default 4 mm
+                  fits 3 × 3 on A4 and Letter.
+                </p>
+              </>
+            )}
           </section>
+          {!scm && (
+            <section className="panel settings-panel">
+              <h3>Cards & layout</h3>
+              <label className="setting-row">
+                Card size
+                <select
+                  value={`${settings.cardWidthMm}x${settings.cardHeightMm}`}
+                  onChange={(event) => {
+                    if (event.target.value === "custom") return;
+                    const [width, height] = event.target.value
+                      .split("x")
+                      .map(Number);
+                    if (width && height)
+                      change({ cardWidthMm: width, cardHeightMm: height });
+                  }}
+                >
+                  <option value="63x88">MTG · 63 × 88 mm</option>
+                  <option value="63.5x88.9">Poker · 2.5 × 3.5 in</option>
+                  <option value="59x86">Japanese · 59 × 86 mm</option>
+                  <option value="89x127">Oversized · 89 × 127 mm</option>
+                  <option
+                    value={`${settings.cardWidthMm}x${settings.cardHeightMm}`}
+                    hidden
+                  >
+                    Custom
+                  </option>
+                </select>
+              </label>
+              <NumberSetting
+                label="Card width"
+                min={25}
+                max={200}
+                value={settings.cardWidthMm}
+                set={(value) => change({ cardWidthMm: value })}
+              />
+              <NumberSetting
+                label="Card height"
+                min={25}
+                max={250}
+                value={settings.cardHeightMm}
+                set={(value) => change({ cardHeightMm: value })}
+              />
+              <NumberSetting
+                label="Gap between bleeds"
+                min={0}
+                max={20}
+                value={settings.gapMm}
+                set={(value) => change({ gapMm: value })}
+              />
+              <NumberSetting
+                label="Columns · 0 is auto"
+                min={0}
+                max={20}
+                step={1}
+                unit=""
+                value={settings.columns}
+                set={(value) => change({ columns: value })}
+              />
+              <NumberSetting
+                label="Rows · 0 is auto"
+                min={0}
+                max={20}
+                step={1}
+                unit=""
+                value={settings.rows}
+                set={(value) => change({ rows: value })}
+              />
+            </section>
+          )}
           <section className="panel settings-panel">
             <h3>Bleed</h3>
             <NumberSetting
               label="Bleed per side"
               min={0}
-              max={5}
-              value={settings.bleedMm}
-              set={(value) => change({ bleedMm: value })}
+              max={scm ? SCM_MAX_BLEED_MM : 5}
+              step={scm ? 0.001 : 0.1}
+              value={effective.bleedMm}
+              set={(value) => {
+                setBleedClamped(scm && value > SCM_MAX_BLEED_MM);
+                change({
+                  bleedMm: scm ? Math.min(value, SCM_MAX_BLEED_MM) : value,
+                });
+              }}
             />
+            {scm && (
+              <p className="hint" role="status">
+                {bleedClamped || settings.bleedMm > SCM_MAX_BLEED_MM
+                  ? "Bleed clamped to 0.625 mm per side for SCM."
+                  : "SCM limits bleed to 0.625 mm per side."}
+              </p>
+            )}
             <BleedModeControl
               value={settings.bleedMode}
               onChange={(bleedMode) => change({ bleedMode })}
@@ -406,79 +546,81 @@ export function PrintSetup({
               added outside the card's trim line.
             </p>
           </section>
-          <section className="panel settings-panel">
-            <h3>Cut guides</h3>
-            <label className="setting-row">
-              Style
-              <select
-                value={settings.guides}
-                onChange={(event) =>
-                  change({
-                    guides: event.target.value as PrintSettings["guides"],
-                  })
-                }
-              >
-                <option value="crop">Crop marks (sheet and card)</option>
-                <option value="full">Full cutting lines</option>
-                <option value="none">None</option>
-              </select>
-            </label>
-            {settings.guides !== "none" && (
-              <>
-                <NumberSetting
-                  label="Line thickness"
-                  value={settings.guideWidthPt}
-                  min={0.1}
-                  max={2}
-                  step={0.05}
-                  unit="pt"
-                  set={(value) => change({ guideWidthPt: value })}
-                />
-                <label className="setting-row">
-                  Guide color
-                  <input
-                    type="color"
-                    value={settings.guideColor}
-                    onChange={(event) =>
-                      change({ guideColor: event.target.value })
-                    }
+          {!scm && (
+            <section className="panel settings-panel">
+              <h3>Cut guides</h3>
+              <label className="setting-row">
+                Style
+                <select
+                  value={settings.guides}
+                  onChange={(event) =>
+                    change({
+                      guides: event.target.value as PrintSettings["guides"],
+                    })
+                  }
+                >
+                  <option value="crop">Crop marks (sheet and card)</option>
+                  <option value="full">Full cutting lines</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              {settings.guides !== "none" && (
+                <>
+                  <NumberSetting
+                    label="Line thickness"
+                    value={settings.guideWidthPt}
+                    min={0.1}
+                    max={2}
+                    step={0.05}
+                    unit="pt"
+                    set={(value) => change({ guideWidthPt: value })}
                   />
-                </label>
-              </>
-            )}
-            {settings.guides === "crop" && (
-              <>
-                <NumberSetting
-                  label="Mark length"
-                  value={settings.guideLengthMm}
-                  min={0.5}
-                  max={10}
-                  set={(value) => change({ guideLengthMm: value })}
-                />
-                <NumberSetting
-                  label="Mark offset"
-                  value={settings.guideOffsetMm}
-                  min={0}
-                  max={5}
-                  set={(value) => change({ guideOffsetMm: value })}
-                />
-                <p className="hint">
-                  Marks in the sheet margin line up every cut. Each card also
-                  gets corner ticks in the bleed between neighbours
-                  {settings.bleedMm + settings.gapMm <= 0.5
-                    ? "; add bleed or a gap to make room for them"
-                    : ""}
-                  . Duplex sheets add registration targets on both faces.
+                  <label className="setting-row">
+                    Guide color
+                    <input
+                      type="color"
+                      value={settings.guideColor}
+                      onChange={(event) =>
+                        change({ guideColor: event.target.value })
+                      }
+                    />
+                  </label>
+                </>
+              )}
+              {settings.guides === "crop" && (
+                <>
+                  <NumberSetting
+                    label="Mark length"
+                    value={settings.guideLengthMm}
+                    min={0.5}
+                    max={10}
+                    set={(value) => change({ guideLengthMm: value })}
+                  />
+                  <NumberSetting
+                    label="Mark offset"
+                    value={settings.guideOffsetMm}
+                    min={0}
+                    max={5}
+                    set={(value) => change({ guideOffsetMm: value })}
+                  />
+                  <p className="hint">
+                    Marks in the sheet margin line up every cut. Each card also
+                    gets corner ticks in the bleed between neighbours
+                    {settings.bleedMm + settings.gapMm <= 0.5
+                      ? "; add bleed or a gap to make room for them"
+                      : ""}
+                    . Duplex sheets add registration targets on both faces.
+                  </p>
+                </>
+              )}
+              {settings.guides === "full" && (
+                <p className="hint warning-text">
+                  Full lines cross the trim edges. Use crop marks if you do not
+                  want ink along the cut.
                 </p>
-              </>
-            )}
-            {settings.guides === "full" && (
-              <p className="hint warning-text">
-                Full lines cross the trim edges. Use crop marks if you do not
-                want ink along the cut.
-              </p>
-            )}
-          </section>
+              )}
+            </section>
+          )}
           <section className="panel settings-panel">
             <h3>Output & local AI</h3>
             <label className="setting-row">
@@ -577,7 +719,7 @@ export function PrintSetup({
             <label className="setting-row">
               Back pages
               <select
-                value={settings.backs}
+                value={backs}
                 onChange={(event) => {
                   change({
                     backs: event.target.value as PrintSettings["backs"],
@@ -587,7 +729,9 @@ export function PrintSetup({
               >
                 <option value="none">Fronts only</option>
                 <option value="long-edge">Duplex · flip long edge</option>
-                <option value="short-edge">Duplex · flip short edge</option>
+                {!scm && (
+                  <option value="short-edge">Duplex · flip short edge</option>
+                )}
                 <option value="separate">All fronts, then all backs</option>
               </select>
             </label>
@@ -712,7 +856,7 @@ export function PrintSetup({
                   }}
                   viewBox={`0 0 ${layout.width} ${layout.height}`}
                   role="img"
-                  aria-label={`Print preview, ${paperNames[settings.paper]}, ${layout.columns} columns by ${layout.rows} rows`}
+                  aria-label={`Print preview, ${proofPaper}, ${layout.columns} columns by ${layout.rows} rows`}
                 >
                   <title>
                     Sheet {currentPage + 1} {back ? "backs" : "fronts"}, exact
@@ -728,8 +872,15 @@ export function PrintSetup({
                     if (!raw) return null;
                     const slot = back ? duplexSlot(raw, layout, settings) : raw;
                     const art = back ? backArt(entry) : frontArt(entry);
+                    const rotation =
+                      back && scmRotatesBack(layout)
+                        ? `rotate(180 ${slot.x + slot.width / 2} ${slot.y + slot.height / 2})`
+                        : undefined;
                     return (
-                      <g key={`${entry.id}:${slot.x}:${slot.y}`}>
+                      <g
+                        key={`${entry.id}:${slot.x}:${slot.y}`}
+                        transform={rotation}
+                      >
                         <rect
                           {...{
                             x: slot.x,
@@ -742,7 +893,7 @@ export function PrintSetup({
                         {art ? (
                           <PreviewImage
                             art={art}
-                            settings={previewSettings}
+                            settings={proofSettings}
                             x={slot.x}
                             y={slot.y}
                             width={slot.width}
@@ -821,20 +972,37 @@ export function PrintSetup({
                       />
                     </g>
                   ))}
-                  {layout.labelBaseline !== null && layout.slots[0] && (
+                  {layout.registrationInk.map((mark) => (
+                    <rect key={`${mark.x}:${mark.y}`} {...mark} fill="black" />
+                  ))}
+                  {layout.templateName && layout.labelBaseline !== null ? (
                     <text
-                      x={layout.slots[0].x}
+                      x={layout.width / 2}
                       y={layout.labelBaseline}
-                      fill={settings.guideColor}
+                      textAnchor="middle"
+                      fill="black"
                       fontSize={LABEL_SIZE_PT}
                       fontFamily="ui-monospace, monospace"
                     >
-                      {deck.name.toUpperCase().slice(0, 40)} / SHEET{" "}
-                      {currentPage + 1} OF {totalSheets} /{" "}
-                      {back ? "BACKS" : "FRONTS"} / {settings.cardWidthMm} X{" "}
-                      {settings.cardHeightMm} MM + {settings.bleedMm} MM BLEED /{" "}
-                      {settings.dpi} DPI / PRINT AT 100%
+                      {layout.templateName}
                     </text>
+                  ) : (
+                    layout.labelBaseline !== null &&
+                    layout.slots[0] && (
+                      <text
+                        x={layout.slots[0].x}
+                        y={layout.labelBaseline}
+                        fill={settings.guideColor}
+                        fontSize={LABEL_SIZE_PT}
+                        fontFamily="ui-monospace, monospace"
+                      >
+                        {deck.name.toUpperCase().slice(0, 40)} / SHEET{" "}
+                        {currentPage + 1} OF {totalSheets} /{" "}
+                        {back ? "BACKS" : "FRONTS"} / {settings.cardWidthMm} X{" "}
+                        {settings.cardHeightMm} MM + {settings.bleedMm} MM BLEED
+                        / {settings.dpi} DPI / PRINT AT 100%
+                      </text>
+                    )
                   )}
                 </svg>
               ) : (
@@ -851,9 +1019,15 @@ export function PrintSetup({
             </div>
             <div className="proof-meta">
               <span className="mono">
-                {paperNames[settings.paper]} · {layout?.columns ?? 0} ×{" "}
-                {layout?.rows ?? 0} · {settings.cardWidthMm} ×{" "}
-                {settings.cardHeightMm} mm
+                {proofPaper} · {layout?.columns ?? 0} × {layout?.rows ?? 0} ·{" "}
+                {scm
+                  ? Number(effective.cardWidthMm.toFixed(3))
+                  : settings.cardWidthMm}{" "}
+                ×{" "}
+                {scm
+                  ? Number(effective.cardHeightMm.toFixed(3))
+                  : settings.cardHeightMm}{" "}
+                mm
               </span>
               <label className="check-label">
                 <input
@@ -881,8 +1055,8 @@ export function PrintSetup({
                 <div>
                   <dt>Raster per card, without bleed</dt>
                   <dd className="mono">
-                    {mmToPixels(settings.cardWidthMm, settings.dpi)} ×{" "}
-                    {mmToPixels(settings.cardHeightMm, settings.dpi)} px
+                    {mmToPixels(effective.cardWidthMm, settings.dpi)} ×{" "}
+                    {mmToPixels(effective.cardHeightMm, settings.dpi)} px
                   </dd>
                 </div>
                 <div>
@@ -899,7 +1073,7 @@ export function PrintSetup({
                     : "Resizing alone does not add detail."}
                 </p>
               )}
-              {settings.marginMm < 4 && (
+              {!scm && settings.marginMm < 4 && (
                 <p className="notice warning">
                   Some printers will clip margins below 4 mm.
                 </p>

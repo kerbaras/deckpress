@@ -150,8 +150,14 @@ python3 -m venv ../scm-fixture-venv
 ../scm-fixture-venv/bin/python scripts/generate-scm-fixture.py ../scm
 ```
 
-The Rust and TypeScript tests compare `exactMm` within 0.01 mm. Deckpress can
-represent every SCM grid, including ARCH B via custom paper. Its automatic
-grid fits an extra column on seven templates because it treats the inset as
-a uniform margin and does not exclude the registration corners. The Rust test
-names those cases and checks their trim geometry with explicit rows and columns.
+In Print setup, choose **Silhouette Card Maker (SCM)** and select the paper,
+card, variant and mark count for your matching `.studio3` template. The PDF
+prints the template name and version. SCM mode replaces crop marks with
+registration marks, caps bleed at 0.625 mm per side, and uses long-edge
+alignment for backs. Arch B (12 × 18 in) is available in both layout modes.
+
+The Rust and TypeScript SCM mode tests compare `scmMm` within 0.02 mm without
+specifying rows or columns. The older free-mode tests still compare `exactMm`
+within 0.01 mm using the fixture grids. Free auto-fit does not exclude the
+registration corners, so the Rust test still expects an extra column on seven
+templates when auto-fitting them in free mode.

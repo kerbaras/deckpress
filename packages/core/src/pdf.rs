@@ -16,7 +16,10 @@ use krilla::Document;
 use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
-use crate::layout::{create_layout, duplex_slot, mm_to_pt, PrintLayout, Slot};
+use crate::layout::{
+    create_layout, duplex_slot, effective_backs, effective_print_settings, mm_to_pt,
+    scm_rotates_back, PrintLayout, Slot,
+};
 use crate::models::{Art, Backs, Deck, DeckEntry, PrintSettings};
 use crate::raster::{encode_jpeg, parse_hex_color, rasterize};
 use crate::upscaler::{CancelToken, Upscaler};
@@ -39,6 +42,7 @@ pub struct PrintPlan {
 
 pub fn print_plan(deck: &Deck, settings: &PrintSettings) -> AppResult<PrintPlan> {
     let layout = create_layout(settings)?;
+    let backs = effective_backs(settings);
     let entries: Vec<DeckEntry> = deck
         .printable_entries(settings)
         .into_iter()
@@ -70,7 +74,7 @@ pub fn print_plan(deck: &Deck, settings: &PrintSettings) -> AppResult<PrintPlan>
             back: false,
             sheet: first + offset + 1,
         });
-        if matches!(settings.backs, Backs::LongEdge | Backs::ShortEdge) {
+        if matches!(backs, Backs::LongEdge | Backs::ShortEdge) {
             sides.push(Side {
                 entries: sheet.clone(),
                 back: true,
@@ -78,7 +82,7 @@ pub fn print_plan(deck: &Deck, settings: &PrintSettings) -> AppResult<PrintPlan>
             });
         }
     }
-    if settings.backs == Backs::Separate {
+    if backs == Backs::Separate {
         for (offset, sheet) in sheets.into_iter().enumerate() {
             sides.push(Side {
                 entries: sheet,
@@ -173,11 +177,15 @@ fn draw_sheet_label(
     let Some(baseline) = layout.label_baseline else {
         return;
     };
-    let x = layout
-        .slots
-        .first()
-        .map(|slot| slot.rect.x)
-        .unwrap_or(mm_to_pt(settings.margin_mm));
+    let x = if layout.template_name.is_some() {
+        (layout.width - text.chars().count() as f64 * 3.0) / 2.0
+    } else {
+        layout
+            .slots
+            .first()
+            .map(|slot| slot.rect.x)
+            .unwrap_or(mm_to_pt(settings.margin_mm))
+    };
     surface.set_fill(Some(fill(color)));
     surface.draw_text(
         Point::from_xy(x as f32, baseline as f32),
@@ -489,6 +497,8 @@ pub fn build_pdf(
         sides,
         total_sheets,
     } = print_plan(deck, settings)?;
+    let effective = effective_print_settings(settings, &layout);
+    let settings = &effective;
     if settings.upscale && services.upscaler.is_none() {
         return Err(AppError::user(
             "Upscaling is enabled but no model is loaded",
@@ -549,6 +559,7 @@ pub fn build_pdf(
             } else {
                 Some(entry.front_art().clone())
             };
+            let rotated_back = side.back && scm_rotates_back(&layout);
             progress(
                 completed,
                 total,
@@ -615,10 +626,19 @@ pub fn build_pdf(
                             image
                         }
                     };
-                    surface.push_transform(&Transform::from_translate(
-                        slot.rect.x as f32,
-                        slot.rect.y as f32,
-                    ));
+                    let transform = if rotated_back {
+                        Transform::from_row(
+                            -1.0,
+                            0.0,
+                            0.0,
+                            -1.0,
+                            (slot.rect.x + slot.rect.width) as f32,
+                            (slot.rect.y + slot.rect.height) as f32,
+                        )
+                    } else {
+                        Transform::from_translate(slot.rect.x as f32, slot.rect.y as f32)
+                    };
+                    surface.push_transform(&transform);
                     surface.draw_image(
                         image,
                         Size::from_wh(slot.rect.width as f32, slot.rect.height as f32)
@@ -626,7 +646,19 @@ pub fn build_pdf(
                     );
                     surface.pop();
                 }
-                None => draw_placeholder(&mut surface, &slot, &font),
+                None => {
+                    if rotated_back {
+                        surface.push_transform(&Transform::from_rotate_at(
+                            180.0,
+                            (slot.rect.x + slot.rect.width / 2.0) as f32,
+                            (slot.rect.y + slot.rect.height / 2.0) as f32,
+                        ));
+                    }
+                    draw_placeholder(&mut surface, &slot, &font);
+                    if rotated_back {
+                        surface.pop();
+                    }
+                }
             }
             completed += 1;
             progress(
@@ -648,30 +680,42 @@ pub fn build_pdf(
         for mark in &layout.registration {
             draw_registration(&mut surface, mark, guide_color);
         }
-        draw_sheet_label(
-            &mut surface,
-            &layout,
-            settings,
-            &font,
-            guide_color,
-            &format!(
-                "{} / sheet {} of {} / {} / {} x {} mm + {} mm bleed / {} dpi / print at 100%",
-                deck.name
-                    .to_uppercase()
-                    .chars()
-                    .filter(|c| c.is_ascii_graphic() || *c == ' ')
-                    .take(40)
-                    .collect::<String>()
-                    .trim(),
-                side.sheet,
-                total_sheets,
-                if side.back { "BACKS" } else { "FRONTS" },
-                settings.card_width_mm,
-                settings.card_height_mm,
-                settings.bleed_mm,
-                settings.dpi
-            ),
-        );
+        if let Some(template) = &layout.template_name {
+            let black = rgb::Color::new(0, 0, 0);
+            surface.set_fill(Some(fill(black)));
+            for mark in &layout.registration_ink {
+                if let Some(path) = rect_path(mark.x, mark.y, mark.width, mark.height) {
+                    surface.draw_path(&path);
+                }
+            }
+            surface.set_fill(None);
+            draw_sheet_label(&mut surface, &layout, settings, &font, black, template);
+        } else {
+            draw_sheet_label(
+                &mut surface,
+                &layout,
+                settings,
+                &font,
+                guide_color,
+                &format!(
+                    "{} / sheet {} of {} / {} / {} x {} mm + {} mm bleed / {} dpi / print at 100%",
+                    deck.name
+                        .to_uppercase()
+                        .chars()
+                        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+                        .take(40)
+                        .collect::<String>()
+                        .trim(),
+                    side.sheet,
+                    total_sheets,
+                    if side.back { "BACKS" } else { "FRONTS" },
+                    settings.card_width_mm,
+                    settings.card_height_mm,
+                    settings.bleed_mm,
+                    settings.dpi
+                ),
+            );
+        }
         surface.finish();
         page.finish();
     }

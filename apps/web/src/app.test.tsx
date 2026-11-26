@@ -664,6 +664,42 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   );
 });
 
+it("picks an SCM template, clamps the bleed input, and previews its marks", async () => {
+  const user = userEvent.setup();
+  function PrintHarness() {
+    const [value, setValue] = useState(deck);
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async () => value}
+        onJobs={() => {}}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  expect(screen.getByLabelText("Paper size")).toHaveTextContent("Arch B");
+  await user.selectOptions(screen.getByLabelText("Layout mode"), "scm");
+  const preview = screen.getByRole("img", {
+    name: /Print preview, A4, 4 columns by 2 rows/,
+  });
+  expect(within(preview).getByText("a4-standard-v5")).toBeVisible();
+  expect(screen.queryByText("Cut guides")).not.toBeInTheDocument();
+  expect(screen.getByLabelText(/Bleed per side/)).toHaveValue(0.625);
+  expect(screen.getByText(/Bleed clamped to 0.625 mm/)).toBeVisible();
+  expect(preview.querySelectorAll('rect[fill="black"]')).toHaveLength(5);
+  await user.selectOptions(screen.getByLabelText("Registration marks"), "4");
+  expect(preview.querySelectorAll('rect[fill="black"]')).toHaveLength(8);
+  await user.selectOptions(screen.getByLabelText("Template paper"), "letter");
+  expect(
+    screen.getByRole("img", { name: /Print preview, US Letter/ }),
+  ).toBeVisible();
+  expect(screen.getAllByText("letter-standard-v6")).toHaveLength(2);
+  await user.selectOptions(screen.getByLabelText("Layout mode"), "free");
+  expect(screen.getByLabelText(/Bleed per side/)).toHaveValue(1);
+  expect(screen.getByText("Cut guides")).toBeVisible();
+});
+
 it("keeps a failed library request visible and lets the user retry", async () => {
   const user = userEvent.setup();
   vi.spyOn(api, "decks")

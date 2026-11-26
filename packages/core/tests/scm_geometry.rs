@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use deckpress_core::layout::{create_layout, PrintLayout};
-use deckpress_core::models::{Guides, Orientation, Paper, PrintSettings};
+use deckpress_core::models::{Guides, LayoutMode, Orientation, Paper, PrintSettings, ScmTemplate};
 use serde::Deserialize;
 
 const TOLERANCE_MM: f64 = 0.01;
@@ -29,9 +29,11 @@ struct Fixture {
 struct ScmLayout {
     id: String,
     paper: String,
+    card: String,
     orientation: Orientation,
     paper_mm: [f64; 2],
     inset_mm: f64,
+    drawn_arm_mm: f64,
     columns: u32,
     rows: u32,
     trim_rects: Vec<TrimRect>,
@@ -41,6 +43,7 @@ struct ScmLayout {
 #[serde(rename_all = "camelCase")]
 struct TrimRect {
     exact_mm: [f64; 4],
+    scm_mm: [f64; 4],
 }
 
 fn assert_trim_matches(actual: &PrintLayout, expected: &ScmLayout) {
@@ -130,4 +133,55 @@ fn scm_default_trim_geometry_matches_exact_mm() {
     }
 
     assert_eq!(known_mismatches_seen, KNOWN_AUTO_GRID_MISMATCHES.len());
+}
+
+#[test]
+fn scm_mode_matches_all_pixel_rounded_default_templates() {
+    let fixture: Fixture =
+        serde_json::from_str(include_str!("../assets/scm/trim-rects.json")).unwrap();
+    assert_eq!(fixture.layouts.len(), 114);
+    for expected in fixture.layouts {
+        let actual = create_layout(&PrintSettings {
+            layout_mode: LayoutMode::Scm,
+            scm_template: ScmTemplate {
+                paper: expected.paper,
+                card: expected.card,
+                ..ScmTemplate::default()
+            },
+            ..PrintSettings::default()
+        })
+        .unwrap_or_else(|err| panic!("{}: {err}", expected.id));
+        assert_eq!(
+            (actual.columns, actual.rows),
+            (expected.columns, expected.rows),
+            "{}",
+            expected.id
+        );
+        assert_eq!(
+            actual.slots.len(),
+            expected.trim_rects.len(),
+            "{}",
+            expected.id
+        );
+        assert!(actual.guides.is_empty());
+        let arm_mm = actual.registration_ink[1].width * 25.4 / 72.0 - 0.5;
+        assert!(
+            (arm_mm - expected.drawn_arm_mm.clamp(5.0, 20.0)).abs() < 1e-8,
+            "{}",
+            expected.id
+        );
+        for (index, (slot, rect)) in actual.slots.iter().zip(expected.trim_rects).enumerate() {
+            let trim = slot.trim;
+            for (pt, mm) in [trim.x, trim.y, trim.width, trim.height]
+                .into_iter()
+                .zip(rect.scm_mm)
+            {
+                assert!(
+                    (pt * 25.4 / 72.0 - mm).abs() <= 0.02,
+                    "{} slot {index}: {pt} pt != {mm} mm",
+                    expected.id
+                );
+            }
+        }
+    }
 }
