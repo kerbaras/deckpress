@@ -41,7 +41,7 @@ export const artSchema = z.object({
   illustrationId: z.string().uuid().nullish(),
   releasedAt: z.string().max(40).default(""),
   tags: z.array(z.string().max(80)).max(40).default([]),
-  dpi: z.number().min(1).max(10000).default(300),
+  dpi: z.number().min(0).max(10000).default(300),
   bleedMm: z.number().min(0).max(10).default(0),
   backImageUrl: z.string().max(2048).default(""),
   backThumbnailUrl: z.string().max(2048).default(""),

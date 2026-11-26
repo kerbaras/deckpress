@@ -2145,7 +2145,8 @@ it("waits for a recheck after the print settings change", async () => {
 });
 
 it("labels cached Scryfall pixel dimensions separately from format estimates at the selected trim", async () => {
-  mockPickerArt();
+  const print = artSchema.parse({ ...alternate, dpi: 0 });
+  mockPickerArt([original, print, community]);
   const pickerDpi = vi
     .spyOn(api, "pickerDpi")
     .mockImplementation(async (arts) =>
