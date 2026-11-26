@@ -24,6 +24,7 @@ import {
 } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import {
+  type Art,
   type Deck,
   type DeckEntry,
   deckSchema,
@@ -56,6 +57,7 @@ import {
 export function Workspace({
   id,
   focusHeading,
+  restoreMessage,
   onBack,
   onDirty,
   onPreviewChange,
@@ -64,6 +66,7 @@ export function Workspace({
 }: {
   id: string;
   focusHeading: boolean;
+  restoreMessage?: string | undefined;
   onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
@@ -89,6 +92,7 @@ export function Workspace({
     <DeckWorkspace
       initial={query.data}
       focusHeading={focusHeading}
+      restoreMessage={restoreMessage}
       onBack={onBack}
       onDirty={onDirty}
       onPreviewChange={onPreviewChange}
@@ -125,9 +129,28 @@ const views = [
   { id: "print", name: "Print setup", icon: Printer },
 ] as const;
 
+function withEditedUpload(deck: Deck, upload: Art): Deck {
+  const refresh = (art: Art | null) =>
+    art?.provider === "upload" && art.id === upload.id
+      ? { ...art, bleedMm: upload.bleedMm, dpi: upload.dpi }
+      : art;
+  const entries = deck.entries.map((entry) => {
+    const selectedArt = refresh(entry.selectedArt);
+    const selectedBack = refresh(entry.selectedBack);
+    return selectedArt === entry.selectedArt &&
+      selectedBack === entry.selectedBack
+      ? entry
+      : { ...entry, selectedArt, selectedBack };
+  });
+  return entries.every((entry, index) => entry === deck.entries[index])
+    ? deck
+    : { ...deck, entries };
+}
+
 function DeckWorkspace({
   initial,
   focusHeading,
+  restoreMessage,
   onBack,
   onDirty,
   onPreviewChange,
@@ -136,6 +159,7 @@ function DeckWorkspace({
 }: {
   initial: Deck;
   focusHeading: boolean;
+  restoreMessage: string | undefined;
   onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
@@ -145,6 +169,7 @@ function DeckWorkspace({
   const client = useQueryClient();
   const [deck, setDeck] = useState(initial);
   const [saved, setSaved] = useState(initial);
+  const [previousServerDeck, setPreviousServerDeck] = useState(initial);
   const [view, setView] = useState<"edit" | "art" | "print">("edit");
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
@@ -162,6 +187,13 @@ function DeckWorkspace({
   const saving = useRef(false);
   const [saveMode, setSaveMode] = useState<"toolbar" | "editor" | null>(null);
   const isSaving = saveMode !== null;
+  if (initial !== previousServerDeck) {
+    setPreviousServerDeck(initial);
+    if (deck === saved && !isSaving) {
+      setDeck(initial);
+      setSaved(initial);
+    }
+  }
   useEffect(() => {
     if (focusHeading) heading.current?.focus();
   }, [focusHeading]);
@@ -328,6 +360,11 @@ function DeckWorkspace({
           <SlidersHorizontal size={16} />
         </button>
       </PageToolbar>
+      {restoreMessage && (
+        <p className="notice success" aria-hidden="true">
+          {restoreMessage}
+        </p>
+      )}
       <StatusRegion label="MPC Autofill XML export status">
         {mpcExportStatus}
       </StatusRegion>
@@ -360,6 +397,15 @@ function DeckWorkspace({
           onSelect={setSelectedId}
           onApply={commit}
           onPreviewChange={onPreviewChange}
+          onUploadEdited={(art) => {
+            const nextDeck = withEditedUpload(deck, art);
+            setDeck(nextDeck);
+            setSaved(deck === saved ? nextDeck : withEditedUpload(saved, art));
+            client.setQueriesData<Deck>({ queryKey: ["deck"] }, (current) =>
+              current ? withEditedUpload(current, art) : current,
+            );
+            void client.invalidateQueries({ queryKey: ["decks"] });
+          }}
         />
       )}
       {view === "print" && (

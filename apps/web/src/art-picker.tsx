@@ -14,7 +14,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { api, type Preferences } from "./api.ts";
+import { api, type Preferences, uploadTrimSrc } from "./api.ts";
 import {
   type Art,
   artPreferenceSchema,
@@ -48,6 +48,7 @@ export function ArtPicker(props: {
   onSelect: (id: string) => void;
   onApply: (deck: Deck) => Promise<Deck>;
   onPreviewChange?: (changed: boolean) => void;
+  onUploadEdited?: (art: Art) => void;
 }) {
   const { entry, onSelect } = props;
   const [activeFace, setActiveFace] = useState({
@@ -184,6 +185,7 @@ function ArtSession({
   entry,
   onSelect,
   onApply,
+  onUploadEdited,
   face,
   activeFaceControl,
   setFace,
@@ -196,6 +198,7 @@ function ArtSession({
   entry: DeckEntry;
   onSelect: (id: string, face?: number) => void;
   onApply: (deck: Deck) => Promise<Deck>;
+  onUploadEdited?: (art: Art) => void;
   face: number;
   activeFaceControl: React.Ref<HTMLButtonElement>;
   setFace: (face: number, restoreFocus: boolean) => void;
@@ -209,6 +212,11 @@ function ArtSession({
   const savedArt = face === 0 ? frontArt : backArt;
   const saved = savedArt(entry);
   const [candidate, setCandidate] = useState<Art | null>(saved);
+  const [previousSaved, setPreviousSaved] = useState(saved);
+  if (saved !== previousSaved) {
+    setPreviousSaved(saved);
+    if (candidate?.id === previousSaved?.id) setCandidate(saved);
+  }
   const changed = candidate?.id !== saved?.id;
   useEffect(() => {
     onPreviewChange?.(changed);
@@ -233,6 +241,10 @@ function ArtSession({
   const [zoom, setZoom] = useState(1);
   const [scope, setScope] = useState("entry");
   const [upload, setUpload] = useState(false);
+  const [editBleed, setEditBleed] = useState<{
+    art: Art;
+    bleed: number | null;
+  } | null>(null);
   const [styleMatch, setStyleMatch] = useState(false);
   const task = useTask();
   const prefs = useQuery({
@@ -563,6 +575,22 @@ function ArtSession({
                   : ["Preview"]
             }
           >
+            {candidate?.provider === "upload" && (
+              <button
+                type="button"
+                disabled={task.busy}
+                onClick={() =>
+                  void task.run(async () => {
+                    setEditBleed({
+                      art: candidate,
+                      bleed: await api.uploadBleed(candidate.imageUrl),
+                    });
+                  })
+                }
+              >
+                Edit source bleed
+              </button>
+            )}
             <button
               type="button"
               className="icon-button"
@@ -937,6 +965,22 @@ function ArtSession({
           }}
         />
       )}
+      {editBleed && (
+        <EditUploadBleed
+          {...editBleed}
+          onClose={() => setEditBleed(null)}
+          onSaved={(art) => {
+            setCandidate((current) => (current?.id === art.id ? art : current));
+            client.setQueryData<Art[]>(
+              ["uploads", entry.card.oracleId],
+              (items) =>
+                items?.map((item) => (item.id === art.id ? art : item)),
+            );
+            onUploadEdited?.(art);
+            setEditBleed(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1027,6 +1071,11 @@ function Monitor({
             {art ? (
               <CardImage
                 url={art.imageUrl}
+                src={
+                  art.provider === "upload" && art.bleedMm > 0
+                    ? uploadTrimSrc(art)
+                    : undefined
+                }
                 name={`${label}: ${art.name}`}
                 eager
               />
@@ -1121,6 +1170,115 @@ function PersonalTags({
   );
 }
 
+function bleedFieldValue(bleed: number | null) {
+  if (bleed === null) return { mode: "auto", custom: "" };
+  if ([0, 3.048, 3.175].includes(bleed))
+    return { mode: String(bleed), custom: "" };
+  return { mode: "custom", custom: String(bleed) };
+}
+
+type BleedValue = ReturnType<typeof bleedFieldValue>;
+
+function declaredBleed({ mode, custom }: BleedValue) {
+  return mode === "auto" ? null : Number(mode === "custom" ? custom : mode);
+}
+
+function SourceBleedField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: BleedValue;
+  onChange: (value: BleedValue) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <>
+      <label className="field">
+        Existing bleed per side
+        <select
+          value={value.mode}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...value, mode: event.target.value })}
+        >
+          <option value="auto">Auto-detect (recommended)</option>
+          <option value={0}>No bleed, trimmed card</option>
+          <option value={3.048}>MPC image, 36 px at 300 DPI</option>
+          <option value={3.175}>⅛ inch bleed</option>
+          <option value="custom">Custom bleed</option>
+        </select>
+      </label>
+      {value.mode === "custom" && (
+        <label className="field">
+          Custom bleed per side (mm)
+          <input
+            type="number"
+            min={0}
+            max={10}
+            step="any"
+            required
+            disabled={disabled}
+            value={value.custom}
+            onChange={(event) =>
+              onChange({ ...value, custom: event.target.value })
+            }
+          />
+        </label>
+      )}
+      <p className="hint">
+        Auto-detect uses image proportions to match common bleed sizes. Override
+        it if you already know the bleed. Existing bleed is removed before
+        applying your print settings.
+      </p>
+    </>
+  );
+}
+
+function EditUploadBleed({
+  art,
+  bleed,
+  onClose,
+  onSaved,
+}: {
+  art: Art;
+  bleed: number | null;
+  onClose: () => void;
+  onSaved: (art: Art) => void;
+}) {
+  const [value, setValue] = useState(() => bleedFieldValue(bleed));
+  const task = useTask();
+  return (
+    <Modal title="Edit source bleed" onClose={onClose} busy={task.busy}>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void task.run(async () =>
+            onSaved(
+              await api.updateUploadBleed(art.imageUrl, declaredBleed(value)),
+            ),
+          );
+        }}
+      >
+        <p className="muted">This updates every deck that uses this upload.</p>
+        <SourceBleedField
+          value={value}
+          onChange={setValue}
+          disabled={task.busy}
+        />
+        <ErrorNotice error={task.error} />
+        <div className="modal-actions">
+          <button type="submit" className="primary" disabled={task.busy}>
+            Save bleed
+          </button>
+          <button type="button" disabled={task.busy} onClick={onClose}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function UploadArt({
   entry,
   onClose,
@@ -1132,8 +1290,7 @@ function UploadArt({
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [artist, setArtist] = useState("");
-  const [bleed, setBleed] = useState("auto");
-  const [customBleed, setCustomBleed] = useState("");
+  const [bleed, setBleed] = useState(() => bleedFieldValue(null));
   const task = useTask();
   return (
     <Modal title="Upload card art" onClose={onClose} busy={task.busy}>
@@ -1144,18 +1301,13 @@ function UploadArt({
             void task.run(async () => {
               if (file.size > 16 * 1024 * 1024)
                 throw new Error("Image exceeds 16 MB");
+              const bleedMm = declaredBleed(bleed);
               onUploaded(
                 await api.upload(file, {
                   oracleId: entry.card.oracleId,
                   name: entry.card.name,
                   artist,
-                  ...(bleed === "auto"
-                    ? {}
-                    : {
-                        bleedMm: Number(
-                          bleed === "custom" ? customBleed : bleed,
-                        ),
-                      }),
+                  ...(bleedMm === null ? {} : { bleedMm }),
                 }),
               );
             });
@@ -1183,38 +1335,7 @@ function UploadArt({
             placeholder="Credit the original artist"
           />
         </label>
-        <label className="field">
-          Existing bleed per side
-          <select
-            value={bleed}
-            onChange={(event) => setBleed(event.target.value)}
-          >
-            <option value="auto">Auto-detect (recommended)</option>
-            <option value={0}>No bleed, trimmed card</option>
-            <option value={3.048}>MPC image, 36 px at 300 DPI</option>
-            <option value={3.175}>⅛ inch bleed</option>
-            <option value="custom">Custom bleed</option>
-          </select>
-        </label>
-        {bleed === "custom" && (
-          <label className="field">
-            Custom bleed per side (mm)
-            <input
-              type="number"
-              min={0}
-              max={10}
-              step="any"
-              required
-              value={customBleed}
-              onChange={(event) => setCustomBleed(event.target.value)}
-            />
-          </label>
-        )}
-        <p className="hint">
-          Auto-detect uses image proportions to match common bleed sizes.
-          Override it if you already know the bleed. Existing bleed is removed
-          before applying your print settings.
-        </p>
+        <SourceBleedField value={bleed} onChange={setBleed} />
         <ErrorNotice error={task.error} />
         <div className="modal-actions">
           <button

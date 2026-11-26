@@ -6,6 +6,7 @@
 //! - `preview/<json {art, settings}>`: the 150 DPI print preview of one face
 //!   (no upscaling), rendered with the same pipeline as the export.
 //! - `comparison-thumbnail/<json {art, settings}>`: the trimmed comparison face.
+//! - `upload-trim/<json {imageUrl, bleedMm}>`: the cropped original of a saved upload.
 
 use std::sync::Arc;
 
@@ -30,6 +31,21 @@ struct PreviewRequest {
     art: Art,
     #[serde(default)]
     settings: PrintSettings,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UploadTrimRequest {
+    image_url: String,
+    bleed_mm: f64,
+}
+
+async fn upload_trim(images: &Images, payload: &str) -> AppResult<Vec<u8>> {
+    let request: UploadTrimRequest =
+        serde_json::from_str(payload).map_err(|_| AppError::user("Invalid upload trim request"))?;
+    images
+        .trimmed_upload(&request.image_url, request.bleed_mm)
+        .await
 }
 
 /// Origins allowed to read `dpimg://` bodies with CORS: the packaged webview
@@ -140,6 +156,7 @@ async fn serve(state: Arc<Served>, path: String, origin: Option<String>) -> Resp
         "image" => state.images.read(payload).await,
         "preview" => preview(&state.images, &state.preview_dir, payload).await,
         "comparison-thumbnail" => comparison_thumbnail(&state.images, payload).await,
+        "upload-trim" => upload_trim(&state.images, payload).await,
         _ => Err(AppError::not_found("Not found")),
     };
     match result {

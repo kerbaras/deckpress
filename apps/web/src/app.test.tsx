@@ -126,10 +126,12 @@ const exportFileName = (args: unknown) => {
   return `${deckName}${suffix}`;
 };
 
-function renderWithClient(ui: ReactNode) {
-  const client = new QueryClient({
+function renderWithClient(
+  ui: ReactNode,
+  client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  }),
+) {
   return render(
     <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
   );
@@ -500,12 +502,12 @@ it.each([false, true])(
       if (cmd === "export_file_name") return exportFileName(args);
       if (cmd === "plugin:dialog|save") return "/chosen/deck.deckpress.json";
       if (cmd === "save_text") return saveText(args);
-      if (cmd === "create_deck") {
+      if (cmd === "restore_deck") {
         restored = deckSchema.parse({
-          ...(args as { deck: Deck }).deck,
+          ...JSON.parse((args as { contents: string }).contents),
           id: restoredId,
         });
-        return restored;
+        return { deck: restored, updatedUploads: 0 };
       }
       return [];
     });
@@ -2376,6 +2378,282 @@ it.each([
     else expect(meta).toHaveProperty("bleedMm", bleedMm);
   },
 );
+
+it("edits a saved upload with the keyboard and refreshes its trimmed preview", async () => {
+  const user = userEvent.setup();
+  const uploaded = artSchema.parse({
+    ...community,
+    id: "upload:1",
+    imageUrl: "upload://a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+    provider: "upload",
+    bleedMm: 0,
+  });
+  const savedEntry = { ...entry, selectedArt: uploaded };
+  const updated = { ...uploaded, bleedMm: 3.175, dpi: 300 };
+  const onApply = vi.fn();
+  const onUploadEdited = vi.fn();
+  vi.spyOn(api, "art").mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: false,
+    total: 0,
+  });
+  vi.spyOn(api, "uploads").mockResolvedValue([uploaded]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  const get = vi.spyOn(api, "uploadBleed").mockResolvedValue(0);
+  const update = vi.spyOn(api, "updateUploadBleed").mockResolvedValue(updated);
+  renderWithClient(
+    <ArtPicker
+      deck={{ ...deck, entries: [savedEntry] }}
+      entry={savedEntry}
+      onSelect={vi.fn()}
+      onApply={onApply}
+      onUploadEdited={onUploadEdited}
+    />,
+  );
+  const preview = within(screen.getByRole("region", { name: "Preview art" }));
+  const previewName = `Preview: ${uploaded.name}`;
+  const initialSrc = preview
+    .getByRole("img", { name: previewName })
+    .getAttribute("src");
+  const edit = preview.getByRole("button", { name: "Edit source bleed" });
+  edit.focus();
+  await user.keyboard("{Enter}");
+  expect(get).toHaveBeenCalledWith(uploaded.imageUrl);
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Edit source bleed" }),
+  );
+  const selector = dialog.getByRole("combobox", {
+    name: "Existing bleed per side",
+  });
+  expect(selector).toHaveValue("0");
+  await user.selectOptions(selector, "3.175");
+  const save = dialog.getByRole("button", { name: "Save bleed" });
+  save.focus();
+  await user.keyboard("{Enter}");
+  expect(update).toHaveBeenCalledWith(uploaded.imageUrl, 3.175);
+  await waitFor(() => expect(onUploadEdited).toHaveBeenCalledWith(updated));
+  const newSrc = preview
+    .getByRole("img", { name: previewName })
+    .getAttribute("src");
+  expect(newSrc).not.toBe(initialSrc);
+  expect(newSrc).toContain("upload-trim");
+  expect(newSrc).toContain("3.175");
+  expect(preview.getByText("3.175 mm")).toBeVisible();
+  expect(preview.getByText("Saved")).toBeVisible();
+  expect(onApply).not.toHaveBeenCalled();
+});
+
+it("backs up fresh upload bleed even if the Library list still has the old value", async () => {
+  const user = userEvent.setup();
+  const uploaded = artSchema.parse({
+    ...community,
+    id: "upload:1",
+    imageUrl: "upload://a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+    provider: "upload",
+    bleedMm: 3.048,
+  });
+  const withBleed = (art: typeof uploaded) => ({
+    ...deck,
+    entries: [{ ...entry, selectedArt: art }],
+  });
+  const cached = withBleed(uploaded);
+  const updated = { ...uploaded, bleedMm: 3.175 };
+  let stored = cached;
+  const saveText = vi.fn();
+  const list = vi.spyOn(api, "decks").mockResolvedValue([cached]);
+  const read = vi.spyOn(api, "deck").mockImplementation(async () => stored);
+  vi.spyOn(api, "art").mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: false,
+    total: 0,
+  });
+  vi.spyOn(api, "uploads").mockResolvedValue([uploaded]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  vi.spyOn(api, "uploadBleed").mockResolvedValue(null);
+  vi.spyOn(api, "updateUploadBleed").mockImplementation(async () => {
+    stored = withBleed(updated);
+    return updated;
+  });
+  mockIPC((cmd, args) => {
+    if (cmd === "export_file_name") return exportFileName(args);
+    if (cmd === "plugin:dialog|save") return "/chosen/burn.deckpress.json";
+    if (cmd === "save_text") return saveText(args);
+    return [];
+  });
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Choose art for Lightning Bolt",
+    }),
+  );
+  const preview = within(screen.getByRole("region", { name: "Preview art" }));
+  await user.click(preview.getByRole("button", { name: "Edit source bleed" }));
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Edit source bleed" }),
+  );
+  await user.selectOptions(
+    dialog.getByRole("combobox", { name: "Existing bleed per side" }),
+    "3.175",
+  );
+  const listCalls = list.mock.calls.length;
+  await user.click(dialog.getByRole("button", { name: "Save bleed" }));
+  expect(await preview.findByText("3.175 mm")).toBeVisible();
+  expect(list.mock.calls.length).toBeGreaterThan(listCalls);
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  read.mockClear();
+  await user.click(await screen.findByRole("button", { name: "Back up Burn" }));
+  await waitFor(() => expect(saveText).toHaveBeenCalledOnce());
+  expect(read).toHaveBeenCalledWith(id);
+  expect(JSON.parse(saveText.mock.calls[0]?.[0].contents)).toEqual(stored);
+});
+
+it("shows restored source bleed on the first reopen of a cached deck", async () => {
+  const user = userEvent.setup();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+  });
+  const uploaded = artSchema.parse({
+    ...community,
+    id: "upload:1",
+    imageUrl: `upload://${id}`,
+    provider: "upload",
+    bleedMm: 3.048,
+  });
+  const withBleed = (bleedMm: number) => ({
+    ...deck,
+    entries: [{ ...entry, selectedArt: { ...uploaded, bleedMm } }],
+  });
+  let stored = withBleed(3.048);
+  const updated = withBleed(3.175);
+  const restored = {
+    ...updated,
+    id: "221c934a-dc11-4c97-88ff-ff467375a521",
+    name: "Restored Burn",
+  };
+  vi.spyOn(api, "decks").mockImplementation(async () => [stored]);
+  vi.spyOn(api, "deck").mockImplementation(async (deckId) =>
+    deckId === id ? stored : restored,
+  );
+  vi.spyOn(api, "restoreDeck").mockImplementation(async () => {
+    stored = updated;
+    return { deck: restored, updatedUploads: 1 };
+  });
+  vi.spyOn(api, "art").mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: false,
+    total: 0,
+  });
+  vi.spyOn(api, "uploads").mockResolvedValue([]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  renderWithClient(<App />, client);
+  const openArt = async () => {
+    await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Choose art for Lightning Bolt",
+      }),
+    );
+    return within(screen.getByRole("region", { name: "Preview art" }));
+  };
+  expect((await openArt()).getByText("3.048 mm")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  expect(client.getQueryData(["deck", id])).toEqual(stored);
+
+  const contents = JSON.stringify(updated);
+  const file = new File([contents], "burn.deckpress.json");
+  Object.defineProperty(file, "text", { value: async () => contents });
+  await user.upload(
+    await screen.findByLabelText("Restore a deck from a JSON backup"),
+    file,
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Restored Burn" }),
+  ).toBeVisible();
+  expect(client.getQueryData(["deck", id])).toEqual(updated);
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  const preview = await openArt();
+  expect(preview.getByText("3.175 mm")).toBeVisible();
+  expect(preview.queryByText("3.048 mm")).not.toBeInTheDocument();
+
+  stored = withBleed(3.048);
+  await act(() => client.refetchQueries({ queryKey: ["deck", id] }));
+  expect(await preview.findByText("3.048 mm")).toBeVisible();
+  expect(screen.getByRole("status", { name: "Saved" })).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Deck settings" }));
+  const name = screen.getByRole("textbox", { name: "Deck name" });
+  await user.type(name, " draft");
+  stored = updated;
+  await act(() => client.refetchQueries({ queryKey: ["deck", id] }));
+  expect(name).toHaveValue("Burn draft");
+  expect(screen.getByRole("status", { name: "Unsaved changes" })).toBeVisible();
+});
+
+it("replaces the live announcement once for every restore, even with identical text", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(api, "decks").mockResolvedValue([]);
+  vi.spyOn(api, "deck").mockResolvedValue(deck);
+  const contents = JSON.stringify(deck);
+  const restore = vi.fn();
+  mockIPC((cmd, args) => {
+    if (cmd === "restore_deck") return restore(args);
+    return [];
+  });
+  renderWithClient(<App />);
+  const file = new File([contents], "burn.deckpress.json");
+  Object.defineProperty(file, "text", { value: async () => contents });
+  const status = screen.getByRole("status", { name: "Import announcements" });
+  const messages: (string | null)[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const { addedNodes } of records) {
+      for (const node of addedNodes) messages.push(node.textContent);
+    }
+  });
+  observer.observe(status, { childList: true });
+  try {
+    for (const [updatedUploads, text] of [
+      [1, "Deck restored, updated source bleed on 1 upload"],
+      [0, "Deck restored"],
+      [0, "Deck restored"],
+      [2, "Deck restored, updated source bleed on 2 uploads"],
+    ] as const) {
+      restore.mockReturnValueOnce({ deck, updatedUploads });
+      const previous = status.firstChild;
+      const count = messages.length;
+      await user.upload(
+        await screen.findByLabelText("Restore a deck from a JSON backup"),
+        file,
+      );
+      expect(
+        await screen.findByRole("heading", { name: "Burn" }),
+      ).toBeVisible();
+      expect(restore).toHaveBeenLastCalledWith({ contents });
+      await waitFor(() => {
+        expect(status.textContent).toBe(text);
+        expect(status.firstChild).not.toBe(previous);
+        expect(messages.slice(count)).toEqual([text]);
+      });
+      expect(within(screen.getByRole("main")).getByText(text)).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Back to decks" }));
+      expect(messages.slice(count)).toEqual([text]);
+    }
+  } finally {
+    observer.disconnect();
+  }
+});
 
 it("saves an ordered list of print languages and strict policy in app settings", async () => {
   const user = userEvent.setup();

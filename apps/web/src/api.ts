@@ -386,6 +386,15 @@ export const api = {
         >
       >,
   ) => command("create_deck", deckSchema, { deck: value }),
+  restoreDeck: (contents: string) =>
+    command(
+      "restore_deck",
+      z.object({
+        deck: deckSchema,
+        updatedUploads: z.number().int().nonnegative(),
+      }),
+      { contents },
+    ),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
   deleteDeck: (id: string) => command("delete_deck", nothing, { id }),
   relatedTokens: (cardIds: string[]) =>
@@ -502,6 +511,10 @@ export const api = {
   },
   uploads: (oracleId: string, _signal?: AbortSignal) =>
     command("list_uploads", z.array(artSchema), { oracleId }),
+  uploadBleed: (imageUrl: string) =>
+    command("upload_bleed", z.number().nullable(), { imageUrl }),
+  updateUploadBleed: (imageUrl: string, bleedMm: number | null) =>
+    command("update_upload_bleed", artSchema, { imageUrl, bleedMm }),
   /** Image bytes travel as the raw IPC body; metadata rides in a header. */
   upload: async (
     file: File,
@@ -584,6 +597,12 @@ const IMAGE_SCHEME = "dpimg";
 /** `<img src>` for any art URL, served by the Rust image cache. */
 export function imageSrc(url: string): string {
   return convertFileSrc(`image/${url}`, IMAGE_SCHEME);
+}
+export function uploadTrimSrc({ imageUrl, bleedMm }: Art) {
+  return convertFileSrc(
+    `upload-trim/${JSON.stringify({ imageUrl, bleedMm })}`,
+    IMAGE_SCHEME,
+  );
 }
 export function comparisonThumbnailSrc(art: Art, settings: PrintSettings) {
   return convertFileSrc(
