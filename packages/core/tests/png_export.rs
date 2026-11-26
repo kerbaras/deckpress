@@ -117,9 +117,26 @@ fn names_are_deterministic_and_slugged() {
 }
 
 #[test]
+fn long_names_are_cut_by_bytes_on_a_char_boundary() {
+    let prefix = "sheet-001-slot-01-front-".len();
+    for card in ["𝔞".repeat(200), "ñ".repeat(200), "a".repeat(200)] {
+        let name = face_name(1, 1, false, &card);
+        let slug = &name[prefix..name.len() - ".png".len()];
+        assert!(slug.len() <= 80 && slug.len() > 76, "{} bytes", slug.len());
+        assert!(name.len() < 255);
+        assert!(card.starts_with(slug));
+    }
+    assert_eq!(
+        face_name(1, 1, false, &format!("{}-x", "a".repeat(79))),
+        format!("sheet-001-slot-01-front-{}.png", "a".repeat(79))
+    );
+}
+
+#[test]
 fn writes_one_png_per_printed_front_honouring_quantities_and_exclusions() {
     let (output, bytes) = export(&deck(), &settings(Backs::None), &CancelToken::default()).unwrap();
-    assert_eq!((output.faces, output.skipped), (4, 0));
+    assert_eq!(output.faces, 4);
+    assert!(output.skipped.is_empty());
     assert_eq!(
         names(&bytes),
         [
@@ -142,21 +159,35 @@ fn writes_one_png_per_printed_front_honouring_quantities_and_exclusions() {
 
 #[test]
 fn rasters_are_trim_plus_bleed_at_the_chosen_dpi_and_carry_it() {
-    for (dpi, bleed_mm) in [(150, 1.0), (300, 3.0)] {
+    let deck = Deck {
+        entries: vec![entry("Bolt", vec![art("bolt")], 1)],
+        ..common::deck(1)
+    };
+    for ((width, height), dpi) in [(63.0, 88.0), (63.5, 88.9)]
+        .into_iter()
+        .flat_map(|size| [300, 800, 1200].map(|dpi| (size, dpi)))
+    {
+        let bleed_mm = 1.0;
         let settings = PrintSettings {
             dpi,
             bleed_mm,
+            card_width_mm: width,
+            card_height_mm: height,
             ..PrintSettings::default()
         };
-        let (_, bytes) = export(&deck(), &settings, &CancelToken::default()).unwrap();
+        let (_, bytes) = export(&deck, &settings, &CancelToken::default()).unwrap();
         let expected = (
-            mm_to_pixels(63.0, dpi) + 2 * mm_to_pixels(bleed_mm, dpi),
-            mm_to_pixels(88.0, dpi) + 2 * mm_to_pixels(bleed_mm, dpi),
+            mm_to_pixels(width + 2.0 * bleed_mm, dpi),
+            mm_to_pixels(height + 2.0 * bleed_mm, dpi),
         );
         let pixels_per_metre = ((f64::from(dpi) / 0.0254).round() as u32).to_be_bytes();
         for (name, data) in entries(&bytes) {
             let image = image::load_from_memory(&data).unwrap();
-            assert_eq!((image.width(), image.height()), expected, "{name}");
+            assert_eq!(
+                (image.width(), image.height()),
+                expected,
+                "{name} {width}x{height} mm at {dpi} DPI"
+            );
             let phys = data.windows(4).position(|w| w == b"pHYs").unwrap();
             assert_eq!(&data[phys + 4..phys + 8], &pixels_per_metre);
             assert_eq!(&data[phys + 8..phys + 12], &pixels_per_metre);
@@ -169,7 +200,22 @@ fn rasters_are_trim_plus_bleed_at_the_chosen_dpi_and_carry_it() {
 fn duplex_and_separate_backs_add_back_faces_and_skip_faces_without_art() {
     for backs in [Backs::LongEdge, Backs::ShortEdge, Backs::Separate] {
         let (output, bytes) = export(&deck(), &settings(backs), &CancelToken::default()).unwrap();
-        assert_eq!((output.faces, output.skipped), (5, 3), "{backs:?}");
+        assert_eq!(output.faces, 5, "{backs:?}");
+        assert_eq!(
+            output.skipped,
+            [
+                "Lightning Bolt back (sheet 1, slot 1)",
+                "Lightning Bolt back (sheet 1, slot 2)",
+                "Lightning Bolt back (sheet 1, slot 3)",
+            ],
+            "{backs:?}"
+        );
+        assert_eq!(
+            output.summary(),
+            "5 PNG files ready · 3 faces without art skipped: \
+             Lightning Bolt back (sheet 1, slot 1); Lightning Bolt back (sheet 1, slot 2); \
+             Lightning Bolt back (sheet 1, slot 3)"
+        );
         let files = entries(&bytes);
         let (name, data) = files.last().unwrap();
         assert_eq!(
@@ -221,12 +267,12 @@ fn scm_exports_use_the_template_card_size_and_bleed() {
     let (_, bytes) = export(&deck(), &scm, &CancelToken::default()).unwrap();
     let (_, data) = &entries(&bytes)[0];
     let image = image::load_from_memory(data).unwrap();
-    let bleed = 2 * mm_to_pixels(effective.bleed_mm, 300);
+    let bleed = 2.0 * effective.bleed_mm;
     assert_eq!(
         (image.width(), image.height()),
         (
-            mm_to_pixels(effective.card_width_mm, 300) + bleed,
-            mm_to_pixels(effective.card_height_mm, 300) + bleed
+            mm_to_pixels(effective.card_width_mm + bleed, 300),
+            mm_to_pixels(effective.card_height_mm + bleed, 300)
         )
     );
 }
@@ -270,4 +316,23 @@ fn upscaling_without_a_model_is_refused() {
         export(&deck(), &upscale, &CancelToken::default()),
         Err(AppError::User(_))
     ));
+}
+
+#[test]
+fn summaries_list_the_first_skipped_faces() {
+    let summary = |skipped: usize| {
+        PngExport {
+            faces: 2,
+            skipped: (1..=skipped)
+                .map(|slot| format!("Card (sheet 1, slot {slot})"))
+                .collect(),
+        }
+        .summary()
+    };
+    assert_eq!(summary(0), "2 PNG files ready");
+    assert_eq!(
+        summary(1),
+        "2 PNG files ready · 1 face without art skipped: Card (sheet 1, slot 1)"
+    );
+    assert!(summary(5).ends_with("Card (sheet 1, slot 3); 2 more"));
 }

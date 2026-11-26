@@ -1,11 +1,12 @@
 mod common;
 
-use deckpress_core::layout::{duplex_slot, mm_to_pt};
+use deckpress_core::layout::{duplex_slot, mm_to_pixels, mm_to_pt};
 use deckpress_core::models::{
     Backs, LayoutMode, Orientation, Paper, PrintSettings, ScmTemplate, ScmVariant, Zone,
 };
 use deckpress_core::pdf::{build_duplex_calibration_pdf, build_pdf, print_plan, PdfServices};
 use deckpress_core::providers::normalize_scryfall;
+use deckpress_core::scm::effective_print_settings;
 use deckpress_core::upscaler::CancelToken;
 use serde::Deserialize;
 
@@ -402,7 +403,16 @@ fn builds_an_arch_b_scm_duplex_sheet_with_clamped_raster_bleed() {
     assert!(output.bytes.starts_with(b"%PDF"));
     for entry in std::fs::read_dir(dir.path()).unwrap() {
         let (width, height) = image::image_dimensions(entry.unwrap().path()).unwrap();
-        assert_eq!((width, height), (744 + 2 * 7, 1039 + 2 * 7));
+        let effective = effective_print_settings(&settings).unwrap();
+        let bleed = 2.0 * effective.bleed_mm;
+        assert_eq!(
+            (width, height),
+            (
+                mm_to_pixels(effective.card_width_mm + bleed, 300),
+                mm_to_pixels(effective.card_height_mm + bleed, 300)
+            )
+        );
+        assert_eq!((width, height), (759, 1054));
     }
 }
 

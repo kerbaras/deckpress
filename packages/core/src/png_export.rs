@@ -10,6 +10,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 use crate::error::{AppError, AppResult};
+use crate::format_count;
 use crate::models::{Deck, PrintSettings};
 use crate::pdf::{print_plan, raster_key, PrintPlan};
 use crate::raster::{encode_png_at_dpi, rasterize};
@@ -19,9 +20,37 @@ use crate::upscaler::{CancelToken, Upscaler};
 pub struct PngExport {
     /// PNG files written, one per printed face.
     pub faces: usize,
-    /// Faces with no art (the PDF prints a placeholder there); not exported.
-    pub skipped: usize,
+    /// Faces with no art (the PDF prints a placeholder there), not exported,
+    /// e.g. "Delver of Secrets back (sheet 1, slot 4)".
+    pub skipped: Vec<String>,
 }
+
+impl PngExport {
+    /// Job result line, naming the first few faces left out for missing art.
+    pub fn summary(&self) -> String {
+        const LISTED: usize = 3;
+        let mut message = format!(
+            "{} ready",
+            format_count(self.faces, "PNG file", "PNG files")
+        );
+        if !self.skipped.is_empty() {
+            let count = self.skipped.len();
+            message.push_str(&format!(
+                " · {} without art skipped: {}",
+                format_count(count, "face", "faces"),
+                self.skipped[..count.min(LISTED)].join("; ")
+            ));
+            if count > LISTED {
+                message.push_str(&format!("; {} more", count - LISTED));
+            }
+        }
+        message
+    }
+}
+
+/// Keeps entry names well under the 255-byte file name limit of common
+/// filesystems even when every character is four bytes of UTF-8.
+const MAX_SLUG_BYTES: usize = 80;
 
 fn slug(name: &str) -> String {
     let mut out = String::new();
@@ -32,8 +61,14 @@ fn slug(name: &str) -> String {
             out.push('-');
         }
     }
-    let out: String = out.trim_matches('-').chars().take(60).collect();
-    let out = out.trim_end_matches('-');
+    let out = out.trim_matches('-');
+    let end = out
+        .char_indices()
+        .map(|(index, c)| index + c.len_utf8())
+        .take_while(|&end| end <= MAX_SLUG_BYTES)
+        .last()
+        .unwrap_or(0);
+    let out = out[..end].trim_end_matches('-');
     if out.is_empty() {
         "card".into()
     } else {
@@ -76,7 +111,7 @@ pub fn build_png_zip<W: Read + Write + Seek>(
     let mut zip = ZipWriter::new(writer);
     let mut written: HashMap<String, String> = HashMap::new();
     let total: usize = sides.iter().map(|side| side.entries.len()).sum();
-    let (mut completed, mut faces, mut skipped) = (0, 0, 0);
+    let (mut completed, mut faces, mut skipped) = (0, 0, Vec::new());
     for side in &sides {
         for (index, entry) in side.entries.iter().enumerate() {
             cancel.check()?;
@@ -87,7 +122,13 @@ pub fn build_png_zip<W: Read + Write + Seek>(
             };
             completed += 1;
             let Some(art) = art else {
-                skipped += 1;
+                skipped.push(format!(
+                    "{}{} (sheet {}, slot {})",
+                    entry.card.name,
+                    if side.back { " back" } else { "" },
+                    side.sheet,
+                    index + 1
+                ));
                 continue;
             };
             let name = face_name(side.sheet, index + 1, side.back, &entry.card.name);
@@ -138,7 +179,10 @@ pub fn build_png_zip<W: Read + Write + Seek>(
             progress(
                 completed,
                 total,
-                format!("Wrote {completed} of {total} card faces"),
+                format!(
+                    "Wrote {completed} of {}",
+                    format_count(total, "card face", "card faces")
+                ),
             );
         }
     }

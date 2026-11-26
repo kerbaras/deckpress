@@ -13,6 +13,26 @@ pub fn mm_to_pixels(mm: f64, dpi: u32) -> u32 {
     (mm * f64::from(dpi) / 25.4).round() as u32
 }
 
+/// Pixel size of one printed face: a trim area plus a whole-pixel bleed band
+/// per side. The full trim + 2 × bleed size is rounded once, so the raster
+/// measures exactly what its PDF slot draws it at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FacePixels {
+    pub trim_width: u32,
+    pub trim_height: u32,
+    pub bleed: u32,
+}
+
+pub fn face_pixels(width_mm: f64, height_mm: f64, bleed_mm: f64, dpi: u32) -> FacePixels {
+    let bleed = mm_to_pixels(bleed_mm, dpi);
+    let trim = |mm: f64| mm_to_pixels(mm + 2.0 * bleed_mm, dpi).saturating_sub(2 * bleed);
+    FacePixels {
+        trim_width: trim(width_mm),
+        trim_height: trim(height_mm),
+        bleed,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub x: f64,

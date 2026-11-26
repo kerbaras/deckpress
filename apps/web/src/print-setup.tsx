@@ -21,10 +21,10 @@ import {
   duplexRotation,
   duplexSlot,
   effectivePrintSettings,
+  facePixels,
   fitSheetLabel,
   frontArt,
   MAX_SCM_BLEED_MM,
-  mmToPixels,
   mmToPt,
   type PrintJob,
   type PrintSettings,
@@ -131,6 +131,12 @@ export function PrintSetup({
     layoutError = error;
   }
   const effective = effectivePrintSettings(settings);
+  const trimPixels = facePixels(
+    effective.cardWidthMm,
+    effective.cardHeightMm,
+    effective.bleedMm,
+    settings.dpi,
+  );
   const trimWidth = isScm
     ? Number(effective.cardWidthMm.toFixed(2))
     : effective.cardWidthMm;
@@ -1220,8 +1226,7 @@ export function PrintSetup({
                 <div>
                   <dt>Raster per card, without bleed</dt>
                   <dd className="mono">
-                    {mmToPixels(effective.cardWidthMm, settings.dpi)} ×{" "}
-                    {mmToPixels(effective.cardHeightMm, settings.dpi)} px
+                    {trimPixels.trimWidth} × {trimPixels.trimHeight} px
                   </dd>
                 </div>
                 <div>

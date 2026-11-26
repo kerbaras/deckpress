@@ -1,11 +1,12 @@
 mod common;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use deckpress_core::images::{Images, UploadInput};
 use deckpress_core::jobs::{file_name, Jobs};
-use deckpress_core::models::{Deck, ExportFormat, JobStatus, PrintJob, PrintSettings};
+use deckpress_core::models::{Backs, Deck, ExportFormat, JobStatus, PrintJob, PrintSettings};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::manifest::ModelManager;
 use tokio::runtime::Handle;
@@ -107,4 +108,62 @@ async fn jobs_persist_the_export_calibration_setting_and_read_legacy_records() {
         let legacy: PrintJob = serde_json::from_value(legacy).unwrap();
         assert!(!legacy.calibration_page);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn png_jobs_name_the_faces_skipped_for_missing_art() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::in_memory().unwrap());
+    let images = Arc::new(Images::new(dir.path(), Arc::clone(&store)).unwrap());
+    let resources =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/src-tauri/resources");
+    let models = Arc::new(ModelManager::new(resources, dir.path()).unwrap());
+    let art = images
+        .upload(
+            &common::png(126, 176, [200, 40, 40]),
+            UploadInput {
+                oracle_id: "o".into(),
+                name: "Lightning Bolt".into(),
+                artist: String::new(),
+                bleed_mm: Some(0.0),
+            },
+        )
+        .unwrap();
+    let mut deck = common::deck(2);
+    deck.entries[0].card.name = "Lightning Bolt".into();
+    deck.entries[0].card.faces = vec![art.clone()];
+    deck.entries[0].selected_art = Some(art);
+    let jobs = Arc::new(
+        Jobs::new(
+            store,
+            images,
+            models,
+            dir.path(),
+            tokio::runtime::Handle::current(),
+        )
+        .unwrap(),
+    );
+    jobs.start();
+    let settings = PrintSettings {
+        dpi: 150,
+        upscale: false,
+        backs: Backs::LongEdge,
+        calibration_page: false,
+        ..PrintSettings::default()
+    };
+    let id = jobs.create(deck, settings, ExportFormat::Png).unwrap().id;
+    let job = loop {
+        let job = jobs.get(&id).unwrap();
+        if !matches!(job.status, JobStatus::Queued | JobStatus::Running) {
+            break job;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(job.status, JobStatus::Completed, "{}", job.message);
+    assert_eq!(job.pages, 2);
+    assert_eq!(
+        job.message,
+        "2 PNG files ready · 2 faces without art skipped: \
+         Lightning Bolt back (sheet 1, slot 1); Lightning Bolt back (sheet 1, slot 2)"
+    );
 }

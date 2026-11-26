@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import facePixelCases from "../../../../packages/core/tests/fixtures/face-pixels.json";
 import labelNumbers from "../../../../packages/core/tests/fixtures/sheet-label-numbers.json";
 import {
   createLayout,
   duplexRotation,
   duplexSlot,
+  facePixels,
   fitSheetLabel,
   mmToPt,
   sheetLabel,
@@ -22,6 +24,19 @@ describe("print geometry", () => {
       "PROOF / SHEET 2 OF 3 / BACKS / TRIM 63.5 × 88.9 mm / 0.625 mm BLEED / 600 DPI / PRINT AT 100%",
     );
   });
+
+  it.each(facePixelCases)(
+    "rounds $widthMm x $heightMm mm + $bleedMm mm bleed at $dpi DPI once",
+    (vector) => {
+      expect(
+        facePixels(vector.widthMm, vector.heightMm, vector.bleedMm, vector.dpi),
+      ).toEqual({
+        trimWidth: vector.width - 2 * vector.bleed,
+        trimHeight: vector.height - 2 * vector.bleed,
+        bleed: vector.bleed,
+      });
+    },
+  );
 
   it.each(labelNumbers)("formats sheet labels as $expected", (vector) => {
     const wire = JSON.stringify(JSON.parse(vector.settings));

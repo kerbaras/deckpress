@@ -5,7 +5,7 @@ use std::{io::Cursor, sync::Arc};
 use deckpress_core::images::{
     mime_for, upload_id, validate_image_url, Images, UploadInput, UPLOAD_SCHEME,
 };
-use deckpress_core::layout::{create_layout, mm_to_pixels, mm_to_pt};
+use deckpress_core::layout::{create_layout, face_pixels, mm_to_pixels, mm_to_pt};
 use deckpress_core::models::{BleedMode, PrintSettings, Provider};
 use deckpress_core::pdf::{build_pdf, PdfServices};
 use deckpress_core::store::Store;
@@ -196,8 +196,12 @@ async fn assert_edge_bleed_in_export(
     .unwrap();
     assert!(pdf.bytes.windows(jpeg.len()).any(|window| window == jpeg));
     let embedded = image::load_from_memory(&jpeg).unwrap().to_rgb8();
-    let bleed = mm_to_pixels(settings.bleed_mm, settings.dpi);
-    let (w, h) = (mm_to_pixels(63.0, 300), mm_to_pixels(88.0, 300));
+    let face = face_pixels(63.0, 88.0, settings.bleed_mm, settings.dpi);
+    let (w, h, bleed) = (face.trim_width, face.trim_height, face.bleed);
+    assert_eq!(
+        embedded.dimensions(),
+        (mm_to_pixels(67.0, 300), mm_to_pixels(92.0, 300))
+    );
     assert_eq!(embedded.dimensions(), (w + 2 * bleed, h + 2 * bleed));
     let is_outline = |x, y| {
         let [r, g, b] = embedded.get_pixel(x, y).0;

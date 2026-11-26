@@ -9,7 +9,7 @@ use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
 use image::{Rgb, RgbImage};
 
 use crate::error::{AppError, AppResult};
-use crate::layout::mm_to_pixels;
+use crate::layout::{face_pixels, mm_to_pixels};
 use crate::models::{Art, BleedMode, PrintSettings, Provider};
 use crate::upscaler::{CancelToken, Upscaler};
 
@@ -23,7 +23,7 @@ const TRIM_ASPECT_TOLERANCE: f64 = 0.01;
 
 /// Bump when `rasterize` output changes for identical inputs so cached
 /// previews and PDF rasters are regenerated.
-pub const PIPELINE_VERSION: u32 = 4;
+pub const PIPELINE_VERSION: u32 = 5;
 
 /// Corner radius of a real card.
 pub const CORNER_RADIUS_MM: f64 = 3.0;
@@ -287,7 +287,13 @@ pub fn extend(image: &RgbImage, bleed: u32, mode: BleedMode, color: Rgb<u8>) -> 
 /// zones were squared off from the border, so neither the scan's own rounded
 /// corners nor the corner fill colour end up in the bleed.
 pub fn finish_face(face: &RgbImage, settings: &PrintSettings, background: Rgb<u8>) -> RgbImage {
-    let bleed = mm_to_pixels(settings.bleed_mm, settings.dpi);
+    let bleed = face_pixels(
+        settings.card_width_mm,
+        settings.card_height_mm,
+        settings.bleed_mm,
+        settings.dpi,
+    )
+    .bleed;
     let radius = mm_to_pixels(CORNER_RADIUS_MM, settings.dpi);
     let mut out = if settings.bleed_mode == BleedMode::Solid {
         extend(face, bleed, settings.bleed_mode, background)
@@ -326,8 +332,13 @@ pub fn rasterize(
     let background = parse_hex_color(&settings.bleed_color);
     let decoded = to_rgb(crate::images::decode(source)?, background);
     let mut face = strip_bleed(&decoded, art, settings);
-    let target_w = mm_to_pixels(settings.card_width_mm, settings.dpi);
-    let target_h = mm_to_pixels(settings.card_height_mm, settings.dpi);
+    let pixels = face_pixels(
+        settings.card_width_mm,
+        settings.card_height_mm,
+        settings.bleed_mm,
+        settings.dpi,
+    );
+    let (target_w, target_h) = (pixels.trim_width, pixels.trim_height);
     if target_w == 0 || target_h == 0 {
         return Err(AppError::user("Card dimensions are too small to print"));
     }

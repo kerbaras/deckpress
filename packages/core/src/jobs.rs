@@ -332,18 +332,10 @@ impl Jobs {
         self.publish(&job, true);
 
         match self.render(&job, &deck, &settings, &cancel).await {
-            Ok((bytes, pages)) => {
+            Ok((bytes, pages, message)) => {
                 job.completed = job.total;
                 job.bytes = bytes;
                 job.pages = pages as u32;
-                let message = match job.format {
-                    ExportFormat::Pdf => {
-                        format!("{} ready", format_count(pages, "page", "pages"))
-                    }
-                    ExportFormat::Png => {
-                        format!("{} ready", format_count(pages, "PNG file", "PNG files"))
-                    }
-                };
                 self.finish(job, JobStatus::Completed, message);
             }
             Err(AppError::Cancelled) => {
@@ -362,7 +354,7 @@ impl Jobs {
         deck: &Deck,
         settings: &PrintSettings,
         cancel: &CancelToken,
-    ) -> AppResult<(u64, usize)> {
+    ) -> AppResult<(u64, usize, String)> {
         let plan = print_plan(deck, settings)?;
         let mut urls: Vec<String> = Vec::new();
         for side in &plan.sides {
@@ -405,7 +397,7 @@ impl Jobs {
         let deck = deck.clone();
         let settings = settings.clone();
         let cancel = cancel.clone();
-        let (bytes, pages) = tokio::task::spawn_blocking(move || -> AppResult<(u64, usize)> {
+        tokio::task::spawn_blocking(move || -> AppResult<(u64, usize, String)> {
             let mut last_persist = Instant::now();
             let mut current = job.clone();
             let mut progress = |completed: usize, total: usize, message: String| {
@@ -437,7 +429,10 @@ impl Jobs {
                 )
                 .and_then(|output| {
                     std::fs::write(&tmp, &output.bytes)?;
-                    Ok(output.pages)
+                    Ok((
+                        output.pages,
+                        format!("{} ready", format_count(output.pages, "page", "pages")),
+                    ))
                 }),
                 ExportFormat::Png => std::fs::OpenOptions::new()
                     .read(true)
@@ -457,19 +452,18 @@ impl Jobs {
                             file,
                         )
                     })
-                    .map(|output| output.faces),
+                    .map(|output| (output.faces, output.summary())),
             };
-            let units = match result {
-                Ok(units) => units,
+            let (units, message) = match result {
+                Ok(done) => done,
                 Err(error) => {
                     let _ = std::fs::remove_file(&tmp);
                     return Err(error);
                 }
             };
             std::fs::rename(&tmp, &path)?;
-            Ok((std::fs::metadata(&path)?.len(), units))
+            Ok((std::fs::metadata(&path)?.len(), units, message))
         })
-        .await??;
-        Ok((bytes, pages))
+        .await?
     }
 }
