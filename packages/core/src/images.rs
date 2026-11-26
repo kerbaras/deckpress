@@ -56,6 +56,13 @@ const MAX_UPLOAD: usize = 16 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
 const UPLOAD_THUMBNAIL_EDGE: u32 = 480;
 
+fn upload_thumbnail_name(id: &str, bleed_mm: f64) -> String {
+    let key = image_key(&format!(
+        "{PIPELINE_VERSION}:{UPLOAD_THUMBNAIL_EDGE}:{id}:{bleed_mm}"
+    ));
+    format!("{key}.png")
+}
+
 pub fn validate_image_url(input: &str) -> AppResult<Url> {
     let url = Url::parse(input).map_err(|_| AppError::user("Invalid image URL"))?;
     let host = url.host_str().unwrap_or_default();
@@ -363,8 +370,12 @@ impl Images {
     /// Updates the declaration without replacing the original image or its ID.
     pub fn update_upload_bleed(&self, url: &str, bleed_mm: Option<f64>) -> AppResult<Art> {
         let (id, mut upload) = self.saved_upload(url)?;
+        let previous = upload.art.bleed_mm;
         self.set_upload_bleed(&id, &mut upload, bleed_mm)?;
         self.store.put("upload", &id, &upload)?;
+        if previous != upload.art.bleed_mm {
+            self.prune_upload_thumbnails(&id, previous, upload.art.bleed_mm);
+        }
         Ok(upload.art)
     }
 
@@ -409,16 +420,22 @@ impl Images {
         let input: NewDeck =
             serde_json::from_value(backup).map_err(|_| AppError::user("Invalid deck backup"))?;
         let mut uploads = HashMap::new();
+        let mut changed_bleeds = Vec::new();
         for (id, bleed) in bleeds {
             if let Some(mut upload) = self.store.get::<Upload>("upload", &id)? {
                 if upload.art.bleed_mm != bleed {
+                    let previous = upload.art.bleed_mm;
                     self.set_upload_bleed(&id, &mut upload, Some(bleed))?;
+                    changed_bleeds.push((id.clone(), previous, upload.art.bleed_mm));
                     uploads.insert(id, upload);
                 }
             }
         }
         let updated_uploads = uploads.len();
         let deck = self.store.create_deck_with_uploads(input, uploads)?;
+        for (id, previous, current) in changed_bleeds {
+            self.prune_upload_thumbnails(&id, previous, current);
+        }
         Ok(RestoreResult {
             deck,
             updated_uploads,
@@ -439,6 +456,27 @@ impl Images {
         .await?
     }
 
+    fn upload_thumbnail_root(&self) -> PathBuf {
+        self.root.join("preview").join("upload-thumbnails")
+    }
+
+    fn prune_upload_thumbnails(&self, id: &str, previous: f64, current: f64) {
+        let root = self.upload_thumbnail_root();
+        let current = upload_thumbnail_name(id, current);
+        if let Ok(entries) = std::fs::read_dir(root.join(id)) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "png")
+                    && entry.file_name() != current.as_str()
+                {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+        // Flat cache entries from older versions have no upload ID in their names.
+        let _ = std::fs::remove_file(root.join(upload_thumbnail_name(id, previous)));
+    }
+
     /// Returns the cropped thumbnail for an upload at the requested bleed.
     pub async fn upload_thumbnail(&self, url: &str, bleed_mm: f64) -> AppResult<Vec<u8>> {
         validate_upload_bleed(Some(bleed_mm))?;
@@ -446,15 +484,17 @@ impl Images {
         if bleed_mm == 0.0 {
             return Ok(tokio::fs::read(self.upload_path(&id)).await?);
         }
-        let dir = self.root.join("preview").join("upload-thumbnails");
-        let key = image_key(&format!(
-            "{PIPELINE_VERSION}:{UPLOAD_THUMBNAIL_EDGE}:{id}:{bleed_mm}"
-        ));
-        let path = dir.join(format!("{key}.png"));
+        let root = self.upload_thumbnail_root();
+        let dir = root.join(&id);
+        let name = upload_thumbnail_name(&id, bleed_mm);
+        let path = dir.join(&name);
         match tokio::fs::read(&path).await {
             Ok(bytes) => return Ok(bytes),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
+        }
+        if let Ok(bytes) = tokio::fs::read(root.join(name)).await {
+            return Ok(bytes);
         }
         let bytes = tokio::fs::read(self.upload_path(&id)).await?;
         tokio::task::spawn_blocking(move || {

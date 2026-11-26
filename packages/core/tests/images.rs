@@ -207,7 +207,10 @@ async fn changing_saved_upload_bleed_retrims_preview_export_and_restored_deck() 
     let initial = images.trimmed_upload(url, art.bleed_mm).await.unwrap();
     assert_eq!(image::load_from_memory(&initial).unwrap().to_rgb8(), source);
     assert_eq!(images.upload_thumbnail(url, 0.0).await.unwrap(), initial);
-    let thumbnail_dir = dir.path().join("preview/upload-thumbnails");
+    let thumbnail_dir = dir
+        .path()
+        .join("preview/upload-thumbnails")
+        .join(upload_id(url).unwrap().unwrap());
     assert!(!thumbnail_dir.exists());
     assert!(images.update_upload_bleed(url, Some(10.1)).is_err());
     assert!(images
@@ -290,14 +293,83 @@ async fn changing_saved_upload_bleed_retrims_preview_export_and_restored_deck() 
         .await
         .unwrap();
     assert_ne!(auto_thumbnail, thumbnail_bytes);
-    assert_eq!(std::fs::read_dir(&thumbnail_dir).unwrap().count(), 2);
-    assert_eq!(std::fs::read(edited_key).unwrap(), thumbnail_bytes);
+    assert_eq!(std::fs::read_dir(&thumbnail_dir).unwrap().count(), 1);
+    assert!(!edited_key.exists());
     assert_eq!(
         images.upload_thumbnail(url, edited.bleed_mm).await.unwrap(),
         thumbnail_bytes
     );
     assert_eq!(images.read(url).await.unwrap(), initial);
     assert_eq!(images.upload_bleed(url).unwrap(), None);
+}
+
+#[tokio::test]
+async fn bleed_edits_and_restores_prune_only_superseded_upload_thumbnails() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::in_memory().unwrap());
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    let mut png = Vec::new();
+    RgbImage::from_pixel(128, 180, Rgb([24, 140, 224]))
+        .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+        .unwrap();
+    let (a, b) = (3.048, 3.175);
+    let art = images.upload(&png, upload_input(Some(a))).unwrap();
+    let other = images.upload(&png, upload_input(Some(a))).unwrap();
+    let url = &art.image_url;
+    let deck = store
+        .create_deck(NewDeck {
+            entries: vec![common::entry(art.clone(), 1)],
+            ..common::new_deck("Thumbnail backup")
+        })
+        .unwrap();
+    let backup = serde_json::to_string(&deck).unwrap();
+    let root = dir.path().join("preview/upload-thumbnails");
+    let cache_dir = |url| root.join(upload_id(url).unwrap().unwrap());
+    let files = |url| {
+        std::fs::read_dir(cache_dir(url))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+
+    let bytes_a = images.upload_thumbnail(url, a).await.unwrap();
+    let path_a = files(url).into_iter().next().unwrap();
+    let bytes_b = images.upload_thumbnail(url, b).await.unwrap();
+    let path_b = files(url).into_iter().find(|path| *path != path_a).unwrap();
+    let legacy_a = root.join(path_a.file_name().unwrap());
+    std::fs::copy(&path_a, &legacy_a).unwrap();
+    for bleed in [a, b] {
+        images
+            .upload_thumbnail(&other.image_url, bleed)
+            .await
+            .unwrap();
+    }
+    let other_files = files(&other.image_url);
+    assert_eq!(other_files.len(), 2);
+    let provider_paths = [
+        "https://cards.scryfall.io/a.png",
+        "https://drive.google.com/uc?id=mpc",
+    ]
+    .map(|url| images.local_path(url).unwrap());
+    std::fs::create_dir_all(provider_paths[0].parent().unwrap()).unwrap();
+    for path in &provider_paths {
+        std::fs::write(path, &png).unwrap();
+    }
+
+    images.update_upload_bleed(url, Some(b)).unwrap();
+    assert_eq!(files(url), [path_b.clone()].into());
+    assert!(!legacy_a.exists());
+    assert_eq!(std::fs::read(&path_b).unwrap(), bytes_b);
+
+    assert_eq!(images.upload_thumbnail(url, a).await.unwrap(), bytes_a);
+    let restored = images.restore_deck(&backup).unwrap();
+    assert_eq!(restored.updated_uploads, 1);
+    assert_eq!(files(url), [path_a.clone()].into());
+    assert_eq!(std::fs::read(path_a).unwrap(), bytes_a);
+    assert_eq!(files(&other.image_url), other_files);
+    for path in provider_paths {
+        assert_eq!(std::fs::read(path).unwrap(), png);
+    }
 }
 
 #[test]
