@@ -6,7 +6,6 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   Heart,
   ExternalLink as LinkIcon,
   RotateCcw,
@@ -14,7 +13,7 @@ import {
   Upload,
   ZoomIn,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api, type Preferences } from "./api.ts";
 import {
   type Art,
@@ -33,6 +32,7 @@ import {
   Modal,
   providerName,
   SearchField,
+  StatusRegion,
   useTask,
 } from "./ui.tsx";
 
@@ -42,16 +42,52 @@ export function ArtPicker(props: {
   onSelect: (id: string) => void;
   onApply: (deck: Deck) => Promise<Deck>;
 }) {
-  const [face, setFace] = useState(0);
+  const { entry, onSelect } = props;
+  const [activeFace, setActiveFace] = useState({ entryId: entry.id, face: 0 });
+  const [matchCount, setMatchCount] = useState<number | null>(null);
+  const [applied, setApplied] = useState({ sequence: 0, printing: "" });
+  const face = activeFace.entryId === entry.id ? activeFace.face : 0;
+  const heading = useRef<HTMLHeadingElement>(null);
+  const previousEntry = useRef(entry.id);
+  useEffect(() => {
+    if (previousEntry.current !== entry.id) {
+      previousEntry.current = entry.id;
+      heading.current?.focus();
+    }
+  }, [entry.id]);
   return (
-    <ArtSession
-      key={`${props.entry.id}:${face}`}
-      {...props}
-      face={face}
-      setFace={setFace}
-    />
+    <>
+      <StatusRegion label="Art match count">
+        {matchCount !== null && matchSummary(matchCount)}
+      </StatusRegion>
+      <StatusRegion label="Art apply status">
+        {applied.sequence > 0 && (
+          <span key={applied.sequence}>Applied: {applied.printing}</span>
+        )}
+      </StatusRegion>
+      <ArtSession
+        key={`${entry.id}:${face}`}
+        {...props}
+        face={face}
+        setFace={(nextFace) =>
+          setActiveFace({ entryId: entry.id, face: nextFace })
+        }
+        onSelect={(id, nextFace = 0) => {
+          setActiveFace({ entryId: id, face: nextFace });
+          onSelect(id);
+        }}
+        heading={heading}
+        onMatchCount={setMatchCount}
+        onApplied={(printing) =>
+          setApplied(({ sequence }) => ({ sequence: sequence + 1, printing }))
+        }
+      />
+    </>
   );
 }
+
+const matchSummary = (count: number) =>
+  `${count} ${count === 1 ? "match" : "matches"} in loaded results`;
 
 const normalizeTag = (tag: string) =>
   tag
@@ -122,19 +158,31 @@ function ArtSession({
   onApply,
   face,
   setFace,
+  heading,
+  onMatchCount,
+  onApplied,
 }: {
   deck: Deck;
   entry: DeckEntry;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, face?: number) => void;
   onApply: (deck: Deck) => Promise<Deck>;
   face: number;
   setFace: (face: number) => void;
+  heading: React.Ref<HTMLHeadingElement>;
+  onMatchCount: (count: number) => void;
+  onApplied: (printing: string) => void;
 }) {
   const client = useQueryClient();
   const original = entry.card.faces[face] ?? null;
-  const [candidate, setCandidate] = useState<Art | null>(
-    face === 0 ? frontArt(entry) : backArt(entry),
-  );
+  const savedArt = face === 0 ? frontArt : backArt;
+  const saved = savedArt(entry);
+  const [candidate, setCandidate] = useState<Art | null>(saved);
+  const changed = candidate?.id !== saved?.id;
+  const originalIsSaved = original?.id === saved?.id;
+  const previewingOriginal = changed && candidate?.id === original?.id;
+  const showSavedMonitor = changed && !originalIsSaved;
+  const [pendingEntry, setPendingEntry] = useState<string | null>(null);
+  const scopeDescription = useId();
   const [provider, setProvider] = useState("all");
   const [official, setOfficial] = useState(false);
   const [search, setSearch] = useState("");
@@ -195,6 +243,7 @@ function ArtSession({
   });
   const items = [
     ...(original ? [original] : []),
+    ...(saved ? [saved] : []),
     ...(candidate ? [candidate] : []),
     ...(prints.data?.pages.flatMap((page) => page.items) ?? []),
     ...(community.data?.pages.flatMap((page) => page.items) ?? []),
@@ -228,12 +277,23 @@ function ArtSession({
     (item) => item.card.oracleId === entry.card.oracleId,
   );
   const cardCount = sameCard.reduce((sum, item) => sum + item.quantity, 0);
+  const nextEntry = deck.entries[index + 1];
+  const previousEntry = deck.entries[index - 1];
+  const entryCopies =
+    entry.quantity === 1 ? "1 copy" : `${entry.quantity} copies`;
+  const impact =
+    scope === "deck"
+      ? `${entryCopies} here · ${cardCount} copies across all boards`
+      : scope === "one" && entry.quantity > 1
+        ? `1 of ${entry.quantity} copies in this entry`
+        : `${entryCopies} in this entry`;
   const preference = artPreferenceSchema.parse(
     candidate ? (personal.preferences[candidate.id] ?? {}) : {},
   );
-  const navigate = (delta: number) => {
-    const next = deck.entries[index + delta];
-    if (next) onSelect(next.id);
+  const navigate = (id: string) => {
+    if (id === entry.id || task.busy) return;
+    if (changed) setPendingEntry(id);
+    else onSelect(id);
   };
   const apply = (next: boolean) =>
     void task.run(async () => {
@@ -241,21 +301,39 @@ function ArtSession({
         face === 0
           ? { selectedArt: candidate?.id === original?.id ? null : candidate }
           : { selectedBack: candidate?.id === original?.id ? null : candidate };
+      const splitId =
+        scope === "one" && entry.quantity > 1 ? crypto.randomUUID() : null;
       const entries = deck.entries.flatMap((item) => {
         if (
           item.id !== entry.id &&
           !(scope === "deck" && item.card.oracleId === entry.card.oracleId)
         )
           return [item];
-        if (scope === "one" && item.quantity > 1)
+        if (splitId)
           return [
             { ...item, quantity: item.quantity - 1 },
-            { ...item, ...selected, quantity: 1, id: crypto.randomUUID() },
+            { ...item, ...selected, quantity: 1, id: splitId },
           ];
         return [{ ...item, ...selected }];
       });
-      await onApply({ ...deck, entries });
-      if (next) navigate(1);
+      const committed = await onApply({ ...deck, entries });
+      const appliedEntry = committed.entries.find(
+        (item) => item.id === (splitId ?? entry.id),
+      );
+      if (appliedEntry) {
+        const appliedArt = savedArt(appliedEntry);
+        setCandidate(appliedArt);
+        if (appliedArt?.id !== saved?.id)
+          onApplied(
+            appliedArt
+              ? [appliedArt.source, appliedArt.collectorNumber]
+                  .filter(Boolean)
+                  .join(" ")
+              : "Playtest card back",
+          );
+      }
+      if (next && nextEntry) onSelect(nextEntry.id);
+      else if (splitId && appliedEntry) onSelect(splitId, face);
     });
   const savePreference = (change: Partial<typeof preference>) => {
     if (candidate)
@@ -266,12 +344,29 @@ function ArtSession({
   };
   const showPrints = official || provider === "all" || provider === "scryfall";
   const showCommunity = !official && (provider === "all" || provider === "mpc");
+  const loadedPrints =
+    prints.data?.pages.reduce((count, page) => count + page.items.length, 0) ??
+    0;
+  const totalPrints = prints.data?.pages[0]?.total ?? 0;
+  const totalCommunity = community.data?.pages[0]?.total ?? 0;
+  const fetchingArt =
+    (showPrints && prints.isFetching) ||
+    (showCommunity && community.isFetching) ||
+    uploads.isFetching;
+  const matchCount = shown.length;
+  useEffect(() => {
+    if (fetchingArt) return;
+    const timer = window.setTimeout(() => onMatchCount(matchCount), 300);
+    return () => window.clearTimeout(timer);
+  }, [fetchingArt, matchCount, onMatchCount]);
   return (
     <div className="art-studio">
       <div className="art-studio-scroll">
         <div className="studio-toolbar">
           <div className="heading-group">
-            <h2>{original?.name ?? entry.card.name}</h2>
+            <h2 ref={heading} tabIndex={-1}>
+              {original?.name ?? entry.card.name}
+            </h2>
             <span className="badge mono">×{entry.quantity}</span>
           </div>
           <div className="segmented">
@@ -307,8 +402,8 @@ function ArtSession({
             type="button"
             className="icon-button"
             aria-label="Previous card"
-            disabled={index === 0 || task.busy}
-            onClick={() => navigate(-1)}
+            disabled={!previousEntry || task.busy}
+            onClick={() => previousEntry && navigate(previousEntry.id)}
           >
             <ArrowLeft size={15} />
           </button>
@@ -319,27 +414,37 @@ function ArtSession({
             type="button"
             className="icon-button"
             aria-label="Next card"
-            disabled={index === deck.entries.length - 1 || task.busy}
-            onClick={() => navigate(1)}
+            disabled={!nextEntry || task.busy}
+            onClick={() => nextEntry && navigate(nextEntry.id)}
           >
             <ArrowRight size={15} />
           </button>
+        </div>
+        <div className="art-apply-toolbar">
+          <div className="spacer" />
           <label className="inline-label">
             Apply to
             <select
               value={scope}
+              disabled={task.busy}
               onChange={(event) => setScope(event.target.value)}
             >
-              <option value="entry">All {entry.quantity} copies here</option>
+              <option value="entry">
+                {entry.quantity === 1 ? "This copy" : `All ${entryCopies} here`}
+              </option>
               {entry.quantity > 1 && <option value="one">One copy only</option>}
               {sameCard.length > 1 && (
                 <option value="deck">All {cardCount} across deck</option>
               )}
             </select>
           </label>
+          <p className="hint" id={scopeDescription} aria-live="polite">
+            {impact}
+          </p>
           <button
             type="button"
             disabled={task.busy}
+            aria-describedby={scopeDescription}
             onClick={() => apply(false)}
           >
             Apply
@@ -348,11 +453,12 @@ function ArtSession({
             type="button"
             className="primary"
             disabled={task.busy}
+            aria-describedby={scopeDescription}
             onClick={() => apply(true)}
           >
             {task.busy
               ? "Saving…"
-              : index === deck.entries.length - 1
+              : !nextEntry
                 ? "Apply & save"
                 : "Apply & next"}
             <ArrowRight size={15} />
@@ -368,9 +474,36 @@ function ArtSession({
             onApply={onApply}
           />
         )}
-        <div className="comparison">
-          <Monitor label="Original" art={original} zoom={zoom} />
-          <Monitor label="Selected" art={candidate} zoom={zoom} selected>
+        <div
+          className={
+            showSavedMonitor && !previewingOriginal
+              ? "comparison comparison-three"
+              : "comparison"
+          }
+        >
+          {!previewingOriginal && (
+            <Monitor
+              label="Original"
+              art={original}
+              zoom={zoom}
+              states={originalIsSaved ? ["Original", "Saved"] : ["Original"]}
+            />
+          )}
+          {showSavedMonitor && (
+            <Monitor label="Saved" art={saved} zoom={zoom} states={["Saved"]} />
+          )}
+          <Monitor
+            label="Preview"
+            art={candidate}
+            zoom={zoom}
+            states={
+              previewingOriginal
+                ? ["Preview", "Original"]
+                : !changed && !originalIsSaved
+                  ? ["Preview", "Saved"]
+                  : ["Preview"]
+            }
+          >
             <button
               type="button"
               className="icon-button"
@@ -556,7 +689,13 @@ function ArtSession({
             </button>
             <div className="spacer" />
             <span className="hint">
-              {shown.length} matches in loaded results
+              {matchSummary(matchCount)}
+              {showPrints && loadedPrints < totalPrints && (
+                <>
+                  {" "}
+                  · {loadedPrints} of {totalPrints} Scryfall prints loaded
+                </>
+              )}
             </span>
           </div>
           <ErrorNotice error={prefs.error} retry={() => void prefs.refetch()} />
@@ -581,60 +720,59 @@ function ArtSession({
             <Loading>Finding editions…</Loading>
           )}
           <div className="art-grid">
-            {shown.map((art) => (
-              <button
-                type="button"
-                className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
-                key={art.id}
-                aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}`}
-                aria-pressed={candidate?.id === art.id}
-                onClick={() => setCandidate(art)}
-              >
-                <span className="art-option-image">
-                  <CardImage
-                    url={art.thumbnailUrl}
-                    name={`${art.name}, ${art.source}`}
-                  />
-                  {candidate?.id === art.id ? (
-                    <span className="image-label">
-                      <Check size={11} />
-                      Selected
-                    </span>
-                  ) : original?.id === art.id ? (
-                    <span className="image-label original-label">Original</span>
-                  ) : null}
-                  {personal.preferences[art.id]?.favorite && (
-                    <Heart
-                      className="image-heart"
-                      size={15}
-                      fill="currentColor"
+            {shown.map((art) => {
+              const states: ArtState[] = [];
+              if (art.id === saved?.id) states.push("Saved");
+              if (art.id === candidate?.id) states.push("Preview");
+              if (art.id === original?.id) states.push("Original");
+              return (
+                <button
+                  type="button"
+                  className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
+                  key={art.id}
+                  aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}${states.length ? ` — ${states.join(", ")}` : ""}`}
+                  aria-pressed={candidate?.id === art.id}
+                  onClick={() => setCandidate(art)}
+                >
+                  <span className="art-option-image">
+                    <CardImage
+                      url={art.thumbnailUrl}
+                      name={`${art.name}, ${art.source}`}
                     />
-                  )}
-                </span>
-                <strong>
-                  {art.source}
-                  {art.collectorNumber ? ` · ${art.collectorNumber}` : ""}
-                </strong>
-                <span className="muted truncate">{art.artist}</span>
-                <div className="art-option-meta">
-                  <span
-                    className={`badge ${art.provider === "scryfall" ? "official" : ""}`}
-                  >
-                    {art.provider === "scryfall"
-                      ? "Official"
-                      : art.provider === "mpc"
-                        ? "Community"
-                        : "Upload"}
+                    {personal.preferences[art.id]?.favorite && (
+                      <Heart
+                        className="image-heart"
+                        size={15}
+                        fill="currentColor"
+                      />
+                    )}
                   </span>
-                  <span className="mono muted">{art.dpi} dpi</span>
-                </div>
-                {personal.preferences[art.id]?.rating ? (
-                  <small className="accent">
-                    Your rating {personal.preferences[art.id]?.rating}/5
-                  </small>
-                ) : null}
-              </button>
-            ))}
+                  <ArtStates states={states} />
+                  <strong>
+                    {art.source}
+                    {art.collectorNumber ? ` · ${art.collectorNumber}` : ""}
+                  </strong>
+                  <span className="muted truncate">{art.artist}</span>
+                  <div className="art-option-meta">
+                    <span
+                      className={`badge ${art.provider === "scryfall" ? "official" : ""}`}
+                    >
+                      {art.provider === "scryfall"
+                        ? "Official"
+                        : art.provider === "mpc"
+                          ? "Community"
+                          : "Upload"}
+                    </span>
+                    <span className="mono muted">{art.dpi} dpi</span>
+                  </div>
+                  {personal.preferences[art.id]?.rating ? (
+                    <small className="accent">
+                      Your rating {personal.preferences[art.id]?.rating}/5
+                    </small>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
           {!shown.length && !prints.isFetching && !community.isFetching && (
             <div className="empty-state">
@@ -664,7 +802,8 @@ function ArtSession({
                 disabled={prints.isFetching}
                 onClick={() => void prints.fetchNextPage()}
               >
-                Load more Scryfall prints · {prints.data?.pages[0]?.total} total
+                Load more Scryfall prints
+                {totalPrints > 0 && ` · ${totalPrints} total`}
               </button>
             )}
             {showCommunity && community.hasNextPage && (
@@ -673,7 +812,8 @@ function ArtSession({
                 disabled={community.isFetching}
                 onClick={() => void community.fetchNextPage()}
               >
-                Load more MPC art · {community.data?.pages[0]?.total} total
+                Load more MPC art
+                {totalCommunity > 0 && ` · ${totalCommunity} total`}
               </button>
             )}
             <span className="hint">
@@ -690,7 +830,8 @@ function ArtSession({
             key={item.id}
             aria-label={`Edit art ${i + 1}: ${item.card.name}`}
             aria-current={item.id === entry.id ? "true" : undefined}
-            onClick={() => onSelect(item.id)}
+            disabled={task.busy}
+            onClick={() => navigate(item.id)}
           >
             <CardImage url={frontArt(item).thumbnailUrl} name="" />
             <span>{item.card.name}</span>
@@ -698,6 +839,15 @@ function ArtSession({
           </button>
         ))}
       </nav>
+      {pendingEntry && (
+        <DiscardPreview
+          onStay={() => setPendingEntry(null)}
+          onDiscard={() => {
+            setPendingEntry(null);
+            onSelect(pendingEntry);
+          }}
+        />
+      )}
       {upload && (
         <UploadArt
           entry={entry}
@@ -717,23 +867,96 @@ function ArtSession({
   );
 }
 
+function DiscardPreview({
+  onStay,
+  onDiscard,
+}: {
+  onStay: () => void;
+  onDiscard: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const title = useId();
+  const description = useId();
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  const stay = () => {
+    dialogRef.current?.close();
+    onStay();
+  };
+  return (
+    <dialog
+      className="modal"
+      ref={dialogRef}
+      aria-labelledby={title}
+      aria-describedby={description}
+      onCancel={(event) => {
+        event.preventDefault();
+        stay();
+      }}
+    >
+      <div className="modal-heading">
+        <h2 id={title}>Discard art preview?</h2>
+      </div>
+      <p id={description}>
+        This preview hasn’t been applied. Discard it to move to another card.
+        Your saved art won’t change.
+      </p>
+      <div className="modal-actions">
+        <button type="button" className="primary" onClick={stay}>
+          Stay
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            dialogRef.current?.close();
+            onDiscard();
+          }}
+        >
+          Discard
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
+type ArtState = "Original" | "Saved" | "Preview";
+
+function ArtStates({ states }: { states: ArtState[] }) {
+  if (!states.length) return null;
+  return (
+    <span className="art-states">
+      {states.map((state) => (
+        <span className="art-state" data-state={state} key={state}>
+          {state}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function Monitor({
   label,
   art,
   zoom,
-  selected = false,
+  states,
   children,
 }: {
-  label: string;
+  label: ArtState;
   art: Art | null;
   zoom: number;
-  selected?: boolean;
+  states: ArtState[];
   children?: React.ReactNode;
 }) {
   return (
-    <section className={`monitor ${selected ? "selected-monitor" : ""}`}>
+    <section
+      aria-label={`${label} art`}
+      className={`monitor ${label === "Preview" ? "selected-monitor" : ""}`}
+    >
       <div className="monitor-heading">
-        <span className="eyebrow">{label}</span>
+        <ArtStates states={states} />
         <span
           className={`badge ${art?.provider === "scryfall" ? "official" : ""}`}
         >
