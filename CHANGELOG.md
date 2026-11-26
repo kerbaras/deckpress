@@ -48,8 +48,7 @@
 - Trim bleed from saved upload thumbnails, prune superseded variants, and clean up legacy thumbnail cache entries. (#131, #135)
 - Keep the sticky proof from covering Print check. (#134)
 - Detect CSV deck lists after leading blank lines and comments, report errors with the original file line numbers, and honor a leading `// Board:` comment as the starting board. (#136)
-
-<!-- PLACEHOLDER #121: Replace after merge with the screen-reader Loading announcement fix. -->
+- Show loading labels immediately and announce them to screen readers for Art Studio editions, Discover search and deck previews, commander search, and guided builder startup, scoring, counting, and draftable sets. Workspace opening, Library, and print jobs keep their existing announcements. (#121)
 
 ### Build and tests
 
