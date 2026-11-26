@@ -15,6 +15,11 @@
 - Export print-ready sheets as PNG files in a ZIP archive. (#68)
 - Find PNG, MPC, and SVG exports in the Other exports menu, with PDF kept as the primary export. (#127)
 - Change essential print settings beside the proof and jump directly to controls that are blocking export. (#108)
+- Edit bleed on saved art uploads without re-uploading them. Backup and restore preserve the setting. (#109)
+- Retry a failed export from Print Setup, with focus returned to the card that needs attention when it can be identified. (#104)
+- Import companions into a dedicated Companion zone instead of mixing them with the main deck or sideboard. (#128)
+- Prefer higher-resolution scans of the same illustration and see source DPI and AI upscaling eligibility for MPC images in Print Setup. (#105)
+- Use localized printings that keep the same illustration, and preview and apply art policies across the deck without overwriting custom artwork. (#106)
 
 ### Fixed
 
@@ -40,6 +45,11 @@
 - Announce print jobs, downloads, exports, duplex calibration, and other status updates without repetitive screen-reader messages. (#71, #90, #117)
 - Keep the save indicator clear of the workspace tabs. (#89)
 - Use the correct singular and plural forms in card and builder counts, deck-search and style-match explanations, and job progress. (#95, #97, #103, #118)
+- Trim bleed from saved upload thumbnails, prune superseded variants, and clean up legacy thumbnail cache entries. (#131, #135)
+- Keep the sticky proof from covering Print check. (#134)
+
+<!-- PLACEHOLDER #121: Replace after merge with the screen-reader Loading announcement fix. -->
+<!-- PLACEHOLDER #136: Replace after merge with the fix for CSV imports that start with comments. -->
 
 ### Build and tests
 
