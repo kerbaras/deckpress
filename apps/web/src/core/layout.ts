@@ -51,7 +51,8 @@ export function fitSheetLabel(layout: PrintLayout, text: string) {
 }
 
 function labelNumber(value: number): string {
-  const thousandths = Math.round(value * 1000);
+  // Keep half-thousandths stable across small float differences at the JSON boundary.
+  const thousandths = Math.round(value * 1000 + 1e-9);
   const whole = Math.trunc(thousandths / 1000);
   const fraction = thousandths % 1000;
   if (fraction === 0) return String(whole);

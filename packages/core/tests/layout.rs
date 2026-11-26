@@ -1,5 +1,6 @@
 use deckpress_core::layout::{create_layout, duplex_slot, fit_sheet_label, mm_to_pt, sheet_label};
 use deckpress_core::models::{Backs, Guides, Paper, PrintSettings};
+use serde::Deserialize;
 
 #[test]
 fn labels_the_exact_trim_bleed_and_dpi_on_a_back_sheet() {
@@ -18,15 +19,17 @@ fn labels_the_exact_trim_bleed_and_dpi_on_a_back_sheet() {
 
 #[test]
 fn formats_label_numbers_from_the_shared_vectors() {
-    #[derive(serde::Deserialize)]
+    #[derive(Deserialize)]
     struct Case {
-        settings: PrintSettings,
+        settings: String,
         expected: String,
     }
 
     let cases: Vec<Case> =
         serde_json::from_str(include_str!("fixtures/sheet-label-numbers.json")).unwrap();
     for Case { settings, expected } in cases {
+        let payload: serde_json::Value = serde_json::from_str(&settings).unwrap();
+        let settings = PrintSettings::deserialize(&payload).unwrap();
         settings.validate().unwrap();
         assert_eq!(
             sheet_label(&settings, "Proof", 1, 1, false),

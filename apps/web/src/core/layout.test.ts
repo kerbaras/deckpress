@@ -23,7 +23,9 @@ describe("print geometry", () => {
   });
 
   it.each(labelNumbers)("formats sheet labels as $expected", (vector) => {
-    const settings = printSettingsSchema.parse(vector.settings);
+    const wire = JSON.stringify(JSON.parse(vector.settings));
+    expect(wire).toBe(vector.settings);
+    const settings = printSettingsSchema.parse(JSON.parse(wire));
     expect(sheetLabel(settings, "Proof", 1, 1, false)).toBe(
       `PROOF / SHEET 1 OF 1 / FRONTS / ${vector.expected} / PRINT AT 100%`,
     );

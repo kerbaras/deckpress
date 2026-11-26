@@ -86,7 +86,8 @@ pub fn fit_sheet_label(layout: &PrintLayout, text: &str) -> Option<SheetLabelPla
 }
 
 fn label_number(value: f64) -> String {
-    let thousandths = (value * 1000.0).round() as u32;
+    // Keep half-thousandths stable across small float differences at the JSON boundary.
+    let thousandths = (value * 1000.0 + 1e-9).round() as u32;
     let whole = thousandths / 1000;
     let fraction = thousandths % 1000;
     if fraction == 0 {

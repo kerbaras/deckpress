@@ -1,22 +1,70 @@
 [
   {
-    "settings": { "cardWidthMm": 63.5, "cardHeightMm": 88.9, "bleedMm": 0.0000001, "dpi": 300 },
+    "settings": "{\"cardWidthMm\":63.5,\"cardHeightMm\":88.9,\"bleedMm\":1e-7,\"dpi\":300}",
     "expected": "TRIM 63.5 × 88.9 mm / 0 mm BLEED / 300 DPI"
   },
   {
-    "settings": { "cardWidthMm": 63, "cardHeightMm": 88, "bleedMm": 0.625, "dpi": 800 },
+    "settings": "{\"cardWidthMm\":63,\"cardHeightMm\":88,\"bleedMm\":0.625,\"dpi\":800}",
     "expected": "TRIM 63 × 88 mm / 0.625 mm BLEED / 800 DPI"
   },
   {
-    "settings": { "cardWidthMm": 63.0005, "cardHeightMm": 88.4995, "bleedMm": 1.0005, "dpi": 150 },
+    "settings": "{\"cardWidthMm\":63.0005,\"cardHeightMm\":88.4995,\"bleedMm\":1.0005,\"dpi\":150}",
     "expected": "TRIM 63.001 × 88.5 mm / 1.001 mm BLEED / 150 DPI"
   },
   {
-    "settings": { "cardWidthMm": 63.9995, "cardHeightMm": 88.00049, "bleedMm": 0.0005, "dpi": 1200 },
+    "settings": "{\"cardWidthMm\":63.9995,\"cardHeightMm\":88.00049,\"bleedMm\":0.0005,\"dpi\":1200}",
     "expected": "TRIM 64 × 88 mm / 0.001 mm BLEED / 1200 DPI"
   },
   {
-    "settings": { "cardWidthMm": 25, "cardHeightMm": 25, "bleedMm": 0.00049999, "dpi": 600 },
+    "settings": "{\"cardWidthMm\":25,\"cardHeightMm\":25,\"bleedMm\":0.00049999,\"dpi\":600}",
     "expected": "TRIM 25 × 25 mm / 0 mm BLEED / 600 DPI"
+  },
+  {
+    "settings": "{\"cardWidthMm\":63.000499999999995,\"cardHeightMm\":88.49949999999998,\"bleedMm\":0.010499999999999999}",
+    "expected": "TRIM 63.001 × 88.5 mm / 0.011 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"cardWidthMm\":63.0005,\"cardHeightMm\":88.4995,\"bleedMm\":0.0105}",
+    "expected": "TRIM 63.001 × 88.5 mm / 0.011 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"cardWidthMm\":63.00050000000001,\"cardHeightMm\":88.49950000000001,\"bleedMm\":0.010500000000000002}",
+    "expected": "TRIM 63.001 × 88.5 mm / 0.011 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"cardWidthMm\":199.99949999999998,\"cardHeightMm\":249.99949999999998,\"bleedMm\":4.999499999999999}",
+    "expected": "TRIM 200 × 250 mm / 5 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"cardWidthMm\":199.9995,\"cardHeightMm\":249.9995,\"bleedMm\":4.9995}",
+    "expected": "TRIM 200 × 250 mm / 5 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"cardWidthMm\":199.99950000000004,\"cardHeightMm\":249.99950000000004,\"bleedMm\":4.999500000000001}",
+    "expected": "TRIM 200 × 250 mm / 5 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"bleedMm\":0.0004999999999999999}",
+    "expected": "TRIM 63 × 88 mm / 0.001 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"bleedMm\":0.0005000000000000001}",
+    "expected": "TRIM 63 × 88 mm / 0.001 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"bleedMm\":1.0004999999999997}",
+    "expected": "TRIM 63 × 88 mm / 1.001 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"bleedMm\":1.0005000000000002}",
+    "expected": "TRIM 63 × 88 mm / 1.001 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"bleedMm\":0.012499999998999999}",
+    "expected": "TRIM 63 × 88 mm / 0.012 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": "{\"bleedMm\":0.012499999999}",
+    "expected": "TRIM 63 × 88 mm / 0.013 mm BLEED / 800 DPI"
   }
 ]
