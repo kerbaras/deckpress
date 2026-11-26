@@ -366,11 +366,8 @@ describe("decklist import", () => {
         ].join(newline),
       );
       expect(result.format).toBe("CSV");
-      expect(result.entries.map(({ name }) => name)).toEqual([
-        "Island",
-        "Negate",
-      ]);
-      expect(result.lines).toEqual([6, 9]);
+      expect(result.entries.map(({ name }) => name)).toEqual(["Island"]);
+      expect(result.lines).toEqual([6]);
       expect(result.issues).toEqual([
         {
           line: 9,
@@ -381,12 +378,6 @@ describe("decklist import", () => {
           line: 8,
           input: "Opt",
           message: "Expected a card name and a quantity between 1 and 250",
-        },
-        {
-          line: 9,
-          input: "Board",
-          message: "Unrecognized board; imported to Mainboard",
-          severity: "warning",
         },
         { line: 10, input: "Island", message: "Combined quantity exceeds 250" },
       ]);
@@ -405,7 +396,7 @@ describe("decklist import", () => {
           "note",
         ].join(newline),
       );
-      expect(result.lines).toEqual([4]);
+      expect(result.lines).toEqual([]);
       expect(result.issues).toEqual([
         { line: 4, input: "CSV row", message: "Quoted field unterminated" },
       ]);

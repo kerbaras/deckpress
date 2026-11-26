@@ -30,6 +30,10 @@ function boardAlias(value: string): string {
   return value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
 }
 
+function isCompanionHeading(alias: string): boolean {
+  return alias === "companion" || alias === "companions";
+}
+
 function zoneFrom(alias: string): ImportLine["zone"] | undefined {
   switch (alias) {
     case "deck":
@@ -76,6 +80,7 @@ function csvSourceLines(
   const recordLines: number[] = [];
   const nonEmptyLines: number[] = [];
   const boards = new Map<number, string>();
+  const headingLines = new Set<number>();
   let offset = 0;
   let line = firstLine;
   let board: string | undefined;
@@ -97,11 +102,13 @@ function csvSourceLines(
         nonEmptyLines.push(line);
         if (board) boards.set(line, board);
       }
+      if (data.length === 1 && isCompanionHeading(boardAlias(data[0] ?? "")))
+        headingLines.add(line);
       line += lineBreakCount(text.slice(offset, meta.cursor));
       offset = meta.cursor;
     },
   });
-  return { recordLines, nonEmptyLines, boards };
+  return { recordLines, nonEmptyLines, boards, headingLines };
 }
 
 export function parseDecklist(input: string): ParsedDecklist {
@@ -180,24 +187,26 @@ export function parseDecklist(input: string): ParsedDecklist {
       lineBreakCount(
         source.slice(0, source.length - source.trimStart().length),
       );
-    const { recordLines, nonEmptyLines, boards } = csvSourceLines(
+    const { recordLines, nonEmptyLines, boards, headingLines } = csvSourceLines(
       text,
       firstLine,
       csv.meta,
     );
     const [headerLine = firstLine, ...dataLines] = nonEmptyLines;
+    const invalidLines = new Set<number>();
     for (const error of csv.errors) {
       const lines = error.type === "Quotes" ? recordLines : dataLines;
+      const line = error.row === undefined ? undefined : lines[error.row];
+      if (line !== undefined) invalidLines.add(line);
       result.issues.push({
-        line:
-          (error.row === undefined ? headerLine : lines[error.row]) ??
-          headerLine,
+        line: line ?? headerLine,
         input: "CSV row",
         message: error.message,
       });
     }
     csv.data.forEach((row, index) => {
       const line = dataLines[index] ?? headerLine;
+      if (headingLines.has(line) || invalidLines.has(line)) return;
       const board = (row.board ?? row.zone ?? "").trim();
       const alias = boardAlias(board);
       const zone = zoneFrom(alias);
@@ -242,7 +251,7 @@ export function parseDecklist(input: string): ParsedDecklist {
         board = boardComment(line);
         return;
       }
-      if (alias === "companion" || alias === "companions") return;
+      if (isCompanionHeading(alias)) return;
       if (/^(\/\/|#)/.test(line)) return;
       const sideboard = /^SB:\s*/i.test(line);
       const clean = line.replace(/^SB:\s*/i, "").replace(/\s+\*F\*\s*$/i, "");

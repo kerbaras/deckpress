@@ -4,13 +4,55 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import type { ImportResult } from "./api.ts";
+import { api, type ImportResult } from "./api.ts";
 import type { DeckEntry } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
 
 const refused =
   "Moxfield refused the request (HTTP 403): it blocks apps that are not a web browser. In Moxfield, open the deck, choose More › Download / Export, click Copy Plain Text and paste the list here.";
 const url = "https://moxfield.com/decks/DYmpyOwmekecAkPnC3Tjsg";
+
+it.each(["companions", "COMPANION", "Com–panions："])(
+  "does not send the standalone CSV heading %s or other malformed rows to the resolver",
+  async (heading) => {
+    const resolve = vi.fn().mockReturnValue({
+      entries: [],
+      issues: [{ line: 3, input: "1 Typo", message: "Not found" }],
+    });
+    mockIPC((cmd, args) => {
+      if (cmd !== "resolve_cards") throw new Error(`Unexpected ${cmd}`);
+      return resolve(args);
+    });
+    const result = await api.import({
+      text: [
+        "Name,Quantity,Board,Notes",
+        "",
+        "// Board: testing Pool",
+        'Opt,1,Sideboard,"Multiline',
+        'note"',
+        heading,
+        "Negate,1,Board,",
+        "Typo,1,,",
+        "Island,1,,,extra",
+        "Forest",
+        "Spirited Companion,1,Companions,",
+        'Plains,1,,"Unterminated',
+      ].join("\r\n"),
+    });
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(resolve).toHaveBeenCalledWith({
+      lines: [
+        expect.objectContaining({ name: "Opt", zone: "side" }),
+        expect.objectContaining({ name: "Negate", zone: "main" }),
+        expect.objectContaining({ name: "Typo" }),
+        expect.objectContaining({ name: "Spirited Companion", zone: "main" }),
+      ],
+    });
+    expect(result.issues.map(({ line }) => line)).toEqual([
+      6, 7, 8, 9, 10, 11, 12,
+    ]);
+  },
+);
 
 const card = (name: string, quantity: number, zone: DeckEntry["zone"]) => {
   const id = crypto.randomUUID();
