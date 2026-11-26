@@ -2590,40 +2590,58 @@ it("shows restored source bleed on the first reopen of a cached deck", async () 
   expect(screen.getByRole("status", { name: "Unsaved changes" })).toBeVisible();
 });
 
-it.each([0, 1, 2])(
-  "reports restoring source bleed only when uploads changed (%i)",
-  async (updatedUploads) => {
-    const user = userEvent.setup();
-    vi.spyOn(api, "decks").mockResolvedValue([]);
-    vi.spyOn(api, "deck").mockResolvedValue(deck);
-    const contents = JSON.stringify(deck);
-    const restore = vi.fn().mockReturnValue({ deck, updatedUploads });
-    mockIPC((cmd, args) => {
-      if (cmd === "restore_deck") return restore(args);
-      return [];
-    });
-    renderWithClient(<App />);
-    const file = new File([contents], "burn.deckpress.json");
-    Object.defineProperty(file, "text", { value: async () => contents });
-    await user.upload(
-      screen.getByLabelText("Restore a deck from a JSON backup"),
-      file,
-    );
-    expect(await screen.findByRole("heading", { name: "Burn" })).toBeVisible();
-    expect(restore).toHaveBeenCalledWith({ contents });
-    const status = screen.getByRole("status", { name: "Import announcements" });
-    if (updatedUploads === 0) {
-      expect(status).toBeEmptyDOMElement();
-      expect(
-        screen.queryByText(/Updated source bleed/),
-      ).not.toBeInTheDocument();
-    } else {
-      const text = `Updated source bleed on ${updatedUploads} ${updatedUploads === 1 ? "upload" : "uploads"}`;
-      await waitFor(() => expect(status).toHaveTextContent(text));
-      expect(within(screen.getByRole("main")).getByText(text)).toBeVisible();
+it("replaces the live announcement once for every restore, even with identical text", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(api, "decks").mockResolvedValue([]);
+  vi.spyOn(api, "deck").mockResolvedValue(deck);
+  const contents = JSON.stringify(deck);
+  const restore = vi.fn();
+  mockIPC((cmd, args) => {
+    if (cmd === "restore_deck") return restore(args);
+    return [];
+  });
+  renderWithClient(<App />);
+  const file = new File([contents], "burn.deckpress.json");
+  Object.defineProperty(file, "text", { value: async () => contents });
+  const status = screen.getByRole("status", { name: "Import announcements" });
+  const messages: (string | null)[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const { addedNodes } of records) {
+      for (const node of addedNodes) messages.push(node.textContent);
     }
-  },
-);
+  });
+  observer.observe(status, { childList: true });
+  try {
+    for (const [updatedUploads, text] of [
+      [1, "Deck restored, updated source bleed on 1 upload"],
+      [0, "Deck restored"],
+      [0, "Deck restored"],
+      [2, "Deck restored, updated source bleed on 2 uploads"],
+    ] as const) {
+      restore.mockReturnValueOnce({ deck, updatedUploads });
+      const previous = status.firstChild;
+      const count = messages.length;
+      await user.upload(
+        await screen.findByLabelText("Restore a deck from a JSON backup"),
+        file,
+      );
+      expect(
+        await screen.findByRole("heading", { name: "Burn" }),
+      ).toBeVisible();
+      expect(restore).toHaveBeenLastCalledWith({ contents });
+      await waitFor(() => {
+        expect(status.textContent).toBe(text);
+        expect(status.firstChild).not.toBe(previous);
+        expect(messages.slice(count)).toEqual([text]);
+      });
+      expect(within(screen.getByRole("main")).getByText(text)).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Back to decks" }));
+      expect(messages.slice(count)).toEqual([text]);
+    }
+  } finally {
+    observer.disconnect();
+  }
+});
 
 it("saves an ordered list of print languages and strict policy in app settings", async () => {
   const user = userEvent.setup();

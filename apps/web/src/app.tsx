@@ -80,7 +80,7 @@ const confirmDiscard = () =>
   );
 const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
 const focusMain = () => document.getElementById("main")?.focus();
-type ImportAnnouncement = { id: string; text: string; restore?: boolean };
+type ImportAnnouncement = { id: string; text: string; restoreKey?: number };
 
 function readSidebar(): boolean {
   try {
@@ -100,6 +100,7 @@ export function App() {
   );
   const [importAnnouncement, setImportAnnouncement] =
     useState<ImportAnnouncement | null>(null);
+  const restoreSequence = useRef(0);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [artExitOpen, setArtExitOpen] = useState(false);
   const artPreview = useRef(false);
@@ -173,15 +174,19 @@ export function App() {
   const openImportedDeck = async (
     id: string,
     importedCards?: number,
-    updatedUploads = 0,
+    updatedUploads?: number,
   ) => {
     if (!(await navigate(`decks/${id}`))) return;
     setImportedDeckId(id);
-    if (updatedUploads > 0) {
+    if (updatedUploads !== undefined) {
+      const bleed =
+        updatedUploads > 0
+          ? `, updated source bleed on ${updatedUploads} ${updatedUploads === 1 ? "upload" : "uploads"}`
+          : "";
       setPendingImport({
         id,
-        text: `Updated source bleed on ${updatedUploads} ${updatedUploads === 1 ? "upload" : "uploads"}`,
-        restore: true,
+        text: `Deck restored${bleed}`,
+        restoreKey: ++restoreSequence.current,
       });
     } else if (importedCards !== undefined)
       setPendingImport({ id, text: importStatus(null, importedCards) });
@@ -285,7 +290,9 @@ export function App() {
       </p>
       <StatusRegion
         label="Import announcements"
-        announcementId={importAnnouncement?.id}
+        announcementId={
+          importAnnouncement?.restoreKey ?? importAnnouncement?.id
+        }
       >
         {importAnnouncement?.text}
       </StatusRegion>
@@ -410,8 +417,8 @@ export function App() {
                 id={deckId}
                 focusHeading={importedDeckId === deckId}
                 restoreMessage={
-                  importAnnouncement?.restore &&
-                  importAnnouncement.id === deckId
+                  importAnnouncement?.id === deckId &&
+                  importAnnouncement.restoreKey !== undefined
                     ? importAnnouncement.text
                     : undefined
                 }
