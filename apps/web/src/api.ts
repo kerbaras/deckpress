@@ -386,6 +386,15 @@ export const api = {
         >
       >,
   ) => command("create_deck", deckSchema, { deck: value }),
+  restoreDeck: (contents: string) =>
+    command(
+      "restore_deck",
+      z.object({
+        deck: deckSchema,
+        updatedUploads: z.number().int().nonnegative(),
+      }),
+      { contents },
+    ),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
   deleteDeck: (id: string) => command("delete_deck", nothing, { id }),
   relatedTokens: (cardIds: string[]) =>

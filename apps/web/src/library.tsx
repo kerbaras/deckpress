@@ -41,7 +41,11 @@ export function Library({
   onBuild,
 }: {
   open: (id: string) => void;
-  openImported: (id: string, importedCards?: number) => void;
+  openImported: (
+    id: string,
+    importedCards?: number,
+    updatedUploads?: number,
+  ) => void;
   /** Bumped by the title bar's "New deck" action; opens the create dialog. */
   createRequest?: number;
   onCreateHandled?: () => void;
@@ -95,6 +99,8 @@ export function Library({
           : b.updatedAt.localeCompare(a.updatedAt),
     );
   const refresh = () => client.invalidateQueries({ queryKey: ["decks"] });
+  const backup = (id: string) =>
+    void task.run(async () => downloadJson(await api.deck(id)));
   return (
     <>
       <PageToolbar
@@ -125,12 +131,15 @@ export function Library({
                 void task.run(async () => {
                   if (file.size > 16 * 1024 * 1024)
                     throw new Error("Deck backup exceeds 16 MB");
-                  const original = deckSchema.parse(
-                    JSON.parse(await file.text()),
-                  );
-                  const deck = await api.createDeck(original);
-                  await refresh();
-                  openImported(deck.id);
+                  const contents = await file.text();
+                  deckSchema.parse(JSON.parse(contents));
+                  const { deck, updatedUploads } =
+                    await api.restoreDeck(contents);
+                  await Promise.all([
+                    refresh(),
+                    client.invalidateQueries({ queryKey: ["deck"] }),
+                  ]);
+                  openImported(deck.id, undefined, updatedUploads);
                 });
               event.target.value = "";
             }}
@@ -277,7 +286,8 @@ export function Library({
                       type="button"
                       aria-label={`Back up ${deck.name}`}
                       title="Back up deck JSON"
-                      onClick={() => void downloadJson(deck)}
+                      disabled={task.busy}
+                      onClick={() => backup(deck.id)}
                     >
                       <Download size={14} />
                     </button>
@@ -363,7 +373,11 @@ export function Library({
           </p>
           <ErrorNotice error={task.error} />
           <div className="modal-actions">
-            <button type="button" onClick={() => void downloadJson(remove)}>
+            <button
+              type="button"
+              disabled={task.busy}
+              onClick={() => backup(remove.id)}
+            >
               Back up JSON
             </button>
             <button

@@ -500,12 +500,12 @@ it.each([false, true])(
       if (cmd === "export_file_name") return exportFileName(args);
       if (cmd === "plugin:dialog|save") return "/chosen/deck.deckpress.json";
       if (cmd === "save_text") return saveText(args);
-      if (cmd === "create_deck") {
+      if (cmd === "restore_deck") {
         restored = deckSchema.parse({
-          ...(args as { deck: Deck }).deck,
+          ...JSON.parse((args as { contents: string }).contents),
           id: restoredId,
         });
-        return restored;
+        return { deck: restored, updatedUploads: 0 };
       }
       return [];
     });
@@ -2432,6 +2432,110 @@ it("edits a saved upload with the keyboard and refreshes its trimmed preview", a
   expect(preview.getByText("Saved")).toBeVisible();
   expect(onApply).not.toHaveBeenCalled();
 });
+
+it("backs up fresh upload bleed even if the Library list still has the old value", async () => {
+  const user = userEvent.setup();
+  const uploaded = artSchema.parse({
+    ...community,
+    id: "upload:1",
+    imageUrl: "upload://a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+    provider: "upload",
+    bleedMm: 3.048,
+  });
+  const withBleed = (art: typeof uploaded) => ({
+    ...deck,
+    entries: [{ ...entry, selectedArt: art }],
+  });
+  const cached = withBleed(uploaded);
+  const updated = { ...uploaded, bleedMm: 3.175 };
+  let stored = cached;
+  const saveText = vi.fn();
+  const list = vi.spyOn(api, "decks").mockResolvedValue([cached]);
+  const read = vi.spyOn(api, "deck").mockImplementation(async () => stored);
+  vi.spyOn(api, "art").mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: false,
+    total: 0,
+  });
+  vi.spyOn(api, "uploads").mockResolvedValue([uploaded]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  vi.spyOn(api, "uploadBleed").mockResolvedValue(null);
+  vi.spyOn(api, "updateUploadBleed").mockImplementation(async () => {
+    stored = withBleed(updated);
+    return updated;
+  });
+  mockIPC((cmd, args) => {
+    if (cmd === "export_file_name") return exportFileName(args);
+    if (cmd === "plugin:dialog|save") return "/chosen/burn.deckpress.json";
+    if (cmd === "save_text") return saveText(args);
+    return [];
+  });
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  await user.click(
+    await screen.findByRole("button", {
+      name: "Choose art for Lightning Bolt",
+    }),
+  );
+  const preview = within(screen.getByRole("region", { name: "Preview art" }));
+  await user.click(preview.getByRole("button", { name: "Edit source bleed" }));
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Edit source bleed" }),
+  );
+  await user.selectOptions(
+    dialog.getByRole("combobox", { name: "Existing bleed per side" }),
+    "3.175",
+  );
+  const listCalls = list.mock.calls.length;
+  await user.click(dialog.getByRole("button", { name: "Save bleed" }));
+  expect(await preview.findByText("3.175 mm")).toBeVisible();
+  expect(list.mock.calls.length).toBeGreaterThan(listCalls);
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  read.mockClear();
+  await user.click(await screen.findByRole("button", { name: "Back up Burn" }));
+  await waitFor(() => expect(saveText).toHaveBeenCalledOnce());
+  expect(read).toHaveBeenCalledWith(id);
+  expect(JSON.parse(saveText.mock.calls[0]?.[0].contents)).toEqual(stored);
+});
+
+it.each([0, 1, 2])(
+  "reports restoring source bleed only when uploads changed (%i)",
+  async (updatedUploads) => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "decks").mockResolvedValue([]);
+    vi.spyOn(api, "deck").mockResolvedValue(deck);
+    const contents = JSON.stringify(deck);
+    const restore = vi.fn().mockReturnValue({ deck, updatedUploads });
+    mockIPC((cmd, args) => {
+      if (cmd === "restore_deck") return restore(args);
+      return [];
+    });
+    renderWithClient(<App />);
+    const file = new File([contents], "burn.deckpress.json");
+    Object.defineProperty(file, "text", { value: async () => contents });
+    await user.upload(
+      screen.getByLabelText("Restore a deck from a JSON backup"),
+      file,
+    );
+    expect(await screen.findByRole("heading", { name: "Burn" })).toBeVisible();
+    expect(restore).toHaveBeenCalledWith({ contents });
+    const status = screen.getByRole("status", { name: "Import announcements" });
+    if (updatedUploads === 0) {
+      expect(status).toBeEmptyDOMElement();
+      expect(
+        screen.queryByText(/Updated source bleed/),
+      ).not.toBeInTheDocument();
+    } else {
+      const text = `Updated source bleed on ${updatedUploads} ${updatedUploads === 1 ? "upload" : "uploads"}`;
+      await waitFor(() => expect(status).toHaveTextContent(text));
+      expect(within(screen.getByRole("main")).getByText(text)).toBeVisible();
+    }
+  },
+);
 
 it("saves an ordered list of print languages and strict policy in app settings", async () => {
   const user = userEvent.setup();

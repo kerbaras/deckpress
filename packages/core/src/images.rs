@@ -12,12 +12,14 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 use reqwest::{redirect, Client, StatusCode};
+use serde::Serialize;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::sync::Notify;
 use url::Url;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{new_id, now_iso, Art, Provider, Upload};
+use crate::models::{new_id, now_iso, Art, Deck, NewDeck, Provider, Upload};
 use crate::providers::USER_AGENT;
 use crate::raster::{detect_upload_bleed, encode_png, strip_bleed, to_rgb, UPLOAD_CARD_MM};
 use crate::store::Store;
@@ -27,6 +29,13 @@ pub const UPLOAD_SCHEME: &str = "upload://";
 /// Art URL prefix the Node API wrote into decks; still present in migrated
 /// databases.
 pub const LEGACY_UPLOAD_PREFIX: &str = "/api/uploads/";
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    pub deck: Deck,
+    pub updated_uploads: usize,
+}
 
 /// The upload id named by an art URL, if it points at a local upload.
 pub fn upload_id(url: &str) -> Option<AppResult<String>> {
@@ -350,15 +359,67 @@ impl Images {
 
     /// Updates the declaration without replacing the original image or its ID.
     pub fn update_upload_bleed(&self, url: &str, bleed_mm: Option<f64>) -> AppResult<Art> {
-        validate_upload_bleed(bleed_mm)?;
         let (id, mut upload) = self.saved_upload(url)?;
-        let image = decode(&std::fs::read(self.upload_path(&id))?)?;
+        self.set_upload_bleed(&id, &mut upload, bleed_mm)?;
+        self.store.put("upload", &id, &upload)?;
+        Ok(upload.art)
+    }
+
+    fn set_upload_bleed(
+        &self,
+        id: &str,
+        upload: &mut Upload,
+        bleed_mm: Option<f64>,
+    ) -> AppResult<()> {
+        validate_upload_bleed(bleed_mm)?;
+        let image = decode(&std::fs::read(self.upload_path(id))?)?;
         let (bleed, dpi) = upload_resolution(image.width(), image.height(), bleed_mm);
         upload.art.bleed_mm = bleed;
         upload.art.dpi = dpi;
         upload.bleed_auto = bleed_mm.is_none();
-        self.store.put("upload", &id, &upload)?;
-        Ok(upload.art)
+        Ok(())
+    }
+
+    /// Restores a backup and its explicit source bleed values for existing uploads.
+    pub fn restore_deck(&self, contents: &str) -> AppResult<RestoreResult> {
+        let backup: Value =
+            serde_json::from_str(contents).map_err(|_| AppError::user("Invalid deck backup"))?;
+        let mut bleeds = HashMap::new();
+        for entry in backup["entries"].as_array().into_iter().flatten() {
+            let arts = entry["card"]["faces"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .chain([&entry["selectedArt"], &entry["selectedBack"]]);
+            for art in arts {
+                if art["provider"] != "upload" {
+                    continue;
+                }
+                if let (Some(Ok(id)), Some(bleed)) = (
+                    art["imageUrl"].as_str().and_then(upload_id),
+                    art["bleedMm"].as_f64(),
+                ) {
+                    bleeds.entry(id).or_insert(bleed);
+                }
+            }
+        }
+        let input: NewDeck =
+            serde_json::from_value(backup).map_err(|_| AppError::user("Invalid deck backup"))?;
+        let mut uploads = HashMap::new();
+        for (id, bleed) in bleeds {
+            if let Some(mut upload) = self.store.get::<Upload>("upload", &id)? {
+                if upload.art.bleed_mm != bleed {
+                    self.set_upload_bleed(&id, &mut upload, Some(bleed))?;
+                    uploads.insert(id, upload);
+                }
+            }
+        }
+        let updated_uploads = uploads.len();
+        let deck = self.store.create_deck_with_uploads(input, uploads)?;
+        Ok(RestoreResult {
+            deck,
+            updated_uploads,
+        })
     }
 
     /// Renders a trim snapshot of an upload using the same crop as print export.

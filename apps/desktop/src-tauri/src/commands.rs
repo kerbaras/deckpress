@@ -12,7 +12,7 @@ use tauri::State;
 use deckpress_core::cut_svg::build_cut_svg;
 use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, ExternalDeck};
 use deckpress_core::error::{AppError, AppResult};
-use deckpress_core::images::UploadInput;
+use deckpress_core::images::{RestoreResult, UploadInput};
 use deckpress_core::models::{
     Art, ArtPage, ArtPreference, Deck, DeckEntry, ExportFormat, ImportLine, NewDeck, PrintJob,
     PrintLanguagePreferences, PrintSettings, PrinterProfile, PrinterProfileInput, ResolvedCards,
@@ -169,6 +169,15 @@ pub fn get_deck(state: State<'_, AppState>, id: String) -> AppResult<Deck> {
 #[tauri::command]
 pub fn create_deck(state: State<'_, AppState>, deck: NewDeck) -> AppResult<Deck> {
     state.store.create_deck(deck)
+}
+
+#[tauri::command]
+pub async fn restore_deck(
+    state: State<'_, AppState>,
+    contents: String,
+) -> AppResult<RestoreResult> {
+    let images = Arc::clone(&state.images);
+    tokio::task::spawn_blocking(move || images.restore_deck(&contents)).await?
 }
 
 #[tauri::command]

@@ -57,6 +57,7 @@ import {
 export function Workspace({
   id,
   focusHeading,
+  restoreMessage,
   onBack,
   onDirty,
   onPreviewChange,
@@ -65,6 +66,7 @@ export function Workspace({
 }: {
   id: string;
   focusHeading: boolean;
+  restoreMessage?: string | undefined;
   onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
@@ -90,6 +92,7 @@ export function Workspace({
     <DeckWorkspace
       initial={query.data}
       focusHeading={focusHeading}
+      restoreMessage={restoreMessage}
       onBack={onBack}
       onDirty={onDirty}
       onPreviewChange={onPreviewChange}
@@ -147,6 +150,7 @@ function withEditedUpload(deck: Deck, upload: Art): Deck {
 function DeckWorkspace({
   initial,
   focusHeading,
+  restoreMessage,
   onBack,
   onDirty,
   onPreviewChange,
@@ -155,6 +159,7 @@ function DeckWorkspace({
 }: {
   initial: Deck;
   focusHeading: boolean;
+  restoreMessage: string | undefined;
   onBack: (trigger: HTMLButtonElement) => void;
   onDirty: (dirty: boolean) => void;
   onPreviewChange: (changed: boolean) => void;
@@ -347,6 +352,11 @@ function DeckWorkspace({
           <SlidersHorizontal size={16} />
         </button>
       </PageToolbar>
+      {restoreMessage && (
+        <p className="notice success" aria-hidden="true">
+          {restoreMessage}
+        </p>
+      )}
       <StatusRegion label="MPC Autofill XML export status">
         {mpcExportStatus}
       </StatusRegion>
@@ -386,6 +396,7 @@ function DeckWorkspace({
             client.setQueriesData<Deck>({ queryKey: ["deck"] }, (current) =>
               current ? withEditedUpload(current, art) : current,
             );
+            void client.invalidateQueries({ queryKey: ["decks"] });
           }}
         />
       )}

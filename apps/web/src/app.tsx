@@ -80,7 +80,7 @@ const confirmDiscard = () =>
   );
 const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
 const focusMain = () => document.getElementById("main")?.focus();
-type ImportAnnouncement = { id: string; text: string };
+type ImportAnnouncement = { id: string; text: string; restore?: boolean };
 
 function readSidebar(): boolean {
   try {
@@ -170,10 +170,20 @@ export function App() {
     },
     [applyRoute, confirmArtExit],
   );
-  const openImportedDeck = async (id: string, importedCards?: number) => {
+  const openImportedDeck = async (
+    id: string,
+    importedCards?: number,
+    updatedUploads = 0,
+  ) => {
     if (!(await navigate(`decks/${id}`))) return;
     setImportedDeckId(id);
-    if (importedCards !== undefined)
+    if (updatedUploads > 0) {
+      setPendingImport({
+        id,
+        text: `Updated source bleed on ${updatedUploads} ${updatedUploads === 1 ? "upload" : "uploads"}`,
+        restore: true,
+      });
+    } else if (importedCards !== undefined)
       setPendingImport({ id, text: importStatus(null, importedCards) });
   };
   useEffect(() => {
@@ -399,6 +409,12 @@ export function App() {
                 key={deckId}
                 id={deckId}
                 focusHeading={importedDeckId === deckId}
+                restoreMessage={
+                  importAnnouncement?.restore &&
+                  importAnnouncement.id === deckId
+                    ? importAnnouncement.text
+                    : undefined
+                }
                 onDirty={onDirty}
                 onPreviewChange={onPreviewChange}
                 confirmArtExit={confirmArtExit}

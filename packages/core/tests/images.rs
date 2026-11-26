@@ -8,7 +8,7 @@ use deckpress_core::images::{
     mime_for, upload_id, validate_image_url, Images, UploadInput, UPLOAD_SCHEME,
 };
 use deckpress_core::layout::{create_layout, face_pixels, mm_to_pixels, mm_to_pt};
-use deckpress_core::models::{BleedMode, NewDeck, PrintSettings, Provider};
+use deckpress_core::models::{BleedMode, NewDeck, PrintSettings, Provider, Zone};
 use deckpress_core::pdf::{build_pdf, PdfServices};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::CancelToken;
@@ -230,12 +230,12 @@ async fn changing_saved_upload_bleed_retrims_preview_export_and_restored_deck() 
     let refreshed = store.deck(&deck.id).unwrap();
     assert_eq!(refreshed.entries[0].front_art(), &edited);
     assert_eq!(refreshed.entries[0].back_art().as_ref(), Some(&edited));
+    assert_eq!(deck.entries[0].front_art().bleed_mm, 0.0);
     let backup = serde_json::to_string(&refreshed).unwrap();
     assert!(backup.contains("\"bleedMm\":3.175"));
-    let restored = store
-        .create_deck(serde_json::from_str(&backup).unwrap())
-        .unwrap();
-    assert_eq!(restored.entries[0].front_art(), &edited);
+    let restored = images.restore_deck(&backup).unwrap();
+    assert_eq!(restored.updated_uploads, 0);
+    assert_eq!(restored.deck.entries[0].front_art(), &edited);
     assert_eq!(
         store.update_deck(deck.clone()).unwrap().entries[0].front_art(),
         &edited
@@ -269,6 +269,60 @@ async fn changing_saved_upload_bleed_retrims_preview_export_and_restored_deck() 
     let detected = images.update_upload_bleed(url, None).unwrap();
     assert!(detected.bleed_mm > 0.0);
     assert_eq!(images.upload_bleed(url).unwrap(), None);
+}
+
+#[test]
+fn restored_backup_applies_recorded_bleed_once_and_preserves_legacy_uploads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::in_memory().unwrap());
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    let mut png = Vec::new();
+    RgbImage::from_pixel(822, 1122, Rgb([24, 140, 224]))
+        .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+        .unwrap();
+    let art = images.upload(&png, upload_input(Some(3.175))).unwrap();
+    let url = &art.image_url;
+    let mut entry = common::entry(art.clone(), 1);
+    entry.zone = Zone::Maybe;
+    entry.board = Some("Considering".into());
+    entry.selected_art = Some(art.clone());
+    entry.selected_back = Some(art.clone());
+    let deck = store
+        .create_deck(NewDeck {
+            entries: vec![entry],
+            ..common::new_deck("Saved bleed backup")
+        })
+        .unwrap();
+    let backup = serde_json::to_string(&store.deck(&deck.id).unwrap()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&backup).unwrap();
+    assert_eq!(json["entries"][0]["board"], "Considering");
+    assert_eq!(json["entries"][0]["selectedArt"]["bleedMm"], 3.175);
+    let auto = images.update_upload_bleed(url, None).unwrap();
+    assert_eq!(auto.bleed_mm, 3.048);
+
+    let restored = images.restore_deck(&backup).unwrap();
+    assert_eq!(restored.updated_uploads, 1);
+    assert_eq!(images.upload_bleed(url).unwrap(), Some(3.175));
+    assert_eq!(
+        restored.deck.entries[0].board.as_deref(),
+        Some("Considering")
+    );
+    assert_eq!(restored.deck.entries[0].card.faces[0], art);
+    assert_eq!(restored.deck.entries[0].front_art(), &art);
+    assert_eq!(restored.deck.entries[0].back_art().as_ref(), Some(&art));
+    assert_eq!(
+        store.deck(&deck.id).unwrap().entries[0]
+            .front_art()
+            .bleed_mm,
+        3.175
+    );
+
+    images.update_upload_bleed(url, None).unwrap();
+    let legacy = backup.replace("\"bleedMm\":3.175,", "");
+    let restored = images.restore_deck(&legacy).unwrap();
+    assert_eq!(restored.updated_uploads, 0);
+    assert_eq!(images.upload_bleed(url).unwrap(), None);
+    assert_eq!(restored.deck.entries[0].front_art(), &auto);
 }
 
 #[test]

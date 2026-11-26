@@ -53,6 +53,7 @@ pub fn run() {
             commands::list_decks,
             commands::get_deck,
             commands::create_deck,
+            commands::restore_deck,
             commands::save_deck,
             commands::delete_deck,
             commands::import_url,

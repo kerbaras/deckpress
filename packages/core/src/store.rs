@@ -1,6 +1,7 @@
 //! SQLite document store. Same schema as the original Node API so an existing
 //! `deckpress.sqlite` can be copied over unchanged.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -54,6 +55,15 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+fn put_document<T: Serialize>(conn: &Connection, kind: &str, id: &str, value: &T) -> AppResult<()> {
+    conn.execute(
+        "INSERT INTO documents (kind, id, json, updated_at) VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT(kind, id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at",
+        params![kind, id, serde_json::to_string(value)?, now_ms()],
+    )?;
+    Ok(())
 }
 
 impl Store {
@@ -127,15 +137,7 @@ impl Store {
     }
 
     pub fn put<T: Serialize>(&self, kind: &str, id: &str, value: &T) -> AppResult<()> {
-        let json = serde_json::to_string(value)?;
-        self.with(|conn| {
-            conn.execute(
-                "INSERT INTO documents (kind, id, json, updated_at) VALUES (?1, ?2, ?3, ?4) \
-                 ON CONFLICT(kind, id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at",
-                params![kind, id, json, now_ms()],
-            )?;
-            Ok(())
-        })
+        self.with(|conn| put_document(conn, kind, id, value))
     }
 
     /// Rewrites a document's `updated_at`, which decides cache expiry and
@@ -224,6 +226,14 @@ impl Store {
     }
 
     fn refresh_uploads(&self, entries: &mut [DeckEntry]) -> AppResult<()> {
+        self.refresh_with_uploads(entries, &HashMap::new())
+    }
+
+    fn refresh_with_uploads(
+        &self,
+        entries: &mut [DeckEntry],
+        uploads: &HashMap<String, Upload>,
+    ) -> AppResult<()> {
         for entry in entries {
             for art in entry
                 .card
@@ -234,7 +244,14 @@ impl Store {
             {
                 if art.provider == Provider::Upload {
                     if let Some(Ok(id)) = upload_id(&art.image_url) {
-                        if let Some(upload) = self.get::<Upload>("upload", &id)? {
+                        let stored;
+                        let upload = if let Some(upload) = uploads.get(&id) {
+                            Some(upload)
+                        } else {
+                            stored = self.get::<Upload>("upload", &id)?;
+                            stored.as_ref()
+                        };
+                        if let Some(upload) = upload {
                             art.bleed_mm = upload.art.bleed_mm;
                             art.dpi = upload.art.dpi;
                         }
@@ -262,8 +279,16 @@ impl Store {
         Ok(decks)
     }
 
-    pub fn create_deck(&self, mut input: NewDeck) -> AppResult<Deck> {
-        self.refresh_uploads(&mut input.entries)?;
+    pub fn create_deck(&self, input: NewDeck) -> AppResult<Deck> {
+        self.create_deck_with_uploads(input, HashMap::new())
+    }
+
+    pub(crate) fn create_deck_with_uploads(
+        &self,
+        mut input: NewDeck,
+        uploads: HashMap<String, Upload>,
+    ) -> AppResult<Deck> {
+        self.refresh_with_uploads(&mut input.entries, &uploads)?;
         let name = input.name.trim();
         check_deck(
             name,
@@ -286,7 +311,14 @@ impl Store {
             created_at: now.clone(),
             updated_at: now,
         };
-        self.put("deck", &deck.id, &deck)?;
+        self.with(|conn| {
+            let transaction = conn.unchecked_transaction()?;
+            for (id, upload) in &uploads {
+                put_document(&transaction, "upload", id, upload)?;
+            }
+            put_document(&transaction, "deck", &deck.id, &deck)?;
+            Ok(transaction.commit()?)
+        })?;
         Ok(deck)
     }
 
