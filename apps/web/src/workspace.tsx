@@ -933,8 +933,7 @@ function DeckCards({
         <span className="status-dot" />
         <div>
           <strong>
-            Art chosen for{" "}
-            {countCards(deck.entries.filter(hasChosenArt))} of{" "}
+            Art chosen for {countCards(deck.entries.filter(hasChosenArt))} of{" "}
             {formatCount(countCards(deck.entries), "card")}
           </strong>
           <p>
