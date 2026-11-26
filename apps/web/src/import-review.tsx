@@ -1,7 +1,7 @@
 import { Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { ImportResult } from "./api.ts";
-import { mpcXmlFormat, zones } from "./core/index.ts";
+import { frontArt, mpcXmlFormat, zones } from "./core/index.ts";
 import { isEnglishFallback } from "./print-language.tsx";
 import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
 
@@ -74,13 +74,23 @@ export function ImportReview({
 }) {
   const total = countCards(result.entries);
   const boards = boardCounts(result.entries);
-  const fallbacks = [
-    ...new Set(
-      result.entries
-        .filter((entry) => isEnglishFallback(entry))
-        .map((entry) => entry.card.name),
-    ),
-  ];
+  const fallbacks = result.entries.flatMap((entry) => {
+    const art = frontArt(entry);
+    if (!entry.requestedLanguages?.length || !isEnglishFallback(entry, art))
+      return [];
+    const printing = [
+      art.set.toUpperCase(),
+      art.collectorNumber && `#${art.collectorNumber}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return [
+      {
+        id: entry.id,
+        label: `${entry.card.name}${printing ? ` — ${printing}` : ""} (${entry.requestedLanguages.join(" / ")} → ${art.language})`,
+      },
+    ];
+  });
   const locked = saving || saved !== null;
   const mpc = result.format === mpcXmlFormat;
   const heading = useRef<HTMLHeadingElement>(null);
@@ -105,7 +115,16 @@ export function ImportReview({
         </ul>
       )}
       {fallbacks.length > 0 && (
-        <p className="hint">English fallback: {fallbacks.join(", ")}</p>
+        <div className="import-issues">
+          <strong>English fallback</strong>
+          <ul aria-label="English fallbacks">
+            {fallbacks.map(({ id, label }) => (
+              <li key={id}>
+                <code>{label}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {result.issues.length > 0 && (
         <div className="import-issues">

@@ -23,6 +23,7 @@ import {
   type PrintJob,
   printSettingsSchema,
 } from "./core/index.ts";
+import { ImportReview } from "./import-review.tsx";
 import { PrintSetup } from "./print-setup.tsx";
 import {
   applyPicks,
@@ -1414,7 +1415,9 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
       id: "ace130da-9914-49b3-a40c-5273bec3813d",
       oracleId: "ace130da-9914-49b3-a40c-5273bec3813d",
       name: "Black Lotus",
-      faces: [{ ...original, language: "en" }],
+      faces: [
+        { ...original, set: "lea", collectorNumber: "232", language: "en" },
+      ],
     },
     requestedLanguages: ["es"],
   };
@@ -1432,11 +1435,11 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
           issues: [
             {
               line: 2,
-              input: "1 Time Walk",
+              input: "1 Time Walk (lea) 84",
               message: "No printable scan found in es.",
             },
           ],
-          missingPrints: [{ input: "1 Time Walk", languages: ["es"] }],
+          missingPrints: [{ input: "1 Time Walk (lea) 84", languages: ["es"] }],
         };
       case "save_deck":
         saved = deckSchema.parse((args as { deck: unknown }).deck);
@@ -1448,19 +1451,25 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
   renderWithClient(<App />);
   await user.type(
     await screen.findByLabelText("Decklist"),
-    "1 Lightning Bolt{enter}1 Time Walk",
+    "1 Lightning Bolt{enter}1 Time Walk (LEA) 84",
   );
   await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
-  expect(
-    await screen.findByText("No printable scan found in es."),
-  ).toBeVisible();
+  const skipped = within(
+    await screen.findByRole("list", { name: "Unresolved lines" }),
+  );
+  expect(skipped.getByText("1 Time Walk (lea) 84")).toBeVisible();
+  expect(skipped.getByText("No printable scan found in es.")).toBeVisible();
   expect(screen.getByText("Line 2")).toBeVisible();
-  expect(screen.getByText("English fallback: Black Lotus")).toBeVisible();
+  expect(
+    within(screen.getByRole("list", { name: "English fallbacks" })).getByText(
+      "Black Lotus — LEA #232 (es → en)",
+    ),
+  ).toBeVisible();
   await user.click(
     await screen.findByRole("button", { name: "Add 8 cards to deck" }),
   );
   expect(
-    await screen.findByText("Not imported (last import): 1 Time Walk"),
+    await screen.findByText("Not imported (last import): 1 Time Walk (lea) 84"),
   ).toBeVisible();
   expect(
     within(
@@ -1477,6 +1486,44 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
       screen.getByRole("button", { name: "Choose art for Lightning Bolt" }),
     ).getByText("ES"),
   ).toBeVisible();
+});
+
+it("identifies which of two printings of the same card fell back before save", () => {
+  const localized = {
+    ...entry,
+    requestedLanguages: ["es"],
+    card: { ...entry.card, faces: [{ ...original, language: "es" }] },
+  };
+  const fallback = {
+    ...localized,
+    id: "38314027-5003-49ff-aa3a-825082526106",
+    card: {
+      ...entry.card,
+      id: "ace130da-9914-49b3-a40c-5273bec3813d",
+      faces: [
+        { ...original, set: "m11", collectorNumber: "149", language: "en" },
+      ],
+    },
+  };
+  renderWithClient(
+    <ImportReview
+      result={{ entries: [localized, fallback], issues: [], format: "Arena" }}
+      existing={0}
+      replace={false}
+      onReplace={vi.fn()}
+      showLines
+      saving={false}
+      saved={null}
+      saveError={null}
+      onSave={vi.fn()}
+    />,
+  );
+  const fallbacks = within(
+    screen.getByRole("list", { name: "English fallbacks" }),
+  );
+  expect(fallbacks.getByRole("listitem")).toHaveTextContent(
+    "Lightning Bolt — M11 #149 (es → en)",
+  );
 });
 
 it("filters art by language and sends the selected language to Scryfall", async () => {
