@@ -275,7 +275,6 @@ function DeckWorkspace({
       )}
       {view === "art" && selected && (
         <ArtPicker
-          key={selected.id}
           deck={deck}
           entry={selected}
           onSelect={setSelectedId}

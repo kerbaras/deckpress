@@ -454,10 +454,11 @@ it("keeps the original scan while selecting art for one copy and saving a person
     "src",
     originalImage,
   );
-  expect(screen.getByAltText("Selected: Lightning Bolt")).toHaveAttribute(
+  expect(screen.getByAltText("Preview: Lightning Bolt")).toHaveAttribute(
     "src",
     expect.stringContaining("alternate.png"),
   );
+  expect(apply).not.toHaveBeenCalled();
   await user.selectOptions(screen.getByLabelText("Your rating"), "5");
   await waitFor(() =>
     expect(preference).toHaveBeenCalledWith(
@@ -466,6 +467,9 @@ it("keeps the original scan while selecting art for one copy and saving a person
     ),
   );
   await user.selectOptions(screen.getByLabelText("Apply to"), "one");
+  expect(
+    screen.getByRole("button", { name: "Apply" }),
+  ).toHaveAccessibleDescription("1 of 4 copies in this entry");
   await user.click(screen.getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(apply).toHaveBeenCalledOnce());
   expect(
@@ -477,6 +481,261 @@ it("keeps the original scan while selecting art for one copy and saving a person
     [3, undefined],
     [1, alternate.id],
   ]);
+});
+
+const previewButton = { name: "Select Mystical Archive 42 by Anato Finnstark" };
+const promptName = { name: "Discard art preview?" };
+const sideEntry: DeckEntry = {
+  ...entry,
+  id: "92944e53-d478-4a0d-b7df-f8bef0b44e4a",
+  quantity: 2,
+  zone: "side",
+};
+const otherEntry: DeckEntry = {
+  ...entry,
+  id: "399515f7-7007-497d-91dc-be16d8e409a4",
+  card: {
+    ...entry.card,
+    name: "Shock",
+    oracleId: "399515f7-7007-497d-91dc-be16d8e409a4",
+    faces: [{ ...original, id: "scryfall:shock", name: "Shock" }],
+  },
+};
+const pickerDeck = { ...deck, entries: [otherEntry, entry, sideEntry] };
+
+function mockPickerArt(prints = [original, alternate, community]) {
+  vi.spyOn(api, "uploads").mockResolvedValue([]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  return vi
+    .spyOn(api, "art")
+    .mockImplementation(async (provider, _, __, ___, page) => ({
+      items: provider === "scryfall" ? prints : [],
+      page,
+      hasMore: false,
+      total: provider === "scryfall" ? prints.length : 0,
+    }));
+}
+
+it("shows original, saved and preview art separately, even when saved art is outside the results", async () => {
+  const user = userEvent.setup();
+  mockPickerArt([original, alternate]);
+  const savedEntry = { ...entry, selectedArt: community };
+  const savedDeck = { ...deck, entries: [savedEntry] };
+  const apply = vi.fn(async (value: Deck) => value);
+  function Picker() {
+    const [current, setCurrent] = useState<Deck>(savedDeck);
+    return (
+      <ArtPicker
+        deck={current}
+        entry={current.entries[0] ?? savedEntry}
+        onSelect={vi.fn()}
+        onApply={async (value) => {
+          const result = await apply(value);
+          setCurrent(result);
+          return result;
+        }}
+      />
+    );
+  }
+  renderWithClient(<Picker />);
+  const savedTile = screen.getByRole("button", { name: /Select Creator/ });
+  expect(savedTile).toHaveAccessibleDescription("Saved, Preview");
+  const preview = await screen.findByRole("button", previewButton);
+  await user.click(preview);
+  expect(savedTile).toHaveAccessibleDescription("Saved");
+  expect(preview).toHaveAccessibleDescription("Preview");
+  expect(
+    screen.getByRole("button", { name: /Select Magic 2010/ }),
+  ).toHaveAccessibleDescription("Original");
+  expect(
+    within(screen.getByRole("region", { name: "Saved art" })).getByText(
+      "Creator",
+    ),
+  ).toBeVisible();
+  expect(
+    within(screen.getByRole("region", { name: "Original art" })).getByText(
+      "Magic 2010",
+    ),
+  ).toBeVisible();
+  expect(
+    within(screen.getByRole("region", { name: "Preview art" })).getByText(
+      "Mystical Archive",
+    ),
+  ).toBeVisible();
+  expect(apply).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Apply" }));
+  expect(preview).toHaveAccessibleDescription("Saved, Preview");
+  expect(
+    screen.queryByRole("region", { name: "Saved art" }),
+  ).not.toBeInTheDocument();
+});
+
+it.each([
+  ["entry", "4 copies in this entry", undefined],
+  ["deck", "4 copies here · 6 copies across all boards", alternate.id],
+] as const)(
+  "applies the %s scope without changing quantities or unrelated cards",
+  async (scope, impact, sideArt) => {
+    const user = userEvent.setup();
+    mockPickerArt([original, alternate]);
+    const apply = vi.fn(async (value: Deck) => value);
+    renderWithClient(
+      <ArtPicker
+        deck={pickerDeck}
+        entry={entry}
+        onSelect={vi.fn()}
+        onApply={apply}
+      />,
+    );
+    await user.click(await screen.findByRole("button", previewButton));
+    await user.selectOptions(screen.getByLabelText("Apply to"), scope);
+    const button = screen.getByRole("button", { name: "Apply" });
+    expect(button).toHaveAccessibleDescription(impact);
+    await user.click(button);
+    expect(apply.mock.calls[0]?.[0].entries).toEqual([
+      otherEntry,
+      { ...entry, selectedArt: alternate },
+      { ...sideEntry, selectedArt: sideArt ? alternate : null },
+    ]);
+  },
+);
+
+it.each([
+  ["Next card", sideEntry.id],
+  ["Previous card", otherEntry.id],
+  ["Edit art 1: Shock", otherEntry.id],
+] as const)(
+  "guards %s until the user discards the preview",
+  async (name, target) => {
+    const user = userEvent.setup();
+    mockPickerArt([original, alternate]);
+    const apply = vi.fn(async (value: Deck) => value);
+    const select = vi.fn();
+    renderWithClient(
+      <ArtPicker
+        deck={pickerDeck}
+        entry={entry}
+        onSelect={select}
+        onApply={apply}
+      />,
+    );
+    const preview = await screen.findByRole("button", previewButton);
+    await user.click(preview);
+    const nav = screen.getByRole("button", { name });
+    nav.focus();
+    await user.keyboard("{Enter}");
+    const prompt = screen.getByRole("dialog", promptName);
+    expect(select).not.toHaveBeenCalled();
+    await user.click(within(prompt).getByRole("button", { name: "Stay" }));
+    expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+    expect(preview).toHaveAttribute("aria-pressed", "true");
+    await user.click(nav);
+    await user.click(
+      within(screen.getByRole("dialog", promptName)).getByRole("button", {
+        name: "Discard",
+      }),
+    );
+    expect(select).toHaveBeenCalledExactlyOnceWith(target);
+    expect(apply).not.toHaveBeenCalled();
+  },
+);
+
+it("navigates without prompting for unchanged art and waits for Apply & next to save", async () => {
+  const user = userEvent.setup();
+  mockPickerArt([original, alternate]);
+  const select = vi.fn();
+  let finish: ((value: Deck) => void) | undefined;
+  const apply = vi.fn(
+    (_value: Deck) =>
+      new Promise<Deck>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  renderWithClient(
+    <ArtPicker
+      deck={pickerDeck}
+      entry={entry}
+      onSelect={select}
+      onApply={apply}
+    />,
+  );
+  await user.click(screen.getByRole("button", { name: "Previous card" }));
+  expect(select).toHaveBeenCalledExactlyOnceWith(otherEntry.id);
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  select.mockClear();
+  await user.click(await screen.findByRole("button", previewButton));
+  await user.click(
+    screen.getByRole("button", { name: "Edit art 2: Lightning Bolt" }),
+  );
+  expect(select).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Apply & next" }));
+  expect(apply).toHaveBeenCalledWith(
+    expect.objectContaining({
+      entries: [otherEntry, { ...entry, selectedArt: alternate }, sideEntry],
+    }),
+  );
+  expect(select).not.toHaveBeenCalled();
+  finish?.({
+    ...pickerDeck,
+    entries: [otherEntry, { ...entry, selectedArt: alternate }, sideEntry],
+  });
+  await waitFor(() =>
+    expect(select).toHaveBeenCalledExactlyOnceWith(sideEntry.id),
+  );
+  expect(screen.queryByRole("dialog", promptName)).not.toBeInTheDocument();
+});
+
+it("updates local matches without implying they are the paginated Scryfall total", async () => {
+  const user = userEvent.setup();
+  mockPickerArt().mockImplementation(async (provider, _, __, ___, page) => ({
+    items:
+      provider === "scryfall"
+        ? page === 1
+          ? [original, alternate]
+          : [{ ...alternate, id: "scryfall:third" }]
+        : [],
+    page,
+    hasMore: provider === "scryfall",
+    total: provider === "scryfall" ? 8 : 0,
+  }));
+  renderWithClient(
+    <ArtPicker
+      deck={deck}
+      entry={entry}
+      onSelect={vi.fn()}
+      onApply={vi.fn()}
+    />,
+  );
+  expect(
+    await screen.findByText(
+      "2 matches in loaded results · 2 of 8 Scryfall prints loaded",
+    ),
+  ).toBeVisible();
+  await user.type(
+    screen.getByRole("searchbox", {
+      name: "Search set, artist, creator or tag",
+    }),
+    "Finnstark",
+  );
+  expect(
+    screen.getByText(
+      "1 match in loaded results · 2 of 8 Scryfall prints loaded",
+    ),
+  ).toBeVisible();
+  await user.click(
+    screen.getByRole("button", { name: /Load more Scryfall prints/ }),
+  );
+  expect(
+    await screen.findByText(
+      "2 matches in loaded results · 3 of 8 Scryfall prints loaded",
+    ),
+  ).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "My uploads" }));
+  expect(screen.getByText("0 matches in loaded results")).toBeVisible();
 });
 
 it.each([
