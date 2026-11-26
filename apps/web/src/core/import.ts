@@ -16,6 +16,7 @@ export interface ImportIssue {
   line: number;
   input: string;
   message: string;
+  severity?: "warning";
 }
 export interface ParsedDecklist {
   entries: ImportLine[];
@@ -205,6 +206,7 @@ export function parseDecklist(input: string): ParsedDecklist {
           line,
           input: board,
           message: "Unrecognized board; imported to Mainboard",
+          severity: "warning",
         });
       add(
         {

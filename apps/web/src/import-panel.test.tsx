@@ -228,6 +228,70 @@ it("reviews a partial list by line and board, then saves without moving focus", 
   expect(onApply).toHaveBeenCalledTimes(2);
 });
 
+it.each([false, true])(
+  "shows board warnings separately from unresolved lines (mixed: %s)",
+  async (mixed) => {
+    const user = userEvent.setup();
+    const onApply = vi
+      .fn<(result: ImportResult, replace: boolean) => Promise<void>>()
+      .mockResolvedValue();
+    mockResolver();
+    render(<ImportPanel existing={0} onApply={onApply} />);
+    const status = screen.getByRole("status");
+    await user.click(screen.getByLabelText("Decklist"));
+    await user.paste(
+      `Name,Quantity,Board\n\n// Board: Custom\nNegate,1,testing Pool${mixed ? "\nLightnig Bolt,1,Deck" : ""}`,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Resolve on Scryfall" }),
+    );
+
+    const warnings = await screen.findByRole("list", {
+      name: "Imported with warnings",
+    });
+    expect(warnings).toBeVisible();
+    expect(warnings).toHaveTextContent("Line 4");
+    expect(warnings).toHaveTextContent("testing Pool");
+    expect(warnings).toHaveTextContent(
+      "Unrecognized board; imported to Mainboard",
+    );
+    expect(
+      screen.getByRole("heading", { name: "1 card resolved" }),
+    ).toHaveFocus();
+    expect(status).toHaveTextContent(
+      `1 card resolved. ${mixed ? "1 line needs" : "No lines need"} review. 1 warning.`,
+    );
+    const unresolved = screen.queryByRole("list", { name: "Unresolved lines" });
+    const guidance = screen.queryByText(
+      /correct these lines and resolve again/i,
+    );
+    if (mixed) {
+      expect(unresolved).toHaveTextContent("1 Lightnig Bolt");
+      expect(unresolved).not.toHaveTextContent("testing Pool");
+      expect(guidance).toBeVisible();
+    } else {
+      expect(unresolved).not.toBeInTheDocument();
+      expect(guidance).not.toBeInTheDocument();
+    }
+
+    await user.click(
+      screen.getByRole("button", { name: "Add 1 card to deck" }),
+    );
+    expect(status).toHaveTextContent("Saved 1 card to this deck.");
+    expect(onApply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entries: [
+          expect.objectContaining({
+            card: expect.objectContaining({ name: "Negate" }),
+            zone: "main",
+          }),
+        ],
+      }),
+      false,
+    );
+  },
+);
+
 it("keeps the save action disabled when no cards resolve", async () => {
   const user = userEvent.setup();
   mockResolver();

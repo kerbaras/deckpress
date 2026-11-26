@@ -200,6 +200,7 @@ describe("decklist import", () => {
           line: 2,
           input: board,
           message: "Unrecognized board; imported to Mainboard",
+          severity: "warning",
         },
       ]);
     },
@@ -385,6 +386,7 @@ describe("decklist import", () => {
           line: 9,
           input: "Board",
           message: "Unrecognized board; imported to Mainboard",
+          severity: "warning",
         },
         { line: 10, input: "Island", message: "Combined quantity exceeds 250" },
       ]);
