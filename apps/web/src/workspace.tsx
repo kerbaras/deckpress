@@ -313,9 +313,15 @@ function DeckWorkspace({
     void artTask.run(async () => {
       const result = artPreview?.result;
       if (!result || dirty) return;
-      await writeDeck(() =>
-        api.applyArtPreview(deck.id, deck.revision, result.previewId),
-      );
+      setArtPreview({ result });
+      try {
+        await writeDeck(() =>
+          api.applyArtPreview(deck.id, deck.revision, result.previewId),
+        );
+      } catch (error) {
+        setArtPreview({ result, error });
+        return;
+      }
       setCanUndoArt(true);
       keepArt();
       setArtStatus("Art changes applied.");
@@ -622,7 +628,7 @@ function DeckWorkspace({
         <ArtPreviewDialog
           preview={artPreview.result}
           busy={artTask.busy}
-          error={artPreview.error ?? artTask.error}
+          error={artPreview.error}
           onKeep={keepArt}
           onApply={applyArt}
         />
