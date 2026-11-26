@@ -1289,7 +1289,7 @@ function CalibrationProof({
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       role="img"
       aria-label={label}
-      fill="var(--preview-loading-text)"
+      fill="var(--invariant-preview-loading-text)"
     >
       {blank ? (
         <text x={mmToPt(3)} y={mmToPt(6)} fontSize={fittedSize(blankNote, 8.5)}>
@@ -1313,7 +1313,11 @@ function CalibrationProof({
               ? "Print at actual size (100%)."
               : "Print at 100% / actual size. Measure from line centre to line centre."}
           </text>
-          <g stroke="var(--preview-loading-text)" strokeWidth={0.5} fill="none">
+          <g
+            stroke="var(--invariant-preview-loading-text)"
+            strokeWidth={0.5}
+            fill="none"
+          >
             <path d={`M ${margin} ${ruleY} h ${mmToPt(rulerMm)}`} />
             {Array.from({ length: rulerMm / tickMm + 1 }, (_, index) => {
               const mm = index * tickMm;
