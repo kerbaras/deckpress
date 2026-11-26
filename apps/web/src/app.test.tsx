@@ -201,6 +201,19 @@ it("shows the calibration ruler hint only on jobs that included it", async () =>
   expect(hint.closest("article")).toHaveTextContent("With calibration");
 });
 
+it("shows a singular card count in the deck workspace", async () => {
+  const user = userEvent.setup();
+  const singleCardDeck = { ...deck, entries: [{ ...entry, quantity: 1 }] };
+  mockIPC((cmd) => {
+    if (cmd === "list_decks") return [singleCardDeck];
+    if (cmd === "get_deck") return singleCardDeck;
+    return [];
+  });
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  expect(await screen.findByText("1 card", { exact: true })).toBeVisible();
+});
+
 it("suggests related tokens and saves them in the tokens zone only when added", async () => {
   const tokenId = "138aacf8-01a2-4e63-a43a-e42eb1abc32c";
   const token: DeckEntry = {

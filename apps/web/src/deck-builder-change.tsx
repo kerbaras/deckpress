@@ -1,4 +1,4 @@
-import type { DeckEntry } from "./core/index.ts";
+import { type DeckEntry, formatCount } from "./core/index.ts";
 import { orderEntries } from "./deck-builder-model.ts";
 import { countCards, Modal } from "./ui.tsx";
 
@@ -18,8 +18,8 @@ export function DroppedPicksDialog({
   return (
     <Modal title="Remove picked cards?" onClose={onKeep}>
       <p>
-        {reason} Applying it removes {count} {count === 1 ? "card" : "cards"}{" "}
-        from the draft:
+        {reason} Applying it removes {formatCount(count, "card")} from the
+        draft:
       </p>
       <ul className="builder-deck builder-dropped" aria-label="Cards removed">
         {orderEntries(dropped).map((entry) => (

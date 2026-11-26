@@ -21,6 +21,7 @@ import {
   backArt,
   type Deck,
   type DeckEntry,
+  formatCount,
   frontArt,
 } from "./core/index.ts";
 import {
@@ -90,7 +91,7 @@ export function ArtPicker(props: {
 }
 
 const matchSummary = (count: number) =>
-  `${count} ${count === 1 ? "match" : "matches"} in loaded results`;
+  `${formatCount(count, "match", "matches")} in loaded results`;
 
 const normalizeTag = (tag: string) =>
   tag
@@ -286,13 +287,12 @@ function ArtSession({
   const cardCount = sameCard.reduce((sum, item) => sum + item.quantity, 0);
   const nextEntry = deck.entries[index + 1];
   const previousEntry = deck.entries[index - 1];
-  const entryCopies =
-    entry.quantity === 1 ? "1 copy" : `${entry.quantity} copies`;
+  const entryCopies = formatCount(entry.quantity, "copy", "copies");
   const impact =
     scope === "deck"
-      ? `${entryCopies} here · ${cardCount} copies across all boards`
+      ? `${entryCopies} here · ${formatCount(cardCount, "copy", "copies")} across all boards`
       : scope === "one" && entry.quantity > 1
-        ? `1 of ${entry.quantity} copies in this entry`
+        ? `1 of ${entryCopies} in this entry`
         : `${entryCopies} in this entry`;
   const preference = artPreferenceSchema.parse(
     candidate ? (personal.preferences[candidate.id] ?? {}) : {},
@@ -726,7 +726,8 @@ function ArtSession({
               {showPrints && loadedPrints < totalPrints && (
                 <>
                   {" "}
-                  · {loadedPrints} of {totalPrints} Scryfall prints loaded
+                  · {loadedPrints} of{" "}
+                  {formatCount(totalPrints, "Scryfall print")} loaded
                 </>
               )}
             </span>

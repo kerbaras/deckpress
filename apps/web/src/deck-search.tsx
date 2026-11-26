@@ -12,7 +12,7 @@ import {
   type ResolvedCards,
   searchFields,
 } from "./api.ts";
-import { type Deck, formats, type ImportLine } from "./core/index.ts";
+import { type Deck, formatCount, formats, type ImportLine } from "./core/index.ts";
 import { ImportIssueDetails, importLanguageSummary } from "./import-review.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
@@ -158,7 +158,7 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
   const subtitle = !ready
     ? sourceNames[source]
     : results.data
-      ? `${results.data.total.toLocaleString()} ${results.data.total === 1 ? "deck" : "decks"} on ${sourceNames[source]}`
+      ? `${formatCount(results.data.total, "deck")} on ${sourceNames[source]}`
       : undefined;
   return (
     <>
@@ -285,7 +285,7 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
                       <h2>{deck.name}</h2>
                       <p>
                         {deck.author && <>{deck.author} · </>}
-                        {deck.cardCount} cards
+                        {formatCount(deck.cardCount, "card")}
                         {deck.updatedAt && (
                           <> · updated {prettyDate(deck.updatedAt)}</>
                         )}
@@ -389,7 +389,7 @@ function DeckPreview({
           <span className="deck-format">{summary.format}</span>
           <ManaPips colors={summary.colorIdentity} />
           {summary.author && <span>by {summary.author}</span>}
-          <span>{summary.cardCount} cards</span>
+          <span>{formatCount(summary.cardCount, "card")}</span>
           <ExternalLink href={summary.url}>
             View on {sourceNames[summary.source]}
           </ExternalLink>
@@ -434,11 +434,14 @@ function DeckPreview({
                 <p>
                   <Eye size={15} />
                   {countCards(resolved.entries)} of{" "}
-                  {detail.data.lines.reduce(
-                    (sum, line) => sum + line.quantity,
-                    0,
+                  {formatCount(
+                    detail.data.lines.reduce(
+                      (sum, line) => sum + line.quantity,
+                      0,
+                    ),
+                    "card",
                   )}{" "}
-                  cards resolved on Scryfall
+                  resolved on Scryfall
                 </p>
                 <div className="import-issues">
                   <strong>
@@ -476,7 +479,8 @@ function DeckPreview({
                 >
                   <Import size={16} />
                   <span>
-                    Import {countCards(resolved.entries)} resolved cards
+                    Import{" "}
+                    {formatCount(countCards(resolved.entries), "resolved card")}
                   </span>
                 </button>
               ) : (

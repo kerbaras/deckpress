@@ -25,6 +25,7 @@ import {
   type Deck,
   type DeckEntry,
   deckSchema,
+  formatCount,
   formats,
   frontArt,
   mergeImport,
@@ -210,7 +211,7 @@ function DeckWorkspace({
               {deck.format}
             </span>
             <span className="mono" data-tauri-drag-region>
-              {countCards(deck.entries)} cards
+              {formatCount(countCards(deck.entries), "card")}
             </span>
           </>
         }
@@ -629,7 +630,7 @@ function DeckCards({
                 onClick={async () => {
                   if (
                     await confirmAction(
-                      `Remove all ${entry.quantity} copies of ${entry.card.name}?`,
+                      `Remove ${entry.quantity > 1 ? "all " : ""}${formatCount(entry.quantity, "copy", "copies")} of ${entry.card.name}?`,
                       "Remove",
                     )
                   )
@@ -693,8 +694,9 @@ function DeckCards({
         <span className="status-dot" />
         <div>
           <strong>
+            Art chosen for{" "}
             {countCards(deck.entries.filter((entry) => entry.selectedArt))} of{" "}
-            {countCards(deck.entries)} cards have chosen art
+            {formatCount(countCards(deck.entries), "card")}
           </strong>
           <p>
             Cards without custom art use the image they were imported with.

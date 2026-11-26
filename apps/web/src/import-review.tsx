@@ -1,11 +1,10 @@
 import { Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { ImportResult } from "./api.ts";
-import { frontArt, mpcXmlFormat, zones } from "./core/index.ts";
+import { formatCount, frontArt, mpcXmlFormat, zones } from "./core/index.ts";
 import { isEnglishFallback, languageList } from "./print-language.tsx";
 import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
 
-const plural = (count: number) => `${count} ${count === 1 ? "card" : "cards"}`;
 const printingLabel = (set: string, collectorNumber: string) =>
   [set.toUpperCase(), collectorNumber && `#${collectorNumber}`]
     .filter(Boolean)
@@ -52,11 +51,13 @@ export function saveScope(
 ) {
   if (!total)
     return "No cards resolved, so there is nothing to save. Correct the lines above and resolve again.";
+  const toSave = `${total === 1 ? "" : "these "}${formatCount(total, "card")}`;
+  const inDeck = formatCount(existing, "card");
   if (replace && existing)
-    return `Replace removes the ${plural(existing)} in this deck and saves these ${plural(total)}${mpc ? " with the MPC Autofill artwork." : ", keeping art choices for matching cards."}`;
+    return `Replace removes the ${inDeck} in this deck and saves ${toSave}${mpc ? " with the MPC Autofill artwork." : ", keeping art choices for matching cards."}`;
   if (existing)
-    return `Add saves these ${plural(total)} alongside the ${plural(existing)} already in this deck.`;
-  return `Add saves these ${plural(total)} to this deck.`;
+    return `Add saves ${toSave} alongside the ${inDeck} already in this deck.`;
+  return `Add saves ${toSave} to this deck.`;
 }
 
 export function importLanguageSummary({
@@ -69,10 +70,10 @@ export function importLanguageSummary({
   );
   return [
     skipped > 0
-      ? `No usable scan for ${skipped} ${skipped === 1 ? "printing" : "printings"}.`
+      ? `No usable scan for ${formatCount(skipped, "printing")}.`
       : "",
     fallbacks > 0
-      ? `${plural(fallbacks)} ${fallbacks === 1 ? "uses" : "use"} English fallback.`
+      ? `${formatCount(fallbacks, "card uses", "cards use")} English fallback.`
       : "",
   ]
     .filter(Boolean)
@@ -86,7 +87,7 @@ export function resolveSummary(result: ImportResult) {
     ? `${issues} ${issues === 1 ? "line needs" : "lines need"} review.`
     : "No lines need review.";
   return [
-    `${plural(countCards(result.entries))} resolved. ${review}`,
+    `${formatCount(countCards(result.entries), "card")} resolved. ${review}`,
     importLanguageSummary(result),
   ]
     .filter(Boolean)
@@ -98,7 +99,8 @@ export function importStatus(
   result: ImportResult | null,
   saved: number | null,
 ) {
-  if (saved !== null) return `Saved ${plural(saved)} to this deck.`;
+  if (saved !== null)
+    return `Saved ${formatCount(saved, "card")} to this deck.`;
   return result ? resolveSummary(result) : "";
 }
 
@@ -148,7 +150,7 @@ export function ImportReview({
       <span className="badge official">{result.format}</span>
       <h4 ref={heading} className="import-summary" tabIndex={-1}>
         <Check className="size-icon stroke-icon" />
-        {plural(total)} resolved
+        {formatCount(total, "card")} resolved
       </h4>
       {boards.length > 0 && (
         <ul className="import-boards" aria-label="Resolved cards by board">
@@ -228,8 +230,8 @@ export function ImportReview({
           : saving
             ? "Saving…"
             : replace && existing
-              ? `Replace list with ${plural(total)}`
-              : `Add ${plural(total)} to deck`}
+              ? `Replace list with ${formatCount(total, "card")}`
+              : `Add ${formatCount(total, "card")} to deck`}
       </button>
     </div>
   );
