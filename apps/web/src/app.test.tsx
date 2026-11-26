@@ -1183,10 +1183,12 @@ it.each(["pdf", "png"] as const)(
     await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
     expect(await screen.findByRole("progressbar")).toBeVisible();
     expect(create).toHaveBeenCalledTimes(1);
-    expect(
-      screen.getByRole("status", { name: "Print job announcements" }),
-    ).toHaveTextContent(
-      `${format === "png" ? "PNG export" : "Print job"} for ${deck.name} queued.`,
+    await waitFor(() =>
+      expect(
+        screen.getByRole("status", { name: "Print job announcements" }),
+      ).toHaveTextContent(
+        `${format === "png" ? "PNG export" : "Print job"} for ${deck.name} queued.`,
+      ),
     );
   },
 );
