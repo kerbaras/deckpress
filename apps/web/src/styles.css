@@ -1956,6 +1956,17 @@ dd {
   font-size: var(--type-meta);
   line-height: var(--leading-meta);
 }
+.scm-cut-warning .external-link,
+.scm-cut-warning .external-link:hover {
+  display: inline;
+  min-height: 0;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.scm-cut-warning .external-link:hover {
+  text-decoration-thickness: 2px;
+}
 .setting-row {
   display: flex;
   justify-content: space-between;

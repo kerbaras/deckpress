@@ -455,7 +455,7 @@ export function PrintSetup({
                         SCM cutting templates
                       </ExternalLink>
                     ) : (
-                      <p className="my-0 text-meta text-warning-ink">
+                      <p className="scm-cut-warning my-0 text-meta text-warning-ink">
                         No SCM cut file for this layout.{" "}
                         <ExternalLink href={scmBorderlessDocs}>
                           SCM borderless docs
