@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type { ImportResult } from "./api.ts";
 import { zones } from "./core/index.ts";
 import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
@@ -26,6 +27,24 @@ export function saveScope(total: number, existing: number, replace: boolean) {
   return `Add saves these ${plural(total)} to this deck.`;
 }
 
+/** Live-region text announcing a resolve result. */
+export function resolveSummary(result: ImportResult) {
+  const issues = result.issues.length;
+  const review = issues
+    ? `${issues} ${issues === 1 ? "line needs" : "lines need"} review.`
+    : "No lines need review.";
+  return `${plural(countCards(result.entries))} resolved. ${review}`;
+}
+
+/** Live-region text for the latest import step. */
+export function importStatus(
+  result: ImportResult | null,
+  saved: number | null,
+) {
+  if (saved !== null) return `Saved ${plural(saved)} to this deck.`;
+  return result ? resolveSummary(result) : "";
+}
+
 export function ImportReview({
   result,
   existing,
@@ -50,13 +69,17 @@ export function ImportReview({
   const total = countCards(result.entries);
   const boards = boardCounts(result.entries);
   const locked = saving || saved !== null;
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+  }, []);
   return (
     <div className="import-result">
       <span className="badge official">{result.format}</span>
-      <p>
+      <h4 ref={heading} className="import-summary" tabIndex={-1}>
         <Check size={16} />
         {plural(total)} resolved
-      </p>
+      </h4>
       {boards.length > 0 && (
         <ul className="import-boards" aria-label="Resolved cards by board">
           {boards.map((board) => (
@@ -122,9 +145,6 @@ export function ImportReview({
               ? `Replace list with ${plural(total)}`
               : `Add ${plural(total)} to deck`}
       </button>
-      <p className="import-status" role="status">
-        {saved !== null && `Saved ${plural(saved)} to this deck.`}
-      </p>
     </div>
   );
 }

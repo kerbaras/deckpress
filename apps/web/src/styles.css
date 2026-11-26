@@ -1163,7 +1163,9 @@ pre {
   flex-direction: column;
   gap: 12px;
 }
-.import-result > p {
+.import-result > .import-summary {
+  font: inherit;
+  margin: 0;
   display: flex;
   gap: 6px;
   align-items: center;
@@ -1216,11 +1218,9 @@ pre {
   color: #ececee;
 }
 .import-status {
+  margin: 0;
   font-size: 11.5px;
   color: var(--muted);
-}
-.import-status:empty {
-  display: none;
 }
 .import-url-error {
   flex-wrap: wrap;

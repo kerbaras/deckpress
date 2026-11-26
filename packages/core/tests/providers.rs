@@ -65,7 +65,9 @@ fn moxfield_refusals_point_at_the_exported_list() {
     let refused = moxfield_status_error(403).to_string();
     assert!(refused.contains("HTTP 403"), "{refused}");
     assert!(refused.contains("not a web browser"), "{refused}");
-    assert!(refused.contains("paste it here"), "{refused}");
+    assert!(refused.contains("More › Download / Export"), "{refused}");
+    assert!(refused.contains("Copy Plain Text"), "{refused}");
+    assert!(refused.contains("paste the list here"), "{refused}");
     assert!(moxfield_status_error(404).to_string().contains("public"));
     assert!(moxfield_status_error(502).to_string().contains("HTTP 502"));
 }

@@ -647,7 +647,7 @@ impl Providers {
 pub fn moxfield_status_error(status: u16) -> AppError {
     match status {
         403 => AppError::user(
-            "Moxfield refused the request (HTTP 403): it blocks apps that are not a web browser. In Moxfield, open the deck, choose More › Export, copy the plain text list and paste it here.",
+            "Moxfield refused the request (HTTP 403): it blocks apps that are not a web browser. In Moxfield, open the deck, choose More › Download / Export, click Copy Plain Text and paste the list here.",
         ),
         404 => AppError::user(
             "Moxfield could not find this deck (HTTP 404). Check that the deck is public, or paste its exported text list.",

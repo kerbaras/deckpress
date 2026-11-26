@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, type ImportResult, UrlImportError } from "./api.ts";
-import { ImportReview } from "./import-review.tsx";
+import { ImportReview, importStatus } from "./import-review.tsx";
 import { countCards, ErrorNotice, useTask } from "./ui.tsx";
 
 type Mode = "paste" | "file" | "url";
@@ -31,6 +31,7 @@ export function ImportPanel({
   const [urlError, setUrlError] = useState<string | null>(null);
   const [focusPaste, setFocusPaste] = useState(false);
   const decklist = useRef<HTMLTextAreaElement>(null);
+  const retry = useRef<HTMLButtonElement>(null);
   const task = useTask();
   const save = useTask();
   const busy = task.busy || save.busy;
@@ -48,6 +49,9 @@ export function ImportPanel({
     decklist.current?.focus();
     setFocusPaste(false);
   }, [focusPaste, mode]);
+  useEffect(() => {
+    if (urlError) retry.current?.focus();
+  }, [urlError]);
   const resolve = () =>
     void task.run(async () => {
       reset();
@@ -99,9 +103,9 @@ export function ImportPanel({
               />
             </label>
             <p className="hint">
-              Public Archidekt decks import directly. Moxfield blocks apps
-              outside the browser: use More › Export there and paste the text
-              list instead.
+              Public Archidekt decks import directly. Moxfield may block apps
+              outside the browser. If it does, use More › Download / Export ›
+              Copy Plain Text there and paste the list instead.
             </p>
           </>
         ) : (
@@ -175,7 +179,7 @@ export function ImportPanel({
               <ClipboardPaste size={15} />
               Paste exported list
             </button>
-            <button type="button" disabled={busy} onClick={resolve}>
+            <button ref={retry} type="button" disabled={busy} onClick={resolve}>
               <RotateCw size={15} />
               Retry URL
             </button>
@@ -203,6 +207,13 @@ export function ImportPanel({
           }
         />
       )}
+      <p className="import-status" role="status">
+        {saved === null && result ? (
+          <span className="sr-only">{importStatus(result, saved)}</span>
+        ) : (
+          importStatus(result, saved)
+        )}
+      </p>
     </section>
   );
 }

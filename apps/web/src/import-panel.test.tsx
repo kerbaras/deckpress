@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -7,7 +9,7 @@ import type { DeckEntry } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
 
 const refused =
-  "Moxfield refused the request (HTTP 403): it blocks apps that are not a web browser. In Moxfield, open the deck, choose More › Export, copy the plain text list and paste it here.";
+  "Moxfield refused the request (HTTP 403): it blocks apps that are not a web browser. In Moxfield, open the deck, choose More › Download / Export, click Copy Plain Text and paste the list here.";
 const url = "https://moxfield.com/decks/DYmpyOwmekecAkPnC3Tjsg";
 
 const card = (name: string, quantity: number, zone: DeckEntry["zone"]) => {
@@ -80,12 +82,15 @@ it("offers the paste fallback and a retry when a deck URL is refused", async () 
   await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent("HTTP 403");
-  expect(alert).toHaveTextContent("paste it here");
+  expect(alert).toHaveTextContent("More › Download / Export");
+  expect(alert).toHaveTextContent("Copy Plain Text");
   expect(screen.getByLabelText("Public deck URL")).toHaveValue(url);
+  expect(screen.getByRole("button", { name: "Retry URL" })).toHaveFocus();
 
-  await user.click(within(alert).getByRole("button", { name: "Retry URL" }));
+  await user.keyboard("{Enter}");
   expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 403");
   expect(calls).toBe(2);
+  expect(screen.getByRole("button", { name: "Retry URL" })).toHaveFocus();
 
   await user.click(screen.getByRole("button", { name: "Paste exported list" }));
   expect(screen.getByRole("button", { name: "Paste" })).toHaveAttribute(
@@ -111,6 +116,13 @@ it("reviews a partial list by line and board, then saves without moving focus", 
     "Deck\n4 Shock\n2 Lightnig Bolt\n\nSideboard\n2 Negate\n1 Shock",
   );
   await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+
+  expect(
+    await screen.findByRole("heading", { name: "7 cards resolved" }),
+  ).toHaveFocus();
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "7 cards resolved. 1 line needs review.",
+  );
 
   const boards = await screen.findByRole("list", {
     name: "Resolved cards by board",
@@ -183,4 +195,40 @@ it("keeps the save action disabled when no cards resolve", async () => {
   expect(
     screen.getByRole("button", { name: "Add 0 cards to deck" }),
   ).toBeDisabled();
+});
+
+it("keeps the import status region rendered before it has anything to say", async () => {
+  const user = userEvent.setup();
+  mockResolver();
+  const style = document.createElement("style");
+  style.textContent = readFileSync(
+    join(import.meta.dirname, "styles.css"),
+    "utf8",
+  );
+  document.head.append(style);
+  try {
+    render(
+      <ImportPanel
+        existing={0}
+        onApply={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    const status = screen.getByRole("status");
+    expect(status).toBeEmptyDOMElement();
+    expect(status).toBeVisible();
+
+    await user.click(screen.getByLabelText("Decklist"));
+    await user.paste("2 Shock");
+    await user.click(
+      screen.getByRole("button", { name: "Resolve on Scryfall" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Add 2 cards to deck" }),
+    );
+    expect(status).toHaveTextContent("Saved 2 cards to this deck.");
+    expect(status).toBeVisible();
+    expect(screen.getByRole("status")).toBe(status);
+  } finally {
+    style.remove();
+  }
 });
