@@ -229,7 +229,16 @@ function DeckWorkspace({
           disabled={task.busy || !dirty}
           aria-keyshortcuts="Control+S Meta+S"
           title="Save changes (Ctrl+S)"
-          onClick={() => void task.run(() => commit(deck))}
+          onClick={({ currentTarget }) =>
+            void task.run(async () => {
+              await commit(deck);
+              if (
+                document.activeElement === currentTarget ||
+                document.activeElement === document.body
+              )
+                heading.current?.focus();
+            })
+          }
         >
           <Save size={15} />
           Save changes
