@@ -137,49 +137,36 @@ function renderWithClient(
   );
 }
 
-it("announces library opening in the status mounted by the app shell", async () => {
-  const sidebarPreference = window.localStorage.getItem("deckpress.sidebar");
-  vi.useFakeTimers();
-  try {
-    window.history.replaceState(null, "", "/");
-    const decks =
-      Promise.withResolvers<Awaited<ReturnType<typeof api.decks>>>();
-    const readLibrary = vi.spyOn(api, "decks").mockImplementation(() => {
-      expect(within(getStatus()).getByRole("group")).toHaveTextContent(
-        "Opening your library…",
-      );
-      return decks.promise;
-    });
-    renderWithClient(<App />);
-    const getStatus = () =>
-      screen.getByRole("status", { name: "Library loading" });
-    const status = getStatus();
-    expect(status).toBeEmptyDOMElement();
-    expect(screen.getByText("Opening your library…")).toBeVisible();
-    expect(readLibrary).not.toHaveBeenCalled();
+it("shows Library loading immediately as unkeyed status text", async () => {
+  const decks = Promise.withResolvers<Awaited<ReturnType<typeof api.decks>>>();
+  const readLibrary = vi.spyOn(api, "decks").mockReturnValue(decks.promise);
+  renderWithClient(<App />);
 
-    await act(() => vi.advanceTimersByTimeAsync(40));
-    const message = within(status).getByRole("group");
-    expect(message).toHaveTextContent("Opening your library…");
-    expect(readLibrary).not.toHaveBeenCalled();
-    fireEvent.keyDown(document.body, { key: "b", ctrlKey: true });
-    expect(within(status).getByRole("group")).toBe(message);
-    await act(() => vi.advanceTimersByTimeAsync(16));
-    expect(readLibrary).toHaveBeenCalledTimes(1);
+  const status = screen.getByText("Opening your library…");
+  expect(status).toBeVisible();
+  expect(status).toHaveRole("status");
+  expect(within(status).queryByRole("group")).not.toBeInTheDocument();
+  expect(readLibrary).toHaveBeenCalledTimes(1);
 
-    await act(async () => {
-      decks.resolve([deck]);
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    expect(getStatus()).toBe(status);
-    expect(status).toBeEmptyDOMElement();
-    expect(screen.getByText(deck.name, { selector: "h2" })).toBeVisible();
-  } finally {
-    if (sidebarPreference === null)
-      window.localStorage.removeItem("deckpress.sidebar");
-    else window.localStorage.setItem("deckpress.sidebar", sidebarPreference);
-    vi.useRealTimers();
-  }
+  decks.resolve([deck]);
+  await screen.findByRole("heading", { name: deck.name });
+  expect(status).not.toBeInTheDocument();
+});
+
+it("shows print-job loading immediately as unkeyed status text", async () => {
+  window.history.replaceState(null, "", "#/jobs");
+  const jobs = Promise.withResolvers<Awaited<ReturnType<typeof api.jobs>>>();
+  vi.spyOn(api, "jobs").mockReturnValue(jobs.promise);
+  renderWithClient(<App />);
+
+  const status = screen.getByText("Loading print jobs…");
+  expect(status).toBeVisible();
+  expect(status).toHaveRole("status");
+  expect(within(status).queryByRole("group")).not.toBeInTheDocument();
+
+  jobs.resolve([]);
+  await screen.findByRole("heading", { name: "No print jobs yet" });
+  expect(status).not.toBeInTheDocument();
 });
 
 it.each([22, 43, 250])(

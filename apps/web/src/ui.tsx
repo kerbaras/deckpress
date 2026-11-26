@@ -125,6 +125,15 @@ export function LoadingIndicator({ children }: { children: string }) {
   );
 }
 
+export function UnkeyedLoading({ children }: { children: string }) {
+  return (
+    <div className="loading" role="status">
+      <LoaderCircle size={19} className="spin" />
+      {children}
+    </div>
+  );
+}
+
 export const STATUS_COALESCE_MS = 50;
 
 export function StatusRegion({

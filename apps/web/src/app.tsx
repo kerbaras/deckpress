@@ -43,11 +43,10 @@ import {
 import {
   ErrorNotice,
   ExternalLink,
-  Loading,
   prettyDate,
   STATUS_COALESCE_MS,
   StatusRegion,
-  useLoadingSequence,
+  UnkeyedLoading,
   useTask,
 } from "./ui.tsx";
 import { Workspace } from "./workspace.tsx";
@@ -158,22 +157,9 @@ export function App() {
     queryFn: ({ signal }) => fetchHealth(signal),
     refetchInterval: 30_000,
   });
-  const [, deckId, printJobId] = deckRoute(route) ?? [];
-  const libraryOpen =
-    !deckId &&
-    ![
-      "jobs",
-      "settings",
-      "settings/models",
-      "sources",
-      "discover",
-      "builder",
-    ].includes(route);
-  const libraryLoad = useLoadingSequence();
   const decks = useQuery({
     queryKey: ["decks"],
     queryFn: ({ signal }) => api.decks(signal),
-    enabled: !libraryOpen || libraryLoad.start,
   });
   const jobs = useQuery({
     queryKey: ["jobs"],
@@ -282,6 +268,7 @@ export function App() {
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
   });
+  const [, deckId, printJobId] = deckRoute(route) ?? [];
   const printJob = jobs.data?.find(
     (job) => job.id === printJobId && job.deckId === deckId,
   );
@@ -337,11 +324,6 @@ export function App() {
       </StatusRegion>
       <StatusRegion label="Art editions loading">
         {editionsLoading ? "Finding editions…" : ""}
-      </StatusRegion>
-      <StatusRegion label="Library loading">
-        {libraryOpen && libraryLoad.announce && decks.isPending
-          ? "Opening your library…"
-          : ""}
       </StatusRegion>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>
@@ -510,7 +492,6 @@ export function App() {
               />
             ) : (
               <Library
-                query={decks}
                 open={(id) => void navigate(`decks/${id}`)}
                 openImported={openImportedDeck}
                 createRequest={newDeckRequest}
@@ -729,7 +710,7 @@ function PrintJobs({
           {...(query.error ? { retry: () => void query.refetch() } : {})}
         />
         {query.isPending ? (
-          <Loading>Loading print jobs…</Loading>
+          <UnkeyedLoading>Loading print jobs…</UnkeyedLoading>
         ) : !query.data?.length ? (
           <div className="empty-state">
             <Printer size={38} />

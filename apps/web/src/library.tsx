@@ -1,4 +1,4 @@
-import { type UseQueryResult, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Copy,
   Download,
@@ -26,23 +26,21 @@ import {
   ArtThumbnail,
   countCards,
   ErrorNotice,
-  LoadingIndicator,
   ManaPips,
   Modal,
   prettyDate,
   SearchField,
+  UnkeyedLoading,
   useTask,
 } from "./ui.tsx";
 
 export function Library({
-  query,
   open,
   openImported,
   createRequest = 0,
   onCreateHandled,
   onBuild,
 }: {
-  query: UseQueryResult<Deck[]>;
   open: (id: string) => void;
   openImported: (
     id: string,
@@ -56,6 +54,10 @@ export function Library({
   onBuild?: () => void;
 }) {
   const client = useQueryClient();
+  const query = useQuery({
+    queryKey: ["decks"],
+    queryFn: ({ signal }) => api.decks(signal),
+  });
   const task = useTask();
   const [search, setSearch] = useState("");
   const [format, setFormat] = useState("All");
@@ -226,7 +228,7 @@ export function Library({
           </div>
         )}
         {query.isPending ? (
-          <LoadingIndicator>Opening your library…</LoadingIndicator>
+          <UnkeyedLoading>Opening your library…</UnkeyedLoading>
         ) : decks.length === 0 && !query.isError ? (
           <FirstRun
             onCreate={() => setCreate(true)}
