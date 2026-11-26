@@ -101,21 +101,13 @@ describe("decklist import", () => {
   });
 
   it.each([
-    [
-      "normal",
-      "commanders",
-      "companions",
-      "testing Pool",
-      "Commander",
-      "commander",
-    ],
+    ["normal", "commanders", "companions", "testing Pool", "Commander"],
     [
       "lookalike custom",
       "commanders",
       "companions",
       "commanders2",
       "Commander",
-      "commander",
     ],
     [
       "mixed-case keys",
@@ -123,20 +115,18 @@ describe("decklist import", () => {
       "COMPANIONS",
       "testing Pool",
       "Commander",
-      "commander",
     ],
-    ["empty commanders", "", "companions", "testing Pool", "Deck", "main"],
+    ["empty commanders", "", "companions", "testing Pool", "Deck"],
     [
       "empty commanders with lookalike custom",
       "",
       "companions",
       "commanders2",
       "Deck",
-      "main",
     ],
   ])(
-    "imports Moxfield companions in %s boards regardless of order",
-    (_case, commanders, companions, custom, heading, zone) => {
+    "imports Moxfield companions in %s boards into the Companion zone regardless of order",
+    (_case, commanders, companions, custom, heading) => {
       const sections = [
         commanders ? `${commanders}\n1 Jori En, Ruin Diver` : "",
         `${heading}\n// Board: ${companions}\n1 Lurrus of the Dream-Den`,
@@ -159,7 +149,12 @@ describe("decklist import", () => {
         expect(
           result.entries.find(({ name }) => name === "Lurrus of the Dream-Den"),
           input,
-        ).toMatchObject({ zone });
+        ).toMatchObject({ zone: "companion" });
+        expect(
+          result.entries.find(({ name }) => name === "Lurrus of the Dream-Den")
+            ?.board,
+          input,
+        ).toBeUndefined();
         expect(
           result.entries.find(({ name }) => name === "Opt"),
           input,
@@ -332,18 +327,80 @@ describe("decklist import", () => {
     "COMPANION",
     "// Com-panions:",
     "Com–panions：",
-  ])("skips the %s heading without changing the current zone", (heading) => {
+  ])("reads cards after the %s heading into the Companion zone", (heading) => {
     const result = parseDecklist(
-      `Commander\n${heading}\n1 Lurrus of the Dream-Den\nSpirited Companion\n1 Companion`,
+      `Commander\n1 Jori En, Ruin Diver\n${heading}\n1 Lurrus of the Dream-Den\nSpirited Companion\n1 Companion\nDeck\n1 Opt`,
     );
     expect(result.entries).toMatchObject([
-      { name: "Lurrus of the Dream-Den", zone: "commander" },
-      { name: "Spirited Companion", zone: "commander" },
-      { name: "Companion", zone: "commander" },
+      { name: "Jori En, Ruin Diver", zone: "commander" },
+      { name: "Lurrus of the Dream-Den", zone: "companion" },
+      { name: "Spirited Companion", zone: "companion" },
+      { name: "Companion", zone: "companion" },
+      { name: "Opt", zone: "main" },
     ]);
-    expect(result.lines).toEqual([3, 4, 5]);
+    expect(result.entries[1]?.board).toBeUndefined();
+    expect(result.lines).toEqual([2, 4, 5, 6, 8]);
     expect(result.issues).toEqual([]);
   });
+
+  it("imports the Arena/MTGO Companion section with its printing", () => {
+    const result = parseDecklist(
+      "Companion\n1 Lurrus of the Dream-Den (IKO) 226\n\nDeck\n4 Lightning Bolt (M10) 146\n\nSideboard\n1 Negate",
+    );
+    expect(result.entries).toEqual([
+      {
+        name: "Lurrus of the Dream-Den",
+        quantity: 1,
+        zone: "companion",
+        set: "iko",
+        collectorNumber: "226",
+      },
+      expect.objectContaining({ name: "Lightning Bolt", zone: "main" }),
+      expect.objectContaining({ name: "Negate", zone: "side" }),
+    ]);
+    expect(result.issues).toEqual([]);
+  });
+
+  it.each([
+    [
+      "between sections",
+      "Commander\n1 Jori En, Ruin Diver\nCompanions\nDeck\n1 Opt",
+    ],
+    ["at the end", "Commander\n1 Jori En, Ruin Diver\nDeck\n1 Opt\nCompanion:"],
+    ["alone", "// Companions"],
+  ])("silently drops a bare Companion heading %s", (_case, input) => {
+    const result = parseDecklist(input);
+    expect(result.entries.map(({ zone }) => zone)).not.toContain("companion");
+    expect(result.issues).toEqual([]);
+  });
+
+  it.each([",", ";"])(
+    "maps CSV Companion board values and labels with %j to the Companion zone",
+    (delimiter) => {
+      const row = (...cells: string[]) => cells.join(delimiter);
+      const result = parseDecklist(
+        [
+          row("Name", "Quantity", "Board"),
+          row("Lurrus of the Dream-Den", "1", "Companions"),
+          row('"Jegantha, the Wellspring"', "1", "COMPANION"),
+          row("Opt", "1", ""),
+          "// Board: Companions",
+          row('"Kaheera, the Orphanguard"', "1", ""),
+          row("Negate", "1", "Sideboard"),
+        ].join("\r\n"),
+      );
+      expect(
+        result.entries.map(({ name, zone, board }) => [name, zone, board]),
+      ).toEqual([
+        ["Lurrus of the Dream-Den", "companion", undefined],
+        ["Jegantha, the Wellspring", "companion", undefined],
+        ["Opt", "main", undefined],
+        ["Kaheera, the Orphanguard", "companion", undefined],
+        ["Negate", "side", undefined],
+      ]);
+      expect(result.issues).toEqual([]);
+    },
+  );
 
   it.each([",", ";"])(
     "silently skips heading-only CSV with %j",

@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { StatusRegion } from "./ui.tsx";
+import { StatusRegion, zoneLabel } from "./ui.tsx";
 
 it("re-inserts changed messages or ids without replacing the live region", () => {
   const { rerender } = render(
@@ -65,4 +65,10 @@ it("announces only the message that survives the 50 ms coalescing window", () =>
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("pluralizes the Companion board label by card count", () => {
+  expect(zoneLabel("companion", 1)).toBe("Companion");
+  expect(zoneLabel("companion", 2)).toBe("Companions");
+  expect(zoneLabel("commander", 2)).toBe("Commander");
 });

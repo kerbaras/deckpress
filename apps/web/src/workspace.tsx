@@ -51,6 +51,7 @@ import {
   SearchField,
   StatusRegion,
   useTask,
+  zoneLabel,
   zoneNames,
 } from "./ui.tsx";
 
@@ -619,7 +620,7 @@ function DeckCards({
             className={key === activeBoard ? "chip active" : "chip"}
             onClick={() => setSelectedBoard(key)}
           >
-            {board ?? zoneNames[zone]}
+            {board ?? zoneLabel(zone, count)}
             <span>{count}</span>
           </button>
         ))}
@@ -727,9 +728,9 @@ function DeckCards({
                     });
                 }}
               >
-                {orderedBoards.map(([key, { zone, board }]) => (
+                {orderedBoards.map(([key, { zone, board, count }]) => (
                   <option value={key} key={key}>
-                    {board ?? zoneNames[zone]}
+                    {board ?? zoneLabel(zone, count)}
                   </option>
                 ))}
               </select>

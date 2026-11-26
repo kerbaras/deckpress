@@ -1,8 +1,11 @@
 import { expect, it } from "vitest";
 import {
   artSchema,
+  type Deck,
   type DeckEntry,
+  entrySchema,
   mergeImport,
+  printableEntries,
   printSettingsSchema,
 } from "./models.ts";
 
@@ -121,4 +124,19 @@ it("does not inherit non-preferred art when a localized print is imported", () =
   expect(
     mergeImport([{ ...old, requestedLanguages: ["es"] }], [incoming], false),
   ).toEqual([{ ...old, requestedLanguages: ["es"] }, incoming]);
+});
+
+it("prints companions by default like the commander and keeps them through the deck schema", () => {
+  const companion = { ...entry, zone: "companion" } satisfies DeckEntry;
+  const deck = { entries: [companion] } as unknown as Deck;
+  const settings = printSettingsSchema.parse({});
+  expect(settings.includeSideboard).toBe(false);
+  expect(printableEntries(deck, settings)).toEqual([companion]);
+  expect(
+    printableEntries(
+      { ...deck, entries: [{ ...companion, excluded: true }] },
+      settings,
+    ),
+  ).toEqual([]);
+  expect(entrySchema.parse(companion).zone).toBe("companion");
 });

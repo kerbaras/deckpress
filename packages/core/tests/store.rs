@@ -173,6 +173,30 @@ fn restores_old_and_named_board_backups_and_persists_them_in_sqlite() {
 }
 
 #[test]
+fn companion_zone_round_trips_through_json_backups_and_sqlite() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("decks.sqlite");
+    let store = Store::open(&path).unwrap();
+    let mut input = common::new_deck("Lurrus");
+    let mut companion = common::entry(common::scryfall_art(), 1);
+    companion.zone = Zone::Companion;
+    input.entries.push(companion);
+    let saved = store.create_deck(input).unwrap();
+    let json = serde_json::to_value(&saved).unwrap();
+    assert_eq!(json["entries"][0]["zone"], "companion");
+    assert!(json["entries"][0].get("board").is_none());
+    let restored = store
+        .create_deck(serde_json::from_value(json).unwrap())
+        .unwrap();
+    drop(store);
+
+    let reopened = Store::open(&path).unwrap();
+    let loaded: Deck = reopened.get("deck", &restored.id).unwrap().unwrap();
+    assert_eq!(loaded.entries[0].zone, Zone::Companion);
+    assert_eq!(loaded.entries, saved.entries);
+}
+
+#[test]
 fn rejects_decks_outside_the_ui_limits() {
     let store = Store::in_memory().unwrap();
     assert!(store.create_deck(common::new_deck("   ")).is_err());

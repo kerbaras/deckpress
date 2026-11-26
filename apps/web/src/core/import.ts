@@ -44,6 +44,9 @@ function zoneFrom(alias: string): ImportLine["zone"] | undefined {
     case "commander":
     case "commanders":
       return "commander";
+    case "companion":
+    case "companions":
+      return "companion";
     case "side":
     case "sideboard":
       return "side";
@@ -224,7 +227,12 @@ export function parseDecklist(input: string): ParsedDecklist {
       if (headingLines.has(line) || invalidLines.has(line)) return;
       const board = (row.board ?? row.zone ?? "").trim();
       const alias = boardAlias(board);
-      const zone = zoneFrom(alias);
+      const commentBoard = boards.get(line);
+      const zone =
+        zoneFrom(alias) ??
+        (!board && isCompanionHeading(boardAlias(commentBoard ?? ""))
+          ? "companion"
+          : undefined);
       if (board && !zone)
         result.issues.push({
           line,
@@ -243,7 +251,9 @@ export function parseDecklist(input: string): ParsedDecklist {
             ? zone
               ? namedMaybeBoard(board, alias)
               : board
-            : boards.get(line),
+            : zone
+              ? undefined
+              : commentBoard,
         },
         line,
         row.name ?? row.cardname ?? "",
@@ -264,9 +274,12 @@ export function parseDecklist(input: string): ParsedDecklist {
       }
       if (line.startsWith("// Board:")) {
         board = boardComment(line);
+        if (isCompanionHeading(boardAlias(board ?? ""))) {
+          zone = "companion";
+          board = undefined;
+        }
         return;
       }
-      if (isCompanionHeading(alias)) return;
       if (/^(\/\/|#)/.test(line)) return;
       const sideboard = /^SB:\s*/i.test(line);
       const clean = line.replace(/^SB:\s*/i, "").replace(/\s+\*F\*\s*$/i, "");

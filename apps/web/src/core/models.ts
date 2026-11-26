@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-export const zones = ["main", "commander", "side", "maybe", "tokens"] as const;
+export const zones = [
+  "main",
+  "commander",
+  "companion",
+  "side",
+  "maybe",
+  "tokens",
+] as const;
 export const zoneSchema = z.enum(zones);
 export const boardSchema = z.string().min(1).optional();
 export const formats = [

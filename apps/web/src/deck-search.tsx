@@ -58,6 +58,7 @@ export const fieldNames: Record<QueryField, string> = {
 };
 const zoneOrder: ImportLine["zone"][] = [
   "commander",
+  "companion",
   "main",
   "side",
   "maybe",
@@ -65,6 +66,7 @@ const zoneOrder: ImportLine["zone"][] = [
 ];
 const zoneNames: Record<ImportLine["zone"], string> = {
   commander: "Commander",
+  companion: "Companion",
   main: "Main deck",
   side: "Sideboard",
   maybe: "Maybeboard",
