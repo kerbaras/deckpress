@@ -21,6 +21,8 @@
   --danger-bg: #301e1c;
   --warning-text: #f2cd89;
   --warning-bg: #32281b;
+  --art-badge-edge: var(--invariant-proof-paper);
+  --art-badge-halo: var(--invariant-proof-ink);
   --success-text: #a8d9b6;
   --success-bg: #1b2d24;
   --info: var(--focus);
@@ -133,6 +135,8 @@
   --danger-bg: #fde9e4;
   --warning-text: #754702;
   --warning-bg: #fff1d2;
+  --art-badge-edge: var(--invariant-proof-ink);
+  --art-badge-halo: var(--invariant-proof-paper);
   --success-text: #24563a;
   --success-bg: #e5f2e9;
 }

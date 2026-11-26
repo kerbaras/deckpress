@@ -809,7 +809,7 @@ pre {
   overflow-wrap: anywhere;
 }
 .notice.warning {
-  border-color: color-mix(in srgb, var(--warning-text) 22%, var(--line-subtle));
+  border-color: var(--warning-text);
   color: var(--warning-text);
   background: var(--warning-bg);
 }
@@ -1595,8 +1595,10 @@ button.first-run-empty {
   top: 5px;
   right: 5px;
   max-width: calc(100% - 34px);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  border: 1px solid var(--art-badge-edge);
+  box-shadow: 0 0 0 1px var(--art-badge-halo);
+  white-space: normal;
+  overflow-wrap: anywhere;
   display: block;
 }
 .grid-groups {
