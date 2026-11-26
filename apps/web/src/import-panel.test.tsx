@@ -98,7 +98,9 @@ it("offers the paste fallback and a retry when a deck URL is refused", async () 
   expect(alert).toHaveTextContent("Copy Plain Text");
   expect(status).toBeEmptyDOMElement();
   expect(screen.getByLabelText("Public deck URL")).toHaveValue(url);
-  expect(screen.getByRole("button", { name: "Retry URL" })).toHaveFocus();
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Retry URL" })).toHaveFocus(),
+  );
 
   await user.keyboard("{Enter}");
   expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 403");
@@ -140,9 +142,11 @@ it("reviews a partial list by line and board, then saves without moving focus", 
   expect(status).toHaveTextContent("Resolving cards…");
   resolution.resolve();
 
-  expect(
-    await screen.findByRole("heading", { name: "7 cards resolved" }),
-  ).toHaveFocus();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("heading", { name: "7 cards resolved" }),
+    ).toHaveFocus(),
+  );
   expect(screen.getByRole("status")).toHaveTextContent(
     "7 cards resolved. 1 line needs review.",
   );
@@ -243,9 +247,11 @@ it("announces a new resolution after a previous save failed", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("Disk full");
 
   await user.click(resolve);
-  expect(
-    await screen.findByRole("heading", { name: "2 cards resolved" }),
-  ).toHaveFocus();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("heading", { name: "2 cards resolved" }),
+    ).toHaveFocus(),
+  );
   expect(screen.getByRole("status")).toHaveTextContent(
     "2 cards resolved. No lines need review.",
   );
