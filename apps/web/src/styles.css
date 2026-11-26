@@ -249,6 +249,7 @@ input[type="color"] {
 }
 :focus-visible,
 .blocker-focus:focus,
+[data-focus-return]:focus,
 label.button:has(> input.sr-only:focus-visible) {
   outline: var(--focus-width) solid var(--focus);
   outline-offset: var(--focus-offset);
@@ -3771,4 +3772,69 @@ progress::-webkit-progress-value {
   max-height: 240px;
   overflow-y: auto;
   margin-top: 12px;
+}
+.export-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.menu-anchor {
+  position: relative;
+}
+.menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  width: 300px;
+  display: grid;
+  padding: var(--space-1);
+  background: var(--panel);
+  border: 1px solid var(--line-control);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--menu-shadow);
+}
+.menu [role="menuitem"] {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 0 var(--space-2);
+  align-items: start;
+  justify-content: stretch;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  background: transparent;
+  text-align: start;
+  white-space: normal;
+}
+.menu [role="menuitem"]:hover,
+.menu [role="menuitem"]:focus {
+  background: var(--raised);
+}
+.menu [role="menuitem"]:focus {
+  outline: var(--focus-width) solid var(--focus);
+  outline-offset: calc(-1 * var(--focus-width));
+}
+.menu [role="menuitem"] > svg {
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+.menu-item-label {
+  font-weight: 600;
+}
+.menu-item-hint {
+  grid-column: 2;
+  color: var(--text-muted);
+  font-size: var(--type-meta);
+  line-height: var(--leading-meta);
+  font-weight: 400;
+}
+.menu [role="menuitem"][aria-disabled="true"] {
+  cursor: not-allowed;
+}
+.menu [role="menuitem"][aria-disabled="true"] .menu-item-label {
+  color: var(--text-muted);
+}
+.menu [role="menuitem"][aria-disabled="true"] .menu-item-label {
+  color: var(--text-muted);
+  font-weight: 500;
 }

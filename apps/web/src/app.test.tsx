@@ -610,10 +610,22 @@ it("imports an MPC Autofill order without changing image IDs and exports it thro
       contents: expect.stringContaining("<cardback>back_id</cardback>"),
     }),
   );
-  expect(
-    screen.getByRole("status", { name: "MPC Autofill XML export status" }),
-  ).toHaveTextContent("MPC Autofill XML saved.");
+  const mpcStatus = screen.getByRole("status", {
+    name: "MPC Autofill XML export status",
+  });
+  expect(mpcStatus).toHaveTextContent("MPC Autofill XML saved.");
   expect(mpcArtwork).toHaveBeenCalledTimes(2);
+  await user.click(screen.getByRole("button", { name: "Print setup" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Other exports" }),
+  );
+  await user.click(screen.getByRole("menuitem", { name: "MPC Autofill XML" }));
+  await waitFor(() => expect(saveMpcXml).toHaveBeenCalledTimes(2));
+  expect(saveMpcXml).toHaveBeenLastCalledWith({
+    destination: "/chosen/burn.xml",
+    contents: expect.stringContaining("<cardback>back_id</cardback>"),
+  });
+  expect(mpcStatus).toHaveTextContent("MPC Autofill XML saved.");
 });
 
 it("asks for an MPC back instead of opening the save dialog for a front-only deck", async () => {
@@ -1641,7 +1653,7 @@ it.each([
     "Deck editor",
     () => screen.findByRole("searchbox", { name: "Find a card" }),
   ],
-  ["Print setup", () => screen.findByRole("button", { name: "Export PNGs" })],
+  ["Print setup", () => screen.findByRole("button", { name: "Other exports" })],
   [
     "Back to decks",
     () => screen.findByRole("heading", { name: "Decks", level: 1 }),
@@ -3063,6 +3075,7 @@ it("labels only English fallback scans on each Print Preview page", async () => 
       onChange={vi.fn()}
       onSave={vi.fn()}
       onJobs={vi.fn()}
+      mpcExport={{ busy: false, run: () => {} }}
     />,
   );
   const next = screen.getByRole("button", { name: "Next page" });
@@ -3116,6 +3129,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
         onChange={setValue}
         onSave={save}
         onJobs={jobs}
+        mpcExport={{ busy: false, run: () => {} }}
       />
     );
   }
@@ -3179,7 +3193,8 @@ it("blocks an impossible sheet and exports the saved settings after correction",
     expect.objectContaining({ dpi: 300, columns: 0 }),
     "pdf",
   );
-  await user.click(screen.getByRole("button", { name: "Export PNGs" }));
+  await user.click(screen.getByRole("button", { name: "Other exports" }));
+  await user.click(screen.getByRole("menuitem", { name: "PNG ZIP" }));
   await waitFor(() => expect(jobs).toHaveBeenCalledTimes(2));
   expect(createJob).toHaveBeenLastCalledWith(
     id,
@@ -3188,7 +3203,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   );
 });
 
-it("saves a cut template by keyboard and only shows export in Free layout", async () => {
+it("saves a cut template from the Other exports menu and explains it in SCM mode", async () => {
   const user = userEvent.setup();
   const saveDialog = vi
     .fn()
@@ -3208,16 +3223,15 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
         onChange={setValue}
         onSave={async (value) => value}
         onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
       />
     );
   }
   renderWithClient(<PrintHarness />);
-  const button = screen.getByRole("button", {
-    name: "Export cut template (SVG)",
-  });
-  await user.tab();
-  expect(button).toHaveFocus();
-  await user.keyboard("{Enter}");
+  const menuButton = screen.getByRole("button", { name: "Other exports" });
+  menuButton.focus();
+  await user.keyboard("{Enter}{End}{Enter}");
+  expect(menuButton).toHaveFocus();
   expect(saveDialog).toHaveBeenCalledWith({
     options: expect.objectContaining({
       defaultPath: "Burn-cut-template.svg",
@@ -3229,7 +3243,8 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
     name: "Cut template export status",
   });
   expect(status).toBeEmptyDOMElement();
-  await user.click(button);
+  await user.click(menuButton);
+  await user.click(screen.getByRole("menuitem", { name: "SVG cut template" }));
   await waitFor(() =>
     expect(saveTemplate).toHaveBeenCalledWith({
       destination: "/chosen/burn.svg",
@@ -3247,14 +3262,22 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
   });
   await user.selectOptions(template, "a4:borderless");
   expect(template).toHaveValue("a4:borderless");
-  expect(
-    screen.queryByRole("button", { name: "Export cut template (SVG)" }),
-  ).not.toBeInTheDocument();
-  expect(screen.getByText("Use the SCM .studio3 cut template.")).toBeVisible();
+  await user.click(menuButton);
+  const svg = screen.getByRole("menuitem", { name: "SVG cut template" });
+  expect(svg).toHaveAttribute("aria-disabled", "true");
+  expect(svg).toHaveAccessibleDescription(
+    "SCM layouts use the .studio3 cut template.",
+  );
+  await user.click(svg);
+  expect(saveDialog).toHaveBeenCalledTimes(2);
+  expect(svg).toBeVisible();
+  await user.keyboard("{Escape}");
+  expect(menuButton).toHaveFocus();
   await user.selectOptions(mode, "free");
+  await user.click(menuButton);
   expect(
-    screen.getByRole("button", { name: "Export cut template (SVG)" }),
-  ).toBeVisible();
+    screen.getByRole("menuitem", { name: "SVG cut template" }),
+  ).not.toHaveAttribute("aria-disabled");
 });
 
 it("mounts the print preset status before saving", async () => {
@@ -3268,6 +3291,7 @@ it("mounts the print preset status before saving", async () => {
       onChange={vi.fn()}
       onSave={vi.fn()}
       onJobs={vi.fn()}
+      mpcExport={{ busy: false, run: () => {} }}
     />,
   );
   const status = screen.getByRole("status", {
@@ -3304,6 +3328,7 @@ it("loading an older preset does not retain the previous selection's profile id"
       onChange={change}
       onSave={vi.fn()}
       onJobs={vi.fn()}
+      mpcExport={{ busy: false, run: () => {} }}
     />,
   );
   await user.selectOptions(
@@ -3325,6 +3350,7 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
         onChange={setValue}
         onSave={async (value) => value}
         onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
       />
     );
   }
@@ -3341,9 +3367,14 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
   );
   summary.getByRole("button", { name: "Generate PDF" }).focus();
   await user.tab();
+  expect(summary.getByRole("button", { name: "Other exports" })).toHaveFocus();
+  await user.tab();
   expect(screen.getByRole("button", { name: "Next page" })).toHaveFocus();
   await user.tab({ shift: true });
+  await user.tab({ shift: true });
   expect(summary.getByRole("button", { name: "Generate PDF" })).toHaveFocus();
+  expect(summary.queryAllByRole("button", { name: /PNG|SVG|MPC/ })).toEqual([]);
+  expect(document.querySelectorAll("button.primary")).toHaveLength(1);
   const cardSize = screen.getByLabelText("Card size");
   await user.selectOptions(
     cardSize,
@@ -3419,6 +3450,7 @@ it.each([
         onChange={setValue}
         onSave={async (next) => next}
         onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
       />
     );
   }
@@ -3460,6 +3492,7 @@ it.each(["width", "height"] as const)(
           }}
           onSave={async (next) => next}
           onJobs={() => {}}
+          mpcExport={{ busy: false, run: () => {} }}
         />
       );
     }
@@ -3507,6 +3540,7 @@ it.each([
         onChange={change}
         onSave={async (value) => value}
         onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
       />,
     );
     await user.click(
@@ -3528,6 +3562,7 @@ it("moves pointer-activated blocker focus to Print and clears its ring on blur",
       onChange={vi.fn()}
       onSave={async (next) => next}
       onJobs={() => {}}
+      mpcExport={{ busy: false, run: () => {} }}
     />,
   );
   await user.click(
@@ -3558,6 +3593,7 @@ it.each(printPageCounts)(
         onChange={() => {}}
         onSave={async (value) => value}
         onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
       />,
     );
     const summary = screen.getByRole("region", { name: "Print summary" });
@@ -3638,6 +3674,7 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
         onChange={setValue}
         onSave={async () => value}
         onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
       />
     );
   }
@@ -3712,6 +3749,7 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
         onChange={setValue}
         onSave={async () => value}
         onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
       />
     );
   }
@@ -3779,7 +3817,7 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
 
   await user.selectOptions(picker, "arch_b:borderless");
   expect(screen.getAllByText(/No SCM cut file for this layout/)).toHaveLength(
-    2,
+    1,
   );
   expect(screen.queryByText(/\.studio3$/)).not.toBeInTheDocument();
   expect(screen.queryByText("Cut file")).not.toBeInTheDocument();
