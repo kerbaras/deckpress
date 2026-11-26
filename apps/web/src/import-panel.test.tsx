@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import type { ImportResult } from "./api.ts";
@@ -90,7 +90,12 @@ it("offers the paste fallback and a retry when a deck URL is refused", async () 
   await user.keyboard("{Enter}");
   expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 403");
   expect(calls).toBe(2);
-  expect(screen.getByRole("button", { name: "Retry URL" })).toHaveFocus();
+  const urlInput = screen.getByLabelText("Public deck URL");
+  await waitFor(() => {
+    expect(urlInput).toBeEnabled();
+    expect(urlInput).toHaveFocus();
+  });
+  expect(urlInput).toHaveValue(url);
 
   await user.click(screen.getByRole("button", { name: "Paste exported list" }));
   expect(screen.getByRole("button", { name: "Paste" })).toHaveAttribute(
