@@ -61,6 +61,23 @@ describe("decklist import", () => {
     expect(result.issues).toHaveLength(1);
   });
 
+  it("reads labeled Moxfield boards without treating a custom label as a card", () => {
+    const result = parseDecklist(
+      "mainboard\n4 Lightning Bolt (m10) 146\nsideboard\n2 Negate\nDeck\n// Board: testing Pool\n1 Opt",
+    );
+    expect(result.entries).toMatchObject([
+      {
+        name: "Lightning Bolt",
+        zone: "main",
+        set: "m10",
+        collectorNumber: "146",
+      },
+      { name: "Negate", zone: "side" },
+      { name: "Opt", zone: "main" },
+    ]);
+    expect(result.issues).toEqual([]);
+  });
+
   it("reads quoted CSV names and MTGO XML without interpreting entities", () => {
     const csv = parseDecklist(
       'Name,Quantity,Set Code,Collector Number,Board\n"Atraxa, Praetors\' Voice",1,C16,28,Commander',

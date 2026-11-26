@@ -708,10 +708,19 @@ impl Providers {
                         format!("{quantity} {name}")
                     });
                 }
-                // Moxfield lists every board, even empty ones; a bare header the
-                // parser doesn't know would otherwise read as a card name.
                 if lines.len() > header {
-                    lines.insert(header, zone.clone());
+                    let normalized = zone
+                        .chars()
+                        .filter(char::is_ascii_alphabetic)
+                        .collect::<String>()
+                        .to_ascii_lowercase();
+                    let heading = match normalized.as_str() {
+                        "deck" | "main" | "mainboard" | "commander" | "commanders" | "side"
+                        | "sideboard" | "maybe" | "maybeboard" | "considering" | "token"
+                        | "tokens" => zone.clone(),
+                        _ => format!("Deck\n// Board: {zone}"),
+                    };
+                    lines.insert(header, heading);
                 }
             }
             return Ok(lines.join("\n"));

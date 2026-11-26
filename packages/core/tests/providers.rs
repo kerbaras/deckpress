@@ -77,6 +77,41 @@ fn moxfield_refusals_point_at_the_exported_list() {
 }
 
 #[tokio::test]
+async fn moxfield_import_labels_nonempty_boards() {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let key = hex::encode(Sha256::digest(
+        "https://api2.moxfield.com/v3/decks/all/exampleDecknull",
+    ));
+    store
+        .put(
+            "cache",
+            &key,
+            &serde_json::json!({
+                "boards": {
+                    "mainboard": {"cards": {"bolt": {"quantity": 4, "card": {
+                        "name": "Lightning Bolt", "set": "m10", "cn": "146"
+                    }}}},
+                    "sideboard": {"cards": {"negate": {"quantity": 2, "card": {
+                        "name": "Negate"
+                    }}}},
+                    "testing Pool": {"cards": {"opt": {"card": {"name": "Opt"}}}},
+                    "empty Board": {"cards": {}}
+                }
+            }),
+        )
+        .unwrap();
+    let text = Providers::new(store)
+        .unwrap()
+        .import_url("https://moxfield.com/decks/exampleDeck")
+        .await
+        .unwrap();
+    assert_eq!(
+        text,
+        "mainboard\n4 Lightning Bolt (m10) 146\nsideboard\n2 Negate\nDeck\n// Board: testing Pool\n1 Opt"
+    );
+}
+
+#[tokio::test]
 async fn suggests_printable_tokens_and_emblems_from_all_parts() {
     fn cache(store: &Store, ids: &[&str], cards: Vec<Value>) {
         let identifiers: Vec<_> = ids
