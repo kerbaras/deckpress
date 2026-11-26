@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { BuilderFormat, BuilderSpec } from "./api.ts";
 import { artSchema, type Card, type DeckEntry } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
+import { addCard } from "./deck-builder-model.ts";
 import { ToolbarSlotProvider } from "./titlebar.tsx";
 
 const format = (patch: Partial<BuilderFormat>): BuilderFormat => ({
@@ -29,6 +30,17 @@ const options = {
       name: "Pioneer",
       deckFormat: "Pioneer",
       description: "Cards from Return to Ravnica on.",
+    }),
+    format({
+      id: "commander",
+      name: "Commander",
+      deckFormat: "Commander",
+      deckSize: 100,
+      landTarget: 37,
+      singleton: true,
+      maxCopies: 1,
+      commander: true,
+      description: "One legend leads a singleton deck.",
     }),
   ],
   colors: [
@@ -76,6 +88,38 @@ const bolt: Card = {
   ],
 };
 
+let uuid = 0;
+const card = (name: string, colors: string[], typeLine = "Creature"): Card => {
+  const n = String(++uuid).padStart(12, "0");
+  return {
+    ...bolt,
+    id: `00000000-0000-4000-8000-${n}`,
+    oracleId: `00000000-0000-4000-9000-${n}`,
+    name,
+    typeLine,
+    colors,
+    faces: bolt.faces.map((face) => ({ ...face, id: `scryfall:${n}`, name })),
+  };
+};
+const radha = card("Radha, Heart of Keld", ["R", "G"], "Legendary Creature");
+const goreclaw = card(
+  "Goreclaw, Terror of Qal Sisma",
+  ["G"],
+  "Legendary Creature",
+);
+const swiftspear = card("Monastery Swiftspear", ["R"]);
+const suggestion = (item: Card) => ({
+  card: item,
+  score: 0.9,
+  reasons: ["Burn"],
+  role: "removal",
+  oracleText: "",
+  popularityRank: null,
+  metaDecks: 0,
+});
+/** Resolves the `builder_fill` call the test is holding open. */
+let finishFill: (entries: DeckEntry[]) => void = () => {};
+
 function summary(spec: BuilderSpec, entries: DeckEntry[]) {
   const count = entries.reduce((sum, entry) => sum + entry.quantity, 0);
   return {
@@ -110,17 +154,7 @@ beforeEach(() => {
         return options;
       case "builder_suggest":
         return {
-          items: [
-            {
-              card: bolt,
-              score: 0.9,
-              reasons: ["Burn"],
-              role: "removal",
-              oracleText: "",
-              popularityRank: null,
-              metaDecks: 0,
-            },
-          ],
+          items: [suggestion(bolt)],
           page: 1,
           hasMore: false,
           total: 1,
@@ -130,6 +164,12 @@ beforeEach(() => {
         };
       case "builder_summary":
         return summary(payload.spec, payload.entries);
+      case "builder_commanders":
+        return [suggestion(radha), suggestion(goreclaw)];
+      case "builder_fill":
+        return new Promise((resolve) => {
+          finishFill = resolve;
+        });
       default:
         throw new Error(`unexpected command ${cmd}`);
     }
@@ -274,4 +314,98 @@ it("asks before a format change clears the picks and keeps the format on cancel"
   );
   await nextTo(user, "Cards");
   expect(screen.getByText("Nothing added yet")).toBeVisible();
+});
+
+it("restores the commander when Keep follows Commander → Change", async () => {
+  const user = userEvent.setup();
+  renderBuilder();
+  await user.click(await screen.findByRole("button", { name: /^Commander/ }));
+  await user.click(screen.getByRole("button", { name: /Next/ }));
+  await user.type(
+    screen.getByRole("searchbox", { name: /Search legendary creatures/ }),
+    "ra",
+  );
+  await user.click(await screen.findByRole("button", { name: /^Radha/ }));
+  await user.click(screen.getByRole("button", { name: /Next/ }));
+  await user.click(screen.getByRole("button", { name: /^Aggro/ }));
+  await user.click(screen.getByRole("button", { name: /^Burn/ }));
+  await user.click(screen.getByRole("button", { name: /Next/ }));
+  await user.click(
+    await screen.findByRole("button", { name: "Add Lightning Bolt" }),
+  );
+  expect(deckList()).toHaveTextContent("1×Lightning Bolt");
+
+  await user.click(step("Commander"));
+  await user.click(screen.getByRole("button", { name: "Change" }));
+  await user.click(await screen.findByRole("button", { name: /^Goreclaw/ }));
+  const dialog = screen.getByRole("dialog", { name: "Remove picked cards?" });
+  expect(within(dialog).getByText(/outside Goreclaw/)).toBeVisible();
+  expect(within(dialog).getByRole("listitem")).toHaveTextContent(
+    "1×Lightning Bolt",
+  );
+  await user.click(
+    within(dialog).getByRole("button", { name: "Keep current choices" }),
+  );
+  expect(screen.getByText(/Commander:/)).toHaveTextContent(
+    "Commander: Radha, Heart of Keld",
+  );
+  expect(screen.getByRole("button", { name: /Next/ })).toBeEnabled();
+  await nextTo(user, "Cards");
+  expect(deckList()).toHaveTextContent("1×Lightning Bolt");
+  expect(deckList()).toHaveTextContent("Radha, Heart of Keld");
+});
+
+it("ignores a fill that finishes after leaving the cards step", async () => {
+  const user = userEvent.setup();
+  await buildRedDraft(user);
+  await user.click(
+    await screen.findByRole("button", { name: /Fill remaining 58 slots/ }),
+  );
+  await user.click(step("Colours"));
+  await user.click(screen.getByRole("button", { name: /Green/ }));
+  await user.click(screen.getByRole("button", { name: /Red/ }));
+  const dialog = screen.getByRole("dialog", { name: "Remove picked cards?" });
+  await act(async () => finishFill(addCard([], swiftspear, 4)));
+  expect(
+    within(dialog)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(["2×Lightning Bolt"]);
+
+  await user.click(
+    within(dialog).getByRole("button", { name: "Keep current choices" }),
+  );
+  await nextTo(user, "Cards");
+  expect(deckList()).toHaveTextContent("2×Lightning Bolt");
+  expect(deckList()).not.toHaveTextContent("Monastery Swiftspear");
+});
+
+it("keeps Tab inside the dialog and returns focus to the control that opened it", async () => {
+  const user = userEvent.setup();
+  await buildRedDraft(user);
+  await user.click(step("Colours"));
+  const red = screen.getByRole("button", { name: /Red/ });
+  await user.click(red);
+  const dialog = screen.getByRole("dialog", { name: "Remove picked cards?" });
+  const close = within(dialog).getByRole("button", { name: "Close dialog" });
+  const apply = within(dialog).getByRole("button", { name: "Apply change" });
+
+  apply.focus();
+  await user.tab();
+  expect(close).toHaveFocus();
+  await user.tab({ shift: true });
+  expect(apply).toHaveFocus();
+
+  fireEvent(dialog, new Event("cancel", { cancelable: true }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(red).toHaveFocus();
+  expect(red).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(red);
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", {
+      name: "Keep current choices",
+    }),
+  );
+  expect(red).toHaveFocus();
 });

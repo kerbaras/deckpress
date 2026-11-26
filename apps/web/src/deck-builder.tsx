@@ -134,16 +134,20 @@ function Wizard({
   const spec = toSpec(state);
   const [pending, setPending] = useState<{
     next: WizardState;
-    dropped: DeckEntry[];
+    restore: WizardState;
   } | null>(null);
+  // Commander → Change clears the commander before the replacement is picked;
+  // keeping the current choices has to bring the cleared one back.
+  const [changing, setChanging] = useState<WizardState | null>(null);
   const apply = (next: WizardState) => {
     setEntries(fitEntries(entries, state, next));
     setState(next);
+    setChanging(state.commander && !next.commander ? state : null);
   };
   const update = (patch: Partial<WizardState>) => {
     const next = { ...state, ...patch };
-    const dropped = droppedPicks(entries, state, next);
-    if (dropped.length > 0) setPending({ next, dropped });
+    if (droppedPicks(entries, state, next).length > 0)
+      setPending({ next, restore: changing ?? state });
     else apply(next);
   };
   const picked = index > 0 || entries.length > 0 || name.trim() !== "";
@@ -289,8 +293,12 @@ function Wizard({
         {pending && (
           <DroppedPicksDialog
             reason={changeReason(state, pending.next)}
-            dropped={pending.dropped}
-            onKeep={() => setPending(null)}
+            dropped={droppedPicks(entries, state, pending.next)}
+            onKeep={() => {
+              setState(pending.restore);
+              setChanging(null);
+              setPending(null);
+            }}
             onApply={() => {
               apply(pending.next);
               setPending(null);
@@ -328,6 +336,15 @@ function CardsStage({
   const fill = useTask();
   const latest = useRef(entries);
   latest.current = entries;
+  // Leaving the cards step abandons a running fill: the wizard may change the
+  // format or colours before the response arrives.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const suggestions = useInfiniteQuery({
     queryKey: ["builder", "suggest", spec],
     queryFn: ({ pageParam, signal }) =>
@@ -360,6 +377,7 @@ function CardsStage({
   const runFill = () =>
     void fill.run(async () => {
       const added = await api.builderFill(spec, entries);
+      if (!mounted.current) return;
       if (latest.current !== entries)
         throw new Error(
           "The deck changed while filling; use Fill remaining slots again",
