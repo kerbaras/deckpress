@@ -147,6 +147,7 @@ struct ScryfallCard {
     cmc: f64,
     #[serde(default)]
     color_identity: Vec<String>,
+    image_status: Option<String>,
     image_uris: Option<ScryfallImages>,
     card_faces: Option<Vec<ScryfallFace>>,
     #[serde(default = "unknown")]
@@ -184,6 +185,14 @@ fn black() -> String {
 pub fn normalize_scryfall(value: &Value) -> AppResult<Card> {
     let card: ScryfallCard = serde_json::from_value(value.clone())
         .map_err(|error| AppError::user(format!("Unexpected Scryfall card data: {error}")))?;
+    if matches!(
+        card.image_status.as_deref(),
+        Some("placeholder" | "missing")
+    ) {
+        return Err(AppError::user(
+            "Scryfall has no usable scan for this printing",
+        ));
+    }
     let raw_faces: Vec<ScryfallFace> = match card.image_uris {
         Some(images) => vec![ScryfallFace {
             name: card.name.clone(),
@@ -658,9 +667,7 @@ impl Providers {
                     return Ok(Some(card));
                 }
             }
-            if original.is_none() {
-                return Ok(None);
-            }
+            return Ok(None);
         }
         let mut query = if let Some(card) = original {
             if uuid::Uuid::parse_str(&card.oracle_id).is_err() {

@@ -186,7 +186,11 @@ export function isEnglishFallback(entry: DeckEntry, art = frontArt(entry)) {
     requested?.length &&
       !requested.includes("en") &&
       art.language === "en" &&
-      entry.card.faces.some((face) => face.id === art.id),
+      entry.card.faces.some(
+        (face) =>
+          face.id === art.id ||
+          (face.backImageUrl && `${face.id}:back` === art.id),
+      ),
   );
 }
 

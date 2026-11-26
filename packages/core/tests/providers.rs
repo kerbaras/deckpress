@@ -186,7 +186,7 @@ fn search_url(query: &str) -> String {
 }
 
 fn recorded_providers() -> Providers {
-    let fixture: Value =
+    let mut fixture: Value =
         serde_json::from_str(include_str!("fixtures/scryfall-languages.json")).unwrap();
     let store = Arc::new(Store::in_memory().unwrap());
     record(
@@ -217,6 +217,11 @@ fn recorded_providers() -> Providers {
             &fixture[key],
         );
     }
+    let placeholder = fixture["placeholder_exact_es"].clone();
+    fixture["search_es"]["data"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, placeholder);
     for (query, key) in [
         (format!("oracleid:{BOLT} game:paper lang:es"), "search_es"),
         (
@@ -241,6 +246,7 @@ async fn check_spanish_import(providers: &Providers) {
     assert_eq!(strict.entries[1].front_art().language, "es");
     assert_eq!(strict.entries[1].card.name, "Lightning Bolt");
     assert_eq!(strict.issues.len(), 1);
+    assert_eq!(strict.issues[0].line, 2);
     assert_eq!(strict.missing_prints.len(), 1);
     assert_eq!(strict.missing_prints[0].input, "1 Black Lotus (lea) 232");
     assert_eq!(strict.missing_prints[0].languages, ["es"]);
@@ -271,6 +277,7 @@ async fn spanish_policy_and_art_search_use_recorded_scryfall_prints() {
     check_spanish_import(&providers).await;
     let art = providers.prints(BOLT, 1, 0, Some("es")).await.unwrap();
     assert_eq!(art.total, 9);
+    assert_eq!(art.items.len(), 1);
     assert_eq!(art.items[0].language, "es");
     assert!(providers
         .prints(LOTUS, 1, 0, Some("es"))
@@ -278,6 +285,70 @@ async fn spanish_policy_and_art_search_use_recorded_scryfall_prints() {
         .unwrap()
         .items
         .is_empty());
+}
+
+#[tokio::test]
+async fn unusable_exact_scan_is_skipped_in_strict_mode_and_falls_back_to_exact_english() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/scryfall-languages.json")).unwrap();
+    for status in ["placeholder", "missing"] {
+        let mut unusable = fixture["placeholder_exact_es"].clone();
+        unusable["image_status"] = json!(status);
+        assert!(normalize_scryfall(&unusable).is_err());
+        let store = Arc::new(Store::in_memory().unwrap());
+        record(
+            &store,
+            "https://api.scryfall.com/cards/collection",
+            json!({"identifiers": [{"set": "m11", "collector_number": "149"}]}),
+            &json!({"data": [fixture["usable_exact_en"]]}),
+        );
+        record(
+            &store,
+            "https://api.scryfall.com/cards/m11/149/es",
+            Value::Null,
+            &unusable,
+        );
+        record(
+            &store,
+            &search_url(&format!("oracleid:{BOLT} game:paper lang:es")),
+            Value::Null,
+            &fixture["search_es"],
+        );
+        let providers = Providers::new(store).unwrap();
+        let lines = vec![ImportLine {
+            name: "Lightning Bolt".into(),
+            set: "m11".into(),
+            collector_number: "149".into(),
+            quantity: 1,
+            zone: Zone::Main,
+        }];
+
+        providers
+            .save_print_language_preferences(preferences(&["es"], PrintLanguagePolicy::Strict))
+            .unwrap();
+        let strict = providers.resolve_import(lines.clone()).await.unwrap();
+        assert!(strict.entries.is_empty(), "{status}");
+        assert_eq!(strict.issues.len(), 1, "{status}");
+        assert_eq!(strict.issues[0].line, 1);
+        assert_eq!(strict.missing_prints[0].input, "1 Lightning Bolt (m11) 149");
+        assert_eq!(strict.missing_prints[0].languages, ["es"]);
+
+        providers
+            .save_print_language_preferences(preferences(
+                &["es"],
+                PrintLanguagePolicy::FallbackToEnglish,
+            ))
+            .unwrap();
+        let fallback = providers.resolve_import(lines).await.unwrap();
+        assert!(fallback.issues.is_empty(), "{status}");
+        assert!(fallback.missing_prints.is_empty(), "{status}");
+        assert_eq!(fallback.entries.len(), 1, "{status}");
+        let entry = &fallback.entries[0];
+        assert_eq!(entry.front_art().language, "en");
+        assert_eq!(entry.front_art().set, "m11");
+        assert_eq!(entry.front_art().collector_number, "149");
+        assert_eq!(entry.requested_languages, ["es"]);
+    }
 }
 
 #[tokio::test]

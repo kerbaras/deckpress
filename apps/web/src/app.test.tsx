@@ -1429,7 +1429,13 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
       case "resolve_cards":
         return {
           entries: [localized, fallback],
-          issues: [],
+          issues: [
+            {
+              line: 2,
+              input: "1 Time Walk",
+              message: "No printable scan found in es.",
+            },
+          ],
           missingPrints: [{ input: "1 Time Walk", languages: ["es"] }],
         };
       case "save_deck":
@@ -1440,15 +1446,27 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
   });
   window.location.hash = `#/decks/${id}`;
   renderWithClient(<App />);
-  await user.type(await screen.findByLabelText("Decklist"), "1 Lightning Bolt");
+  await user.type(
+    await screen.findByLabelText("Decklist"),
+    "1 Lightning Bolt{enter}1 Time Walk",
+  );
   await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  expect(
+    await screen.findByText("No printable scan found in es."),
+  ).toBeVisible();
+  expect(screen.getByText("Line 2")).toBeVisible();
+  expect(screen.getByText("English fallback: Black Lotus")).toBeVisible();
   await user.click(
     await screen.findByRole("button", { name: "Add 8 cards to deck" }),
   );
   expect(
     await screen.findByText("Not imported (last import): 1 Time Walk"),
   ).toBeVisible();
-  expect(screen.getByText("English fallback: Black Lotus")).toBeVisible();
+  expect(
+    within(
+      screen.getByRole("region", { name: "Missing in Spanish" }),
+    ).getByText("English fallback: Black Lotus"),
+  ).toBeVisible();
   expect(
     within(
       screen.getByRole("button", { name: "Choose art for Black Lotus" }),
@@ -1883,6 +1901,40 @@ it("intersects official provenance, labels and source resolution without inventi
       data,
     ),
   ).toEqual([community]);
+});
+
+it("labels only English fallback scans on the proof sheet", async () => {
+  const user = userEvent.setup();
+  const fallback = {
+    ...entry,
+    quantity: 1,
+    requestedLanguages: ["es"],
+    card: {
+      ...entry.card,
+      faces: [{ ...original, language: "en" }],
+    },
+  };
+  const localized = {
+    ...fallback,
+    id: "38314027-5003-49ff-aa3a-825082526106",
+    card: {
+      ...entry.card,
+      name: "Sol Ring",
+      faces: [{ ...original, language: "es" }],
+    },
+  };
+  renderWithClient(
+    <PrintSetup
+      deck={{ ...deck, entries: [fallback, localized] }}
+      onChange={vi.fn()}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+    />,
+  );
+  await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
+  const sheet = screen.getByRole("img", { name: /Print preview/ });
+  expect(within(sheet).getByText("English fallback")).toBeVisible();
+  expect(sheet).toHaveAccessibleDescription("English fallback: Lightning Bolt");
 });
 
 it("blocks an impossible sheet and exports the saved settings after correction", async () => {

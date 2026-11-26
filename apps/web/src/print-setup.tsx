@@ -38,6 +38,7 @@ import {
   sheetLabel,
 } from "./core/index.ts";
 import { DuplexCalibration } from "./duplex-calibration.tsx";
+import { isEnglishFallback } from "./print-language.tsx";
 import { ErrorNotice, ExternalLink, StatusRegion, useTask } from "./ui.tsx";
 import { UpscaleComparison } from "./upscale-comparison.tsx";
 
@@ -189,6 +190,17 @@ export function PrintSetup({
           (currentPage + 1) * layout.slots.length,
         )
       : [];
+  const pagePrints = pageCards.map((entry) => {
+    const art = back ? backArt(entry) : frontArt(entry);
+    return { entry, art, fallback: art && isEnglishFallback(entry, art) };
+  });
+  const fallbackNames = [
+    ...new Set(
+      pagePrints
+        .filter(({ fallback }) => fallback)
+        .map(({ entry }) => entry.card.name),
+    ),
+  ];
   const selectedCards = layout
     ? cards.slice(first * layout.slots.length, last * layout.slots.length)
     : [];
@@ -983,6 +995,11 @@ export function PrintSetup({
                   viewBox={`0 0 ${layout.width} ${layout.height}`}
                   role="img"
                   aria-label={`Print preview, ${sheetName}, ${layout.columns} columns by ${layout.rows} rows`}
+                  aria-description={
+                    fallbackNames.length
+                      ? `English fallback: ${fallbackNames.join(", ")}`
+                      : undefined
+                  }
                 >
                   <title>
                     Sheet {currentPage + 1} {back ? "backs" : "fronts"}, exact
@@ -993,11 +1010,10 @@ export function PrintSetup({
                     height={layout.height}
                     fill="white"
                   />
-                  {pageCards.map((entry, index) => {
+                  {pagePrints.map(({ entry, art, fallback }, index) => {
                     const raw = layout.slots[index];
                     if (!raw) return null;
                     const slot = back ? duplexSlot(raw, layout, settings) : raw;
-                    const art = back ? backArt(entry) : frontArt(entry);
                     return (
                       <g
                         key={`${entry.id}:${slot.x}:${slot.y}`}
@@ -1068,6 +1084,27 @@ export function PrintSetup({
                             strokeWidth={0.6}
                             strokeDasharray="3 2"
                           />
+                        )}
+                        {fallback && (
+                          <g>
+                            <rect
+                              x={slot.trim.x + 4}
+                              y={slot.trim.y + slot.trim.height - 18}
+                              width={69}
+                              height={14}
+                              rx={3}
+                              fill="#1a1a1a"
+                            />
+                            <text
+                              x={slot.trim.x + 8}
+                              y={slot.trim.y + slot.trim.height - 8}
+                              fill="white"
+                              fontSize={8}
+                              fontFamily="Helvetica, sans-serif"
+                            >
+                              English fallback
+                            </text>
+                          </g>
                         )}
                       </g>
                     );
