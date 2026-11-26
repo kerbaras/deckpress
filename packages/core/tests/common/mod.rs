@@ -52,6 +52,7 @@ pub fn entry(face: Art, quantity: u32) -> DeckEntry {
         selected_art: None,
         selected_back: None,
         excluded: false,
+        requested_languages: Vec::new(),
     }
 }
 
@@ -62,6 +63,7 @@ pub fn deck(quantity: u32) -> Deck {
         format: String::new(),
         notes: String::new(),
         entries: vec![entry(scryfall_art(), quantity)],
+        missing_prints: Vec::new(),
         cover_entry_id: String::new(),
         print_settings: PrintSettings::default(),
         revision: 0,
@@ -76,6 +78,7 @@ pub fn new_deck(name: &str) -> NewDeck {
         format: "Commander".into(),
         notes: String::new(),
         entries: vec![],
+        missing_prints: Vec::new(),
         cover_entry_id: String::new(),
         print_settings: PrintSettings::default(),
     }

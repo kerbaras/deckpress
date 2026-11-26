@@ -23,6 +23,11 @@ import {
   type DeckEntry,
   frontArt,
 } from "./core/index.ts";
+import {
+  languageBadge,
+  languageCode,
+  printLanguages,
+} from "./print-language.tsx";
 import { StyleMatch } from "./style-match.tsx";
 import {
   CardImage,
@@ -107,6 +112,7 @@ export function filterArt(
     dpi: number;
     favorites: boolean;
     sort: string;
+    language?: string;
   },
   data: Preferences,
 ): Art[] {
@@ -124,6 +130,7 @@ export function filterArt(
           art.artist === options.artist ||
           art.source === options.artist) &&
         (!options.tag || tags.includes(normalizeTag(options.tag))) &&
+        (!options.language || art.language === options.language) &&
         art.dpi >= options.dpi &&
         (!options.favorites || preference?.favorite) &&
         `${art.name} ${art.source} ${art.artist} ${art.set} ${art.collectorNumber} ${art.language} ${tags.join(" ")}`
@@ -184,6 +191,7 @@ function ArtSession({
   const [pendingEntry, setPendingEntry] = useState<string | null>(null);
   const scopeDescription = useId();
   const [provider, setProvider] = useState("all");
+  const [language, setLanguage] = useState(entry.requestedLanguages?.[0] ?? "");
   const [official, setOfficial] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("newest");
@@ -202,7 +210,7 @@ function ArtSession({
   });
   const personal = prefs.data ?? { preferences: {}, usage: {} };
   const prints = useInfiniteQuery({
-    queryKey: ["art", "scryfall", entry.card.oracleId, face],
+    queryKey: ["art", "scryfall", entry.card.oracleId, face, language],
     queryFn: ({ pageParam, signal }) =>
       api.art(
         "scryfall",
@@ -211,6 +219,7 @@ function ArtSession({
         face,
         pageParam,
         signal,
+        language || undefined,
       ),
     initialPageParam: 1,
     getNextPageParam: (page) => (page.hasMore ? page.page + 1 : undefined),
@@ -251,7 +260,7 @@ function ArtSession({
   ];
   const shown = filterArt(
     items,
-    { search, provider, official, sort, artist, tag, dpi, favorites },
+    { search, provider, official, sort, artist, tag, dpi, favorites, language },
     personal,
   );
   const artists = [
@@ -485,16 +494,24 @@ function ArtSession({
             <Monitor
               label="Original"
               art={original}
+              language={original && languageBadge(entry, original)}
               zoom={zoom}
               states={originalIsSaved ? ["Original", "Saved"] : ["Original"]}
             />
           )}
           {showSavedMonitor && (
-            <Monitor label="Saved" art={saved} zoom={zoom} states={["Saved"]} />
+            <Monitor
+              label="Saved"
+              art={saved}
+              language={saved && languageBadge(entry, saved)}
+              zoom={zoom}
+              states={["Saved"]}
+            />
           )}
           <Monitor
             label="Preview"
             art={candidate}
+            language={candidate && languageBadge(entry, candidate)}
             zoom={zoom}
             states={
               previewingOriginal
@@ -635,6 +652,24 @@ function ArtSession({
           </div>
           <div className="toolbar filter-toolbar">
             <label className="inline-label">
+              Language
+              <select
+                value={language}
+                onChange={(event) => {
+                  setLanguage(event.target.value);
+                  setArtist("");
+                  setTag("");
+                }}
+              >
+                <option value="">Any language</option>
+                {printLanguages.map(([code, name]) => (
+                  <option value={code} key={code}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="inline-label">
               Sort
               <select
                 aria-label="Sort art"
@@ -763,6 +798,9 @@ function ArtSession({
                           ? "Community"
                           : "Upload"}
                     </span>
+                    <span className="badge" title={languageBadge(entry, art)}>
+                      {languageCode(art.language)}
+                    </span>
                     <span className="mono muted">{art.dpi} dpi</span>
                   </div>
                   {personal.preferences[art.id]?.rating ? (
@@ -785,6 +823,7 @@ function ArtSession({
                 type="button"
                 onClick={() => {
                   setSearch("");
+                  setLanguage("");
                   setArtist("");
                   setTag("");
                   setDpi(0);
@@ -855,6 +894,7 @@ function ArtSession({
           onUploaded={(art) => {
             setCandidate(art);
             setProvider("upload");
+            setLanguage("");
             setOfficial(false);
             setUpload(false);
             void client.invalidateQueries({
@@ -940,12 +980,14 @@ function ArtStates({ states }: { states: ArtState[] }) {
 function Monitor({
   label,
   art,
+  language,
   zoom,
   states,
   children,
 }: {
   label: ArtState;
   art: Art | null;
+  language: string | null;
   zoom: number;
   states: ArtState[];
   children?: React.ReactNode;
@@ -994,7 +1036,7 @@ function Monitor({
             </div>
             <div>
               <dt>Language</dt>
-              <dd>{art?.language.toUpperCase() ?? "EN"}</dd>
+              <dd>{language ?? (art ? languageCode(art.language) : "—")}</dd>
             </div>
             <div>
               <dt>Source resolution</dt>

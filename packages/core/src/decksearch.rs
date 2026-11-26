@@ -696,7 +696,7 @@ impl DeckSearch {
     pub async fn import(&self, source: DeckSource, id: &str) -> AppResult<ResolvedCards> {
         let deck = self.detail(source, id).await?;
         check_import_limits(&deck.lines)?;
-        self.providers.resolve(deck.lines).await
+        self.providers.resolve_import(deck.lines).await
     }
 
     /// Card frequencies across the `limit` most-viewed public Archidekt decks

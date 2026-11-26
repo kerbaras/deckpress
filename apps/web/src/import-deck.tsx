@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from "react";
-import { api } from "./api.ts";
+import { api, importedDeckFields } from "./api.ts";
 import { type Deck, formats } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
 import { Modal } from "./ui.tsx";
@@ -74,7 +74,7 @@ export function ImportDeck({
               await api.createDeck({
                 name: trimmed,
                 format,
-                entries: result.entries,
+                ...importedDeckFields(result),
               }),
             );
           }}

@@ -40,6 +40,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::health,
             commands::settings,
+            commands::save_print_language,
             commands::download_model,
             commands::load_model,
             commands::begin_upscale_comparison,

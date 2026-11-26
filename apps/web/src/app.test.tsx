@@ -23,6 +23,7 @@ import {
   type PrintJob,
   printSettingsSchema,
 } from "./core/index.ts";
+import { ImportReview } from "./import-review.tsx";
 import { PrintSetup } from "./print-setup.tsx";
 import {
   applyPicks,
@@ -1442,6 +1443,279 @@ it.each([
   },
 );
 
+it("saves an ordered list of print languages and strict policy in app settings", async () => {
+  const user = userEvent.setup();
+  const save = vi
+    .spyOn(api, "savePrintLanguage")
+    .mockImplementation(async (value) => value);
+  window.location.hash = "#/settings";
+  renderWithClient(<App />);
+  await user.selectOptions(await screen.findByLabelText("First choice"), "es");
+  await user.selectOptions(screen.getByLabelText("Add a language"), "fr");
+  await user.selectOptions(
+    screen.getByLabelText("If none are available"),
+    "strict",
+  );
+  const button = screen.getByRole("button", { name: "Save print languages" });
+  await user.click(button);
+  expect(save).toHaveBeenCalledWith({
+    languages: ["es", "fr"],
+    policy: "strict",
+  });
+  await waitFor(() => expect(button).toBeDisabled());
+});
+
+it("lists skipped cards and badges English fallbacks in the saved deck", async () => {
+  const user = userEvent.setup();
+  let saved = { ...deck, entries: [] as DeckEntry[] };
+  const localized: DeckEntry = {
+    ...entry,
+    card: { ...entry.card, faces: [{ ...original, language: "es" }] },
+    requestedLanguages: ["es"],
+  };
+  const fallback: DeckEntry = {
+    ...entry,
+    id: "38314027-5003-49ff-aa3a-825082526106",
+    card: {
+      ...entry.card,
+      id: "ace130da-9914-49b3-a40c-5273bec3813d",
+      oracleId: "ace130da-9914-49b3-a40c-5273bec3813d",
+      name: "Black Lotus",
+      faces: [
+        { ...original, set: "lea", collectorNumber: "232", language: "en" },
+      ],
+    },
+    requestedLanguages: ["es"],
+  };
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [saved];
+      case "get_deck":
+        return saved;
+      case "resolve_cards":
+        return {
+          entries: [localized, fallback],
+          issues: [
+            {
+              line: 2,
+              input: "1 Time Walk (lea) 84",
+              message: "No usable scan found in es.",
+              kind: "noUsableScan",
+              printLookup: {
+                set: "lea",
+                collectorNumber: "84",
+                languages: ["es"],
+              },
+            },
+          ],
+          missingPrints: [{ input: "1 Time Walk (lea) 84", languages: ["es"] }],
+        };
+      case "save_deck":
+        saved = deckSchema.parse((args as { deck: unknown }).deck);
+        return saved;
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  window.location.hash = `#/decks/${id}`;
+  renderWithClient(<App />);
+  await user.type(
+    await screen.findByLabelText("Decklist"),
+    "1 Lightning Bolt{enter}1 Time Walk (LEA) 84",
+  );
+  await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  const skipped = within(
+    await screen.findByRole("list", { name: "Unresolved lines" }),
+  );
+  expect(skipped.getByText("1 Time Walk (lea) 84")).toBeVisible();
+  expect(skipped.getByText("No usable Spanish scan.")).toBeVisible();
+  expect(skipped.getByText("Looked up: LEA #84 (es)")).toBeVisible();
+  expect(screen.getByText("Line 2")).toBeVisible();
+  const languageSummary =
+    "No usable scan for 1 printing. 4 cards use English fallback.";
+  const announcement = screen.getByText(new RegExp(languageSummary));
+  expect(announcement.closest('[role="status"]')).toHaveAttribute(
+    "aria-atomic",
+    "true",
+  );
+  expect(
+    within(screen.getByRole("list", { name: "English fallbacks" })).getByText(
+      "Black Lotus — LEA #232 (es → en)",
+    ),
+  ).toBeVisible();
+  await user.click(
+    await screen.findByRole("button", { name: "Add 8 cards to deck" }),
+  );
+  expect(
+    await screen.findByText("Not imported (last import): 1 Time Walk (lea) 84"),
+  ).toBeVisible();
+  expect(
+    within(
+      screen.getByRole("region", { name: "Missing in Spanish" }),
+    ).getByText("English fallback: Black Lotus"),
+  ).toBeVisible();
+  expect(
+    within(
+      screen.getByRole("button", { name: "Choose art for Black Lotus" }),
+    ).getByText("English fallback"),
+  ).toBeVisible();
+  expect(
+    within(
+      screen.getByRole("button", { name: "Choose art for Lightning Bolt" }),
+    ).getByText("ES"),
+  ).toBeVisible();
+});
+
+it("distinguishes an unknown name from a name-only printing without a usable scan", async () => {
+  const user = userEvent.setup();
+  const emptyDeck = { ...deck, entries: [] };
+  mockIPC((cmd) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [emptyDeck];
+      case "get_deck":
+        return emptyDeck;
+      case "resolve_cards":
+        return {
+          entries: [],
+          issues: [
+            {
+              line: 1,
+              input: "1 Black Lotus",
+              kind: "noUsableScan",
+              message: "No usable scan found in es, la.",
+              printLookup: {
+                set: "lea",
+                collectorNumber: "232",
+                languages: ["es", "la"],
+              },
+            },
+            {
+              line: 2,
+              input: "1 Not A Card",
+              kind: "notFound",
+              message:
+                "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.",
+            },
+          ],
+          missingPrints: [{ input: "1 Black Lotus", languages: ["es", "la"] }],
+        };
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  window.location.hash = `#/decks/${id}`;
+  renderWithClient(<App />);
+  await user.type(
+    await screen.findByLabelText("Decklist"),
+    "# Main{enter}1 Black Lotus{enter}1 Not A Card",
+  );
+  await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  const skipped = within(
+    await screen.findByRole("list", { name: "Unresolved lines" }),
+  );
+  const [knownRow, unknownRow] = skipped.getAllByRole("listitem");
+  if (!knownRow || !unknownRow) throw new Error("Expected both skipped rows");
+  const known = within(knownRow);
+  const unknown = within(unknownRow);
+  expect(known.getByText("Line 2")).toBeVisible();
+  expect(known.getByText("1 Black Lotus")).toBeVisible();
+  expect(known.getByText("Looked up: LEA #232 (es / la)")).toBeVisible();
+  expect(known.getByText("No usable scan in Spanish / Latin.")).toBeVisible();
+  expect(unknown.getByText("Line 3")).toBeVisible();
+  expect(unknown.getByText("1 Not A Card")).toBeVisible();
+  expect(unknown.getByText(/Exact card or printing not found\./)).toBeVisible();
+  expect(unknown.queryByText(/Looked up:|No usable/)).not.toBeInTheDocument();
+});
+
+it("identifies which of two printings of the same card fell back before save", () => {
+  const localized = {
+    ...entry,
+    requestedLanguages: ["es"],
+    card: { ...entry.card, faces: [{ ...original, language: "es" }] },
+  };
+  const fallback = {
+    ...localized,
+    id: "38314027-5003-49ff-aa3a-825082526106",
+    card: {
+      ...entry.card,
+      id: "ace130da-9914-49b3-a40c-5273bec3813d",
+      faces: [
+        { ...original, set: "m11", collectorNumber: "149", language: "en" },
+      ],
+    },
+  };
+  renderWithClient(
+    <ImportReview
+      result={{ entries: [localized, fallback], issues: [], format: "Arena" }}
+      existing={0}
+      replace={false}
+      onReplace={vi.fn()}
+      showLines
+      saving={false}
+      saved={null}
+      saveError={null}
+      onSave={vi.fn()}
+    />,
+  );
+  const fallbacks = within(
+    screen.getByRole("list", { name: "English fallbacks" }),
+  );
+  expect(fallbacks.getByRole("listitem")).toHaveTextContent(
+    "Lightning Bolt — M11 #149 (es → en)",
+  );
+});
+
+it("filters art by language and sends the selected language to Scryfall", async () => {
+  const user = userEvent.setup();
+  const english = { ...original, language: "en" };
+  const spanish = { ...alternate, language: "es" };
+  const search = vi.spyOn(api, "art").mockImplementation(async (provider) => ({
+    items: provider === "scryfall" ? [english, spanish] : [],
+    page: 1,
+    hasMore: false,
+    total: 2,
+  }));
+  vi.spyOn(api, "uploads").mockResolvedValue([]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  renderWithClient(
+    <ArtPicker
+      deck={deck}
+      entry={entry}
+      onSelect={vi.fn()}
+      onApply={vi.fn()}
+    />,
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Language" }),
+    "es",
+  );
+  const option = await screen.findByRole("button", {
+    name: "Select Mystical Archive 42 by Anato Finnstark",
+  });
+  expect(within(option).getByText("ES")).toBeVisible();
+  expect(
+    screen.queryByRole("button", {
+      name: "Select Magic 2010 146 by Christopher Moeller",
+    }),
+  ).toBeNull();
+  expect(search).toHaveBeenCalledWith(
+    "scryfall",
+    id,
+    "Lightning Bolt",
+    0,
+    1,
+    expect.any(AbortSignal),
+    "es",
+  );
+});
+
 it("ranks the other cards against a reference art and only applies the picks the user keeps", async () => {
   const user = userEvent.setup();
   const boltId = "b4f5c8d1-0903-40be-8f8c-e9dcb5aa7241";
@@ -1817,6 +2091,63 @@ it("intersects official provenance, labels and source resolution without inventi
       data,
     ),
   ).toEqual([community]);
+});
+
+it("labels only English fallback scans on each Print Preview page", async () => {
+  const user = userEvent.setup();
+  const fallback = {
+    ...entry,
+    quantity: 1,
+    requestedLanguages: ["es"],
+    card: {
+      ...entry.card,
+      faces: [{ ...original, language: "en" }],
+    },
+  };
+  const localized = {
+    ...fallback,
+    id: "38314027-5003-49ff-aa3a-825082526106",
+    card: {
+      ...entry.card,
+      name: "Sol Ring",
+      faces: [{ ...original, language: "es" }],
+    },
+  };
+  const otherFallback = {
+    ...fallback,
+    id: "38314027-5003-49ff-aa3a-825082526107",
+    card: { ...fallback.card, name: "Black Lotus" },
+  };
+  renderWithClient(
+    <PrintSetup
+      deck={{
+        ...deck,
+        entries: [fallback, localized, otherFallback],
+        printSettings: printSettingsSchema.parse({
+          calibrationPage: true,
+          columns: 1,
+          rows: 1,
+        }),
+      }}
+      onChange={vi.fn()}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+    />,
+  );
+  const next = screen.getByRole("button", { name: "Next page" });
+  expect(screen.getByRole("img", { name: "Calibration page" })).toBeVisible();
+  expect(screen.queryByText("English fallback")).not.toBeInTheDocument();
+  await user.click(next);
+  const sheet = screen.getByRole("img", { name: /Print preview/ });
+  expect(within(sheet).getByText("English fallback")).toBeVisible();
+  expect(sheet).toHaveAccessibleDescription("English fallback: Lightning Bolt");
+  await user.click(next);
+  expect(within(sheet).queryByText("English fallback")).not.toBeInTheDocument();
+  expect(sheet).not.toHaveAccessibleDescription();
+  await user.click(next);
+  expect(within(sheet).getByText("English fallback")).toBeVisible();
+  expect(sheet).toHaveAccessibleDescription("English fallback: Black Lotus");
+  expect(next).toBeDisabled();
 });
 
 it("blocks an impossible sheet and exports the saved settings after correction", async () => {

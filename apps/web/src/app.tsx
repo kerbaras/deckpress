@@ -24,6 +24,7 @@ import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
 import { importStatus } from "./import-review.tsx";
 import { Library } from "./library.tsx";
+import { PrintLanguageSettings } from "./print-language.tsx";
 import {
   PageToolbar,
   SidebarToggle,
@@ -638,6 +639,9 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
           error={query.error ?? task.error}
           retry={() => void query.refetch()}
         />
+        {query.data && (
+          <PrintLanguageSettings saved={query.data.printLanguage} />
+        )}
         <section className="panel settings-card">
           <StatusRegion label="Model download status">
             {downloadName && download.isPending

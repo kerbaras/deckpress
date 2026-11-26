@@ -7,9 +7,6 @@ use serde::{Deserialize, Serialize};
 fn default_dpi() -> f64 {
     300.0
 }
-fn default_language() -> String {
-    "en".into()
-}
 fn default_artist() -> String {
     "Unknown".into()
 }
@@ -35,7 +32,7 @@ pub struct Art {
     pub set: String,
     #[serde(default)]
     pub collector_number: String,
-    #[serde(default = "default_language")]
+    #[serde(default)]
     pub language: String,
     #[serde(default)]
     pub released_at: String,
@@ -99,6 +96,8 @@ pub struct DeckEntry {
     pub selected_back: Option<Art>,
     #[serde(default)]
     pub excluded: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requested_languages: Vec<String>,
 }
 
 impl DeckEntry {
@@ -331,6 +330,8 @@ pub struct Deck {
     pub notes: String,
     #[serde(default)]
     pub entries: Vec<DeckEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_prints: Vec<MissingPrint>,
     #[serde(default)]
     pub cover_entry_id: String,
     #[serde(default)]
@@ -363,6 +364,8 @@ pub struct NewDeck {
     pub notes: String,
     #[serde(default)]
     pub entries: Vec<DeckEntry>,
+    #[serde(default)]
+    pub missing_prints: Vec<MissingPrint>,
     #[serde(default)]
     pub cover_entry_id: String,
     #[serde(default)]
@@ -422,12 +425,64 @@ pub struct ImportIssue {
     pub line: u32,
     pub input: String,
     pub message: String,
+    pub kind: ImportIssueKind,
+    #[serde(
+        rename = "printLookup",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub print_lookup: Option<ImportPrintLookup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportIssueKind {
+    NotFound,
+    NoUsableScan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPrintLookup {
+    pub set: String,
+    pub collector_number: String,
+    pub languages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolvedCards {
     pub entries: Vec<DeckEntry>,
     pub issues: Vec<ImportIssue>,
+    #[serde(rename = "missingPrints")]
+    pub missing_prints: Vec<MissingPrint>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MissingPrint {
+    pub input: String,
+    pub languages: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PrintLanguagePolicy {
+    Strict,
+    FallbackToEnglish,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PrintLanguagePreferences {
+    pub languages: Vec<String>,
+    pub policy: PrintLanguagePolicy,
+}
+
+impl Default for PrintLanguagePreferences {
+    fn default() -> Self {
+        Self {
+            languages: vec!["en".into()],
+            policy: PrintLanguagePolicy::FallbackToEnglish,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

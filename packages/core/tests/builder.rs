@@ -52,6 +52,7 @@ fn entry(pool: &PoolCard, quantity: u32, zone: Zone) -> DeckEntry {
         selected_art: None,
         selected_back: None,
         excluded: false,
+        requested_languages: Vec::new(),
     }
 }
 

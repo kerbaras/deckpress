@@ -13,7 +13,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, confirmAction, downloadJson, downloadMpcXml } from "./api.ts";
+import {
+  api,
+  confirmAction,
+  downloadJson,
+  downloadMpcXml,
+  importedDeckFields,
+} from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import {
   type Deck,
@@ -27,6 +33,7 @@ import {
   zones,
 } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
+import { DeckLanguageSummary, entryLanguageLabel } from "./print-language.tsx";
 import { PrintSetup } from "./print-setup.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import { TokenSuggestions } from "./token-suggestions.tsx";
@@ -295,12 +302,15 @@ function DeckWorkspace({
           <ImportPanel
             existing={countCards(deck.entries)}
             onApply={async (result, replace) => {
+              const { entries, missingPrints = [] } =
+                importedDeckFields(result);
               await commit({
                 ...deck,
                 entries:
                   result.format === mpcXmlFormat
-                    ? [...(replace ? [] : deck.entries), ...result.entries]
-                    : mergeImport(deck.entries, result.entries, replace),
+                    ? [...(replace ? [] : deck.entries), ...entries]
+                    : mergeImport(deck.entries, entries, replace),
+                missingPrints,
               });
               heading.current?.focus();
             }}
@@ -541,6 +551,7 @@ function DeckCards({
         </div>
       </div>
       <ErrorNotice error={error} />
+      <DeckLanguageSummary deck={deck} />
       {!entries.length ? (
         <div className="empty-state">
           <Image size={35} />
@@ -575,6 +586,7 @@ function DeckCards({
                 <span>
                   {entry.card.name}
                   <small>{frontArt(entry).source}</small>
+                  <span className="badge">{entryLanguageLabel(entry)}</span>
                 </span>
               </button>
               <input
@@ -655,6 +667,8 @@ function DeckCards({
                     key={entry.id}
                     className={`playing-card ${entry.selectedArt ? "custom-art" : ""} ${entry.excluded ? "excluded" : ""}`}
                     aria-label={`Choose art for ${entry.card.name}`}
+                    aria-description={entryLanguageLabel(entry)}
+                    title={entryLanguageLabel(entry)}
                     onClick={() => onArt(entry)}
                   >
                     <CardImage
@@ -662,6 +676,9 @@ function DeckCards({
                       name={entry.card.name}
                     />
                     <span className="quantity">{entry.quantity}</span>
+                    <span className="badge card-language">
+                      {entryLanguageLabel(entry)}
+                    </span>
                     {entry.excluded && (
                       <span className="card-status">Not printing</span>
                     )}

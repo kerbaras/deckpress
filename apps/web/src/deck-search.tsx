@@ -7,16 +7,13 @@ import {
   type DeckSource,
   type DeckSummary,
   type ExternalDeck,
+  importedDeckFields,
   type SearchField as QueryField,
+  type ResolvedCards,
   searchFields,
 } from "./api.ts";
-import {
-  type Deck,
-  type DeckEntry,
-  formats,
-  type ImportIssue,
-  type ImportLine,
-} from "./core/index.ts";
+import { type Deck, formats, type ImportLine } from "./core/index.ts";
+import { ImportIssueDetails, importLanguageSummary } from "./import-review.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
   CardImage,
@@ -28,6 +25,7 @@ import {
   Modal,
   prettyDate,
   SearchField,
+  StatusRegion,
   useTask,
 } from "./ui.tsx";
 
@@ -359,22 +357,17 @@ function DeckPreview({
     staleTime: 5 * 60 * 1000,
   });
   const task = useTask();
-  const [resolved, setResolved] = useState<{
-    entries: DeckEntry[];
-    issues: ImportIssue[];
-  } | null>(null);
-  const createDeck = async (deck: ExternalDeck, entries: DeckEntry[]) => {
+  const [resolved, setResolved] = useState<ResolvedCards | null>(null);
+  const createDeck = async (deck: ExternalDeck, result: ResolvedCards) => {
     const created = await api.createDeck({
       name: deck.summary.name,
       format: deckFormat(deck.summary.deckpressFormat),
-      entries,
+      ...importedDeckFields(result),
       notes: attribution(deck.summary),
     });
     await client.invalidateQueries({ queryKey: ["decks"] });
     open(created.id);
   };
-  const create = (deck: ExternalDeck, entries: DeckEntry[]) =>
-    task.run(() => createDeck(deck, entries));
   const importDeck = (deck: ExternalDeck) =>
     task.run(async () => {
       const result = await api.importExternalDeck(summary.source, summary.id);
@@ -382,11 +375,16 @@ function DeckPreview({
         setResolved(result);
         return;
       }
-      await createDeck(deck, result.entries);
+      await createDeck(deck, result);
     });
+  const importResolved = (deck: ExternalDeck, result: ResolvedCards) =>
+    task.run(() => createDeck(deck, result));
   return (
     <Modal title={summary.name} onClose={onClose} busy={task.busy}>
       <div className="discover-preview">
+        <StatusRegion label="Deck import language status">
+          {resolved ? importLanguageSummary(resolved) : ""}
+        </StatusRegion>
         <p className="discover-meta">
           <span className="deck-format">{summary.format}</span>
           <ManaPips colors={summary.colorIdentity} />
@@ -448,12 +446,14 @@ function DeckPreview({
                     {resolved.issues.length === 1 ? "line needs" : "lines need"}{" "}
                     review
                   </strong>
-                  {resolved.issues.map((issue) => (
-                    <div key={`${issue.line}-${issue.input}-${issue.message}`}>
-                      <code>{issue.input}</code>
-                      <span>{issue.message}</span>
-                    </div>
-                  ))}
+                  <ul aria-label="Unresolved lines">
+                    {resolved.issues.map((issue) => (
+                      <li key={`${issue.line}-${issue.input}-${issue.message}`}>
+                        <code>{issue.input}</code>
+                        <ImportIssueDetails issue={issue} />
+                      </li>
+                    ))}
+                  </ul>
                   <p>
                     Only resolved cards will be imported. Add the missing cards
                     from the deck editor after import.
@@ -471,7 +471,7 @@ function DeckPreview({
                   className="primary"
                   disabled={task.busy || !resolved.entries.length}
                   onClick={() =>
-                    detail.data && void create(detail.data, resolved.entries)
+                    detail.data && void importResolved(detail.data, resolved)
                   }
                 >
                   <Import size={16} />

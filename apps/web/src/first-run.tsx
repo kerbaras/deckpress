@@ -3,7 +3,7 @@ import { type ReactNode, useId, useState } from "react";
 import burnImage from "../../../docs/prototype/assets/48fcafcca79ea3dd7877c5b56f9fecb3.jpg";
 import cubeImage from "../../../docs/prototype/assets/87e0158039c89cf1bdd854a215188d1d.jpg";
 import atraxaImage from "../../../docs/prototype/assets/06140bf59bb49753e6e56092cfe63477.jpg";
-import { api } from "./api.ts";
+import { api, importedDeckFields } from "./api.ts";
 import type { Deck } from "./core/index.ts";
 import { ImportDeck } from "./import-deck.tsx";
 import { ErrorNotice, useTask } from "./ui.tsx";
@@ -57,7 +57,7 @@ export function FirstRun({
         await api.createDeck({
           name: sample.name,
           format: sample.format,
-          entries: result.entries,
+          ...importedDeckFields(result),
         }),
       );
     });

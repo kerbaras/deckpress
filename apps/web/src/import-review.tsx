@@ -1,10 +1,37 @@
 import { Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { ImportResult } from "./api.ts";
-import { mpcXmlFormat, zones } from "./core/index.ts";
+import { frontArt, mpcXmlFormat, zones } from "./core/index.ts";
+import { isEnglishFallback, languageList } from "./print-language.tsx";
 import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
 
 const plural = (count: number) => `${count} ${count === 1 ? "card" : "cards"}`;
+const printingLabel = (set: string, collectorNumber: string) =>
+  [set.toUpperCase(), collectorNumber && `#${collectorNumber}`]
+    .filter(Boolean)
+    .join(" ");
+
+export function ImportIssueDetails({
+  issue: { kind, message, printLookup },
+}: {
+  issue: ImportResult["issues"][number];
+}) {
+  if (kind !== "noUsableScan" || !printLookup) return <span>{message}</span>;
+  const languages = languageList(printLookup.languages);
+  return (
+    <>
+      <code>
+        Looked up: {printingLabel(printLookup.set, printLookup.collectorNumber)}{" "}
+        ({printLookup.languages.join(" / ")})
+      </code>
+      <span>
+        {printLookup.languages.length === 1
+          ? `No usable ${languages} scan.`
+          : `No usable scan in ${languages}.`}
+      </span>
+    </>
+  );
+}
 
 /** Card counts per board, in deck order, skipping empty boards. */
 export function boardCounts(entries: ImportResult["entries"]) {
@@ -32,13 +59,38 @@ export function saveScope(
   return `Add saves these ${plural(total)} to this deck.`;
 }
 
+export function importLanguageSummary({
+  entries,
+  missingPrints,
+}: Pick<ImportResult, "entries" | "missingPrints">) {
+  const skipped = missingPrints?.length ?? 0;
+  const fallbacks = countCards(
+    entries.filter((entry) => isEnglishFallback(entry)),
+  );
+  return [
+    skipped > 0
+      ? `No usable scan for ${skipped} ${skipped === 1 ? "printing" : "printings"}.`
+      : "",
+    fallbacks > 0
+      ? `${plural(fallbacks)} ${fallbacks === 1 ? "uses" : "use"} English fallback.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 /** Live-region text announcing a resolve result. */
 export function resolveSummary(result: ImportResult) {
   const issues = result.issues.length;
   const review = issues
     ? `${issues} ${issues === 1 ? "line needs" : "lines need"} review.`
     : "No lines need review.";
-  return `${plural(countCards(result.entries))} resolved. ${review}`;
+  return [
+    `${plural(countCards(result.entries))} resolved. ${review}`,
+    importLanguageSummary(result),
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Live-region text for the latest import step. */
@@ -73,6 +125,18 @@ export function ImportReview({
 }) {
   const total = countCards(result.entries);
   const boards = boardCounts(result.entries);
+  const fallbacks = result.entries.flatMap((entry) => {
+    const art = frontArt(entry);
+    if (!entry.requestedLanguages?.length || !isEnglishFallback(entry, art))
+      return [];
+    const printing = printingLabel(art.set, art.collectorNumber);
+    return [
+      {
+        id: entry.id,
+        label: `${entry.card.name}${printing ? ` — ${printing}` : ""} (${entry.requestedLanguages.join(" / ")} → ${art.language})`,
+      },
+    ];
+  });
   const locked = saving || saved !== null;
   const mpc = result.format === mpcXmlFormat;
   const heading = useRef<HTMLHeadingElement>(null);
@@ -96,6 +160,18 @@ export function ImportReview({
           ))}
         </ul>
       )}
+      {fallbacks.length > 0 && (
+        <div className="import-issues">
+          <strong>English fallback</strong>
+          <ul aria-label="English fallbacks">
+            {fallbacks.map(({ id, label }) => (
+              <li key={id}>
+                <code>{label}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {result.issues.length > 0 && (
         <div className="import-issues">
           <strong>
@@ -109,13 +185,15 @@ export function ImportReview({
                   <span className="import-line">Line {issue.line}</span>
                 )}
                 <code>{issue.input}</code>
-                <span>{issue.message}</span>
+                <ImportIssueDetails issue={issue} />
               </li>
             ))}
           </ul>
           <p>
-            Only resolved cards will be saved. Correct these lines and resolve
-            again to include them.
+            Only resolved cards will be saved.{" "}
+            {result.missingPrints?.length
+              ? "Correct the lines or change your print language settings, then resolve again."
+              : "Correct these lines and resolve again to include them."}
           </p>
         </div>
       )}

@@ -1448,6 +1448,15 @@ button.first-run-empty {
   background: #121316e8;
   padding: 4px 6px;
 }
+.card-language {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  max-width: calc(100% - 34px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
 .grid-groups {
   display: flex;
   flex-direction: column;

@@ -13,11 +13,11 @@ import {
   entrySchema,
   exportMpcXml,
   healthResponseSchema,
-  type ImportIssue,
   importLineSchema,
   importMpcXml,
   isMpcXml,
   jobSchema,
+  missingPrintSchema,
   mpcArtworkSchema,
   mpcXmlFormat,
   type PrinterProfileInput,
@@ -93,6 +93,11 @@ const upscalerInfoSchema = z.object({
   executionProvider: z.string(),
 });
 export type UpscalerInfo = z.infer<typeof upscalerInfoSchema>;
+const printLanguageSchema = z.object({
+  languages: z.array(z.string()).min(1),
+  policy: z.enum(["strict", "fallback-to-english"]),
+});
+export type PrintLanguagePreferences = z.infer<typeof printLanguageSchema>;
 export const settingsSchema = z.object({
   models: z.array(modelStatusSchema),
   defaultModel: z.string(),
@@ -101,6 +106,7 @@ export const settingsSchema = z.object({
   storage: z.string(),
   localOnly: z.boolean(),
   dataDir: z.string(),
+  printLanguage: printLanguageSchema.optional(),
 });
 export type Settings = z.infer<typeof settingsSchema>;
 export const preferencesSchema = z.object({
@@ -116,16 +122,41 @@ const artPageSchema = z.object({
 const resolvedSchema = z.object({
   entries: z.array(entrySchema),
   issues: z.array(
-    z.object({ line: z.number(), input: z.string(), message: z.string() }),
+    z.object({
+      line: z.number(),
+      input: z.string(),
+      message: z.string(),
+      kind: z.enum(["notFound", "noUsableScan"]).optional(),
+      printLookup: z
+        .object({
+          set: z.string(),
+          collectorNumber: z.string(),
+          languages: z.array(z.string()),
+        })
+        .optional(),
+    }),
   ),
+  missingPrints: z.array(missingPrintSchema).optional(),
 });
 /** The deck URL could not be turned into a list; the pasted list still can. */
 export class UrlImportError extends Error {}
 
+export type ResolvedCards = z.infer<typeof resolvedSchema>;
 export interface ImportResult {
   entries: z.infer<typeof entrySchema>[];
-  issues: ImportIssue[];
+  issues: ResolvedCards["issues"];
   format: string;
+  missingPrints?: ResolvedCards["missingPrints"];
+}
+
+export function importedDeckFields({
+  entries,
+  missingPrints,
+}: Pick<ImportResult, "entries" | "missingPrints">) {
+  return {
+    entries,
+    ...(missingPrints?.length ? { missingPrints } : {}),
+  };
 }
 export type Preferences = z.infer<typeof preferencesSchema>;
 const scoredArtSchema = z.object({
@@ -341,7 +372,14 @@ export const api = {
   createDeck: (
     value: Pick<Deck, "name" | "format"> &
       Partial<
-        Pick<Deck, "entries" | "notes" | "printSettings" | "coverEntryId">
+        Pick<
+          Deck,
+          | "entries"
+          | "notes"
+          | "printSettings"
+          | "coverEntryId"
+          | "missingPrints"
+        >
       >,
   ) => command("create_deck", deckSchema, { deck: value }),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
@@ -384,9 +422,12 @@ export const api = {
         (a, b) => (a.line || Infinity) - (b.line || Infinity),
       ),
       format: parsed.format,
+      missingPrints: resolved.missingPrints,
     };
   },
   settings: (_signal?: AbortSignal) => command("settings", settingsSchema),
+  savePrintLanguage: (preferences: PrintLanguagePreferences) =>
+    command("save_print_language", printLanguageSchema, { preferences }),
   downloadModel: (id: string) =>
     command("download_model", z.array(modelStatusSchema), { id }),
   loadModel: (id: string) => command("load_model", upscalerInfoSchema, { id }),
@@ -431,6 +472,7 @@ export const api = {
     face: number,
     page: number,
     _signal?: AbortSignal,
+    language?: string,
   ) =>
     command("search_art", artPageSchema, {
       provider,
@@ -438,6 +480,7 @@ export const api = {
       name,
       face,
       page,
+      language,
     }),
   /** Ranks each entry's printings against a reference illustration (beta). */
   matchArtStyle: (
