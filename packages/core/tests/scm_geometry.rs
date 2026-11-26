@@ -6,7 +6,29 @@ use deckpress_core::models::{
 };
 use serde::Deserialize;
 
+use deckpress_core::scm::effective_print_settings;
+
 const TOLERANCE_MM: f64 = 0.01;
+
+#[test]
+fn scm_effective_settings_preserve_stored_bleed_and_duplex_mode() {
+    let free = PrintSettings {
+        bleed_mm: 1.4,
+        backs: Backs::ShortEdge,
+        ..PrintSettings::default()
+    };
+    let scm = PrintSettings {
+        layout_mode: LayoutMode::Scm,
+        ..free.clone()
+    };
+    let effective = effective_print_settings(&scm).unwrap();
+    assert_eq!(
+        (effective.bleed_mm, effective.backs),
+        (0.625, Backs::LongEdge)
+    );
+    assert_eq!((scm.bleed_mm, scm.backs), (1.4, Backs::ShortEdge));
+    assert_eq!(effective_print_settings(&free).unwrap(), free);
+}
 
 // Deckpress auto-fit uses a uniform inset and does not exclude SCM's registration corners.
 const KNOWN_AUTO_GRID_MISMATCHES: [(&str, (u32, u32)); 7] = [

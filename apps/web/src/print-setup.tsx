@@ -18,6 +18,7 @@ import {
   createLayout,
   type Deck,
   duplexSlot,
+  effectivePrintSettings,
   fitSheetLabel,
   frontArt,
   MAX_SCM_BLEED_MM,
@@ -28,7 +29,6 @@ import {
   type ScmTemplate,
   scmCards,
   scmPapers,
-  scmRasterSettings,
   sheetLabel,
 } from "./core/index.ts";
 import { ErrorNotice, useTask } from "./ui.tsx";
@@ -109,7 +109,13 @@ export function PrintSetup({
   } catch (error) {
     layoutError = error;
   }
-  const effective = layout?.scm ? scmRasterSettings(settings) : settings;
+  const effective = effectivePrintSettings(settings);
+  const trimWidth = isScm
+    ? Number(effective.cardWidthMm.toFixed(2))
+    : effective.cardWidthMm;
+  const trimHeight = isScm
+    ? Number(effective.cardHeightMm.toFixed(2))
+    : effective.cardHeightMm;
   const sheetName = layout?.scm?.name ?? paperNames[settings.paper];
   const changeTemplate = (patch: Partial<ScmTemplate>) =>
     change({ scmTemplate: { ...template, ...patch } });
@@ -147,7 +153,7 @@ export function PrintSetup({
       selectedCards
         .flatMap((entry) => [
           frontArt(entry),
-          ...(settings.backs !== "none" && backArt(entry)
+          ...(effective.backs !== "none" && backArt(entry)
             ? [backArt(entry)]
             : []),
         ])
@@ -178,9 +184,8 @@ export function PrintSetup({
         </div>
         <div className="spacer" />
         <span className="mono muted">
-          Trim {settings.cardWidthMm} × {settings.cardHeightMm} mm ·{" "}
-          {selectedSheets} sheets ·{" "}
-          {selectedSheets * (settings.backs === "none" ? 1 : 2)} PDF pages
+          Trim {trimWidth} × {trimHeight} mm · {selectedSheets} sheets ·{" "}
+          {selectedSheets * (effective.backs === "none" ? 1 : 2)} PDF pages
         </span>
         <button
           type="button"
@@ -269,19 +274,11 @@ export function PrintSetup({
               Layout mode
               <select
                 value={settings.layoutMode}
-                onChange={(event) => {
-                  if (event.target.value === "scm") {
-                    change({
-                      layoutMode: "scm",
-                      bleedMm: Math.min(settings.bleedMm, MAX_SCM_BLEED_MM),
-                      ...(settings.backs === "short-edge"
-                        ? { backs: "long-edge" }
-                        : {}),
-                    });
-                  } else {
-                    change({ layoutMode: "free" });
-                  }
-                }}
+                onChange={(event) =>
+                  change({
+                    layoutMode: event.target.value === "scm" ? "scm" : "free",
+                  })
+                }
               >
                 <option value="free">Free layout</option>
                 <option value="scm">Silhouette Card Maker (SCM)</option>
@@ -716,11 +713,7 @@ export function PrintSetup({
             <label className="setting-row">
               Back pages
               <select
-                value={
-                  isScm && settings.backs === "short-edge"
-                    ? "long-edge"
-                    : settings.backs
-                }
+                value={effective.backs}
                 onChange={(event) => {
                   change({
                     backs: event.target.value as PrintSettings["backs"],
@@ -736,7 +729,7 @@ export function PrintSetup({
                 <option value="separate">All fronts, then all backs</option>
               </select>
             </label>
-            {settings.backs !== "none" && (
+            {effective.backs !== "none" && (
               <>
                 <NumberSetting
                   label="Back horizontal offset"
@@ -838,7 +831,7 @@ export function PrintSetup({
                 <button
                   type="button"
                   aria-pressed={back}
-                  disabled={settings.backs === "none"}
+                  disabled={effective.backs === "none"}
                   onClick={() => setBack(true)}
                 >
                   Backs
@@ -1010,14 +1003,7 @@ export function PrintSetup({
             <div className="proof-meta">
               <span className="mono">
                 {sheetName} · {layout?.columns ?? 0} × {layout?.rows ?? 0} ·{" "}
-                {isScm
-                  ? Number(effective.cardWidthMm.toFixed(2))
-                  : effective.cardWidthMm}{" "}
-                ×{" "}
-                {isScm
-                  ? Number(effective.cardHeightMm.toFixed(2))
-                  : effective.cardHeightMm}{" "}
-                mm
+                {trimWidth} × {trimHeight} mm
               </span>
               <label className="check-label">
                 <input
@@ -1172,7 +1158,7 @@ function PreviewImage({
   width: number;
   height: number;
 }) {
-  const effective = scmRasterSettings(settings);
+  const effective = effectivePrintSettings(settings);
   const url = previewSrc(art, {
     cardWidthMm: effective.cardWidthMm,
     cardHeightMm: effective.cardHeightMm,

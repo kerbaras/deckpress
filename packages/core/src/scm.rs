@@ -145,7 +145,19 @@ pub fn validate_template(settings: &PrintSettings) -> AppResult<()> {
     resolve(settings).map(|_| ())
 }
 
-pub fn raster_settings(settings: &PrintSettings) -> AppResult<PrintSettings> {
+pub(crate) fn effective_backs(settings: &PrintSettings) -> Backs {
+    if settings.layout_mode == LayoutMode::Scm && settings.backs == Backs::ShortEdge {
+        Backs::LongEdge
+    } else {
+        settings.backs
+    }
+}
+
+fn template_bleed_mm(settings: &PrintSettings) -> f64 {
+    settings.bleed_mm.min(MAX_BLEED_MM)
+}
+
+pub fn effective_print_settings(settings: &PrintSettings) -> AppResult<PrintSettings> {
     if settings.layout_mode != LayoutMode::Scm {
         return Ok(settings.clone());
     }
@@ -153,12 +165,8 @@ pub fn raster_settings(settings: &PrintSettings) -> AppResult<PrintSettings> {
     Ok(PrintSettings {
         card_width_mm: px_to_mm(size_px(&card.width)),
         card_height_mm: px_to_mm(size_px(&card.height)),
-        bleed_mm: settings.bleed_mm.min(MAX_BLEED_MM),
-        backs: if settings.backs == Backs::ShortEdge {
-            Backs::LongEdge
-        } else {
-            settings.backs
-        },
+        bleed_mm: template_bleed_mm(settings),
+        backs: effective_backs(settings),
         ..settings.clone()
     })
 }
@@ -266,7 +274,7 @@ pub fn create_layout(settings: &PrintSettings) -> AppResult<PrintLayout> {
     let x0 = ((wp - columns * cw - (columns - 1.0) * gap) / 2.0).round_ties_even();
     let y0 = ((hp - rows * ch - (rows - 1.0) * gap) / 2.0).round_ties_even();
     let px_to_pt = |px| mm_to_pt(px_to_mm(px));
-    let bleed = mm_to_pt(settings.bleed_mm.min(MAX_BLEED_MM));
+    let bleed = mm_to_pt(template_bleed_mm(settings));
     let mut slots = Vec::new();
     for row in 0..rows as u32 {
         for col in 0..columns as u32 {

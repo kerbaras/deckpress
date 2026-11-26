@@ -2,6 +2,18 @@ import { expect, it } from "vitest";
 import fixture from "../../../../packages/core/assets/scm/trim-rects.json";
 import { createLayout, duplexSlot } from "./layout.ts";
 import { printSettingsSchema } from "./models.ts";
+import { effectivePrintSettings } from "./scm.ts";
+
+it("derives SCM print settings without changing the saved bleed or duplex mode", () => {
+  const free = printSettingsSchema.parse({ bleedMm: 1.4, backs: "short-edge" });
+  const scm = { ...free, layoutMode: "scm" } as const;
+  expect(effectivePrintSettings(scm)).toMatchObject({
+    bleedMm: 0.625,
+    backs: "long-edge",
+  });
+  expect(scm).toMatchObject({ bleedMm: 1.4, backs: "short-edge" });
+  expect(effectivePrintSettings(free)).toEqual(free);
+});
 
 it("matches SCM trim rectangles within 0.01 mm with the template grids", () => {
   expect(fixture.layouts).toHaveLength(114);

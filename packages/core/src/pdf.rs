@@ -42,6 +42,7 @@ pub struct PrintPlan {
 
 pub fn print_plan(deck: &Deck, settings: &PrintSettings) -> AppResult<PrintPlan> {
     let layout = create_layout(settings)?;
+    let backs = scm::effective_backs(settings);
     let entries: Vec<DeckEntry> = deck
         .printable_entries(settings)
         .into_iter()
@@ -73,7 +74,7 @@ pub fn print_plan(deck: &Deck, settings: &PrintSettings) -> AppResult<PrintPlan>
             back: false,
             sheet: first + offset + 1,
         });
-        if matches!(settings.backs, Backs::LongEdge | Backs::ShortEdge) {
+        if matches!(backs, Backs::LongEdge | Backs::ShortEdge) {
             sides.push(Side {
                 entries: sheet.clone(),
                 back: true,
@@ -81,7 +82,7 @@ pub fn print_plan(deck: &Deck, settings: &PrintSettings) -> AppResult<PrintPlan>
             });
         }
     }
-    if settings.backs == Backs::Separate {
+    if backs == Backs::Separate {
         for (offset, sheet) in sheets.into_iter().enumerate() {
             sides.push(Side {
                 entries: sheet,
@@ -467,8 +468,8 @@ pub fn build_pdf(
         sides,
         total_sheets,
     } = print_plan(deck, settings)?;
-    let raster_settings = scm::raster_settings(settings)?;
-    let settings = &raster_settings;
+    let effective_settings = scm::effective_print_settings(settings)?;
+    let settings = &effective_settings;
     if settings.upscale && services.upscaler.is_none() {
         return Err(AppError::user(
             "Upscaling is enabled but no model is loaded",

@@ -41,17 +41,21 @@ const sizePx = (size: string) =>
     : mmToScmPx(sizeMm(size));
 const pxToPt = (px: number) => mmToPt((px * 25.4) / source.ppi);
 
-export function scmRasterSettings(settings: PrintSettings): PrintSettings {
+const templateBleedMm = (settings: PrintSettings) =>
+  Math.min(settings.bleedMm, MAX_SCM_BLEED_MM);
+
+export function effectivePrintSettings(settings: PrintSettings): PrintSettings {
   if (settings.layoutMode !== "scm") return settings;
-  const card = cardSizes[settings.scmTemplate.card];
-  if (!Object.hasOwn(cardSizes, settings.scmTemplate.card) || !card) {
-    throw new Error("Unknown SCM paper and card template");
-  }
+  const { card: cardId } = settings.scmTemplate;
+  const card = Object.hasOwn(cardSizes, cardId) ? cardSizes[cardId] : undefined;
   return {
     ...settings,
-    cardWidthMm: (sizePx(card.width) * 25.4) / source.ppi,
-    cardHeightMm: (sizePx(card.height) * 25.4) / source.ppi,
-    bleedMm: Math.min(settings.bleedMm, MAX_SCM_BLEED_MM),
+    ...(card && {
+      cardWidthMm: (sizePx(card.width) * 25.4) / source.ppi,
+      cardHeightMm: (sizePx(card.height) * 25.4) / source.ppi,
+    }),
+    bleedMm: templateBleedMm(settings),
+    backs: settings.backs === "short-edge" ? "long-edge" : settings.backs,
   };
 }
 
@@ -177,7 +181,7 @@ export function createScmLayout(settings: PrintSettings): PrintLayout {
   );
   const x0 = roundEven((w - columns * cw - (columns - 1) * gap) / 2);
   const y0 = roundEven((h - rows * ch - (rows - 1) * gap) / 2);
-  const bleed = mmToPt(Math.min(settings.bleedMm, MAX_SCM_BLEED_MM));
+  const bleed = mmToPt(templateBleedMm(settings));
   const slots: Slot[] = [];
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < columns; col++) {

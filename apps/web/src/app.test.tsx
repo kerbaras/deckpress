@@ -697,7 +697,14 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
 it("clamps SCM bleed visibly and previews the selected registration template", async () => {
   const user = userEvent.setup();
   function PrintHarness() {
-    const [value, setValue] = useState(deck);
+    const [value, setValue] = useState<Deck>({
+      ...deck,
+      printSettings: {
+        ...deck.printSettings,
+        bleedMm: 1.4,
+        backs: "short-edge",
+      },
+    });
     return (
       <PrintSetup
         deck={value}
@@ -714,6 +721,13 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
   );
   const bleed = screen.getByRole("spinbutton", { name: /^Bleed per side/ });
   expect(bleed).toHaveValue(0.625);
+  const backs = screen.getByRole("combobox", { name: "Back pages" });
+  expect(backs).toHaveValue("long-edge");
+  const mode = screen.getByRole("combobox", { name: "Layout mode" });
+  await user.selectOptions(mode, "free");
+  expect(bleed).toHaveValue(1.4);
+  expect(backs).toHaveValue("short-edge");
+  await user.selectOptions(mode, "scm");
   await user.clear(bleed);
   await user.type(bleed, "2");
   expect(bleed).toHaveValue(0.625);
