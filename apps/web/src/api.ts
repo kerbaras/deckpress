@@ -126,6 +126,7 @@ const resolvedSchema = z.object({
       line: z.number(),
       input: z.string(),
       message: z.string(),
+      kind: z.enum(["notFound", "noUsableScan"]).optional(),
       printLookup: z
         .object({
           set: z.string(),

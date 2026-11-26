@@ -425,12 +425,20 @@ pub struct ImportIssue {
     pub line: u32,
     pub input: String,
     pub message: String,
+    pub kind: ImportIssueKind,
     #[serde(
         rename = "printLookup",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     pub print_lookup: Option<ImportPrintLookup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ImportIssueKind {
+    NotFound,
+    NoUsableScan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

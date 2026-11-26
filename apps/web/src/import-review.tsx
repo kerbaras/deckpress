@@ -2,7 +2,7 @@ import { Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { ImportResult } from "./api.ts";
 import { frontArt, mpcXmlFormat, zones } from "./core/index.ts";
-import { isEnglishFallback } from "./print-language.tsx";
+import { isEnglishFallback, languageList } from "./print-language.tsx";
 import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
 
 const plural = (count: number) => `${count} ${count === 1 ? "card" : "cards"}`;
@@ -11,15 +11,25 @@ const printingLabel = (set: string, collectorNumber: string) =>
     .filter(Boolean)
     .join(" ");
 
-export function LookedUpPrinting({
-  printLookup,
-}: Pick<ImportResult["issues"][number], "printLookup">) {
-  if (!printLookup) return null;
+export function ImportIssueDetails({
+  issue: { kind, message, printLookup },
+}: {
+  issue: ImportResult["issues"][number];
+}) {
+  if (kind !== "noUsableScan" || !printLookup) return <span>{message}</span>;
+  const languages = languageList(printLookup.languages);
   return (
-    <code>
-      Looked up: {printingLabel(printLookup.set, printLookup.collectorNumber)} (
-      {printLookup.languages.join(" / ")})
-    </code>
+    <>
+      <code>
+        Looked up: {printingLabel(printLookup.set, printLookup.collectorNumber)}{" "}
+        ({printLookup.languages.join(" / ")})
+      </code>
+      <span>
+        {printLookup.languages.length === 1
+          ? `No usable ${languages} scan.`
+          : `No usable scan in ${languages}.`}
+      </span>
+    </>
   );
 }
 
@@ -150,8 +160,7 @@ export function ImportReview({
                   <span className="import-line">Line {issue.line}</span>
                 )}
                 <code>{issue.input}</code>
-                <LookedUpPrinting printLookup={issue.printLookup} />
-                <span>{issue.message}</span>
+                <ImportIssueDetails issue={issue} />
               </li>
             ))}
           </ul>

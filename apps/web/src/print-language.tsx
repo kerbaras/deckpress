@@ -40,7 +40,7 @@ const defaultPreferences: PrintLanguagePreferences = {
 };
 const languageNames = new Map<string, string>(printLanguages);
 export const languageCode = (code: string) => code.toUpperCase() || "Unknown";
-const languageList = (codes: string[]) =>
+export const languageList = (codes: string[]) =>
   codes
     .map((code) => languageNames.get(code) ?? languageCode(code))
     .join(" / ");

@@ -288,49 +288,70 @@ async fn spanish_policy_and_art_search_use_recorded_scryfall_prints() {
 }
 
 #[tokio::test]
-async fn strict_name_only_skip_reports_the_printing_used_for_lookup() {
+async fn strict_name_only_skips_distinguish_unknown_cards_from_unusable_scans() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/scryfall-languages.json")).unwrap();
     let store = Arc::new(Store::in_memory().unwrap());
+    let mut lotus = fixture["collection"]["data"][1].clone();
+    lotus["image_status"] = json!("placeholder");
     record(
         &store,
         "https://api.scryfall.com/cards/collection",
-        json!({"identifiers": [{"name": "Black Lotus"}]}),
-        &json!({"data": [fixture["collection"]["data"][1]]}),
+        json!({"identifiers": [{"name": "Black Lotus"}, {"name": "Not A Card"}]}),
+        &json!({"data": [lotus], "not_found": [{"name": "Not A Card"}]}),
     );
-    for language in ["es", "la"] {
-        record(
-            &store,
-            &search_url(&format!("oracleid:{LOTUS} game:paper lang:{language}")),
-            Value::Null,
-            &fixture["absent_search_es"],
-        );
+    for name in ["Black Lotus", "Not A Card"] {
+        for language in ["es", "la"] {
+            record(
+                &store,
+                &search_url(&format!("!\"{name}\" game:paper lang:{language}")),
+                Value::Null,
+                &fixture["absent_search_es"],
+            );
+        }
     }
     let providers = Providers::new(store).unwrap();
     providers
         .save_print_language_preferences(preferences(&["es", "la"], PrintLanguagePolicy::Strict))
         .unwrap();
     let result = providers
-        .resolve_import(vec![ImportLine {
-            name: "Black Lotus".into(),
-            set: String::new(),
-            collector_number: String::new(),
-            quantity: 1,
-            zone: Zone::Main,
-        }])
+        .resolve_import(
+            ["Black Lotus", "Not A Card"]
+                .into_iter()
+                .map(|name| ImportLine {
+                    name: name.into(),
+                    set: String::new(),
+                    collector_number: String::new(),
+                    quantity: 1,
+                    zone: Zone::Main,
+                })
+                .collect(),
+        )
         .await
         .unwrap();
     assert!(result.entries.is_empty());
-    assert_eq!(result.issues.len(), 1);
+    assert_eq!(result.issues.len(), 2);
     assert_eq!(
         serde_json::to_value(&result.issues[0]).unwrap(),
         json!({
             "line": 1,
             "input": "1 Black Lotus",
-            "message": "No printable scan found in es, la.",
+            "kind": "noUsableScan",
+            "message": "No usable scan found in es, la.",
             "printLookup": {"set": "lea", "collectorNumber": "232", "languages": ["es", "la"]},
         })
     );
+    assert_eq!(
+        serde_json::to_value(&result.issues[1]).unwrap(),
+        json!({
+            "line": 2,
+            "input": "1 Not A Card",
+            "kind": "notFound",
+            "message": "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.",
+        })
+    );
+    assert_eq!(result.missing_prints.len(), 1);
+    assert_eq!(result.missing_prints[0].input, "1 Black Lotus");
 }
 
 #[tokio::test]
@@ -376,6 +397,8 @@ async fn unusable_exact_scan_is_skipped_in_strict_mode_and_falls_back_to_exact_e
         assert!(strict.entries.is_empty(), "{status}");
         assert_eq!(strict.issues.len(), 1, "{status}");
         assert_eq!(strict.issues[0].line, 1);
+        let lookup = strict.issues[0].print_lookup.as_ref().unwrap();
+        assert_eq!((&*lookup.set, &*lookup.collector_number), ("m11", "149"));
         assert_eq!(strict.missing_prints[0].input, "1 Lightning Bolt (m11) 149");
         assert_eq!(strict.missing_prints[0].languages, ["es"]);
 

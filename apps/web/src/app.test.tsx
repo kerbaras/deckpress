@@ -1436,7 +1436,13 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
             {
               line: 2,
               input: "1 Time Walk (lea) 84",
-              message: "No printable scan found in es.",
+              message: "No usable scan found in es.",
+              kind: "noUsableScan",
+              printLookup: {
+                set: "lea",
+                collectorNumber: "84",
+                languages: ["es"],
+              },
             },
           ],
           missingPrints: [{ input: "1 Time Walk (lea) 84", languages: ["es"] }],
@@ -1458,7 +1464,8 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
     await screen.findByRole("list", { name: "Unresolved lines" }),
   );
   expect(skipped.getByText("1 Time Walk (lea) 84")).toBeVisible();
-  expect(skipped.getByText("No printable scan found in es.")).toBeVisible();
+  expect(skipped.getByText("No usable Spanish scan.")).toBeVisible();
+  expect(skipped.getByText("Looked up: LEA #84 (es)")).toBeVisible();
   expect(screen.getByText("Line 2")).toBeVisible();
   expect(
     within(screen.getByRole("list", { name: "English fallbacks" })).getByText(
@@ -1488,7 +1495,7 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
   ).toBeVisible();
 });
 
-it("shows the printing looked up for a name-only skipped line before save", async () => {
+it("distinguishes an unknown name from a name-only printing without a usable scan", async () => {
   const user = userEvent.setup();
   const emptyDeck = { ...deck, entries: [] };
   mockIPC((cmd) => {
@@ -1506,12 +1513,20 @@ it("shows the printing looked up for a name-only skipped line before save", asyn
             {
               line: 1,
               input: "1 Black Lotus",
-              message: "No printable scan found in es, la.",
+              kind: "noUsableScan",
+              message: "No usable scan found in es, la.",
               printLookup: {
                 set: "lea",
                 collectorNumber: "232",
                 languages: ["es", "la"],
               },
+            },
+            {
+              line: 2,
+              input: "1 Not A Card",
+              kind: "notFound",
+              message:
+                "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.",
             },
           ],
           missingPrints: [{ input: "1 Black Lotus", languages: ["es", "la"] }],
@@ -1523,15 +1538,24 @@ it("shows the printing looked up for a name-only skipped line before save", asyn
   renderWithClient(<App />);
   await user.type(
     await screen.findByLabelText("Decklist"),
-    "# Main{enter}1 Black Lotus",
+    "# Main{enter}1 Black Lotus{enter}1 Not A Card",
   );
   await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
   const skipped = within(
     await screen.findByRole("list", { name: "Unresolved lines" }),
   );
-  expect(skipped.getByText("Line 2")).toBeVisible();
-  expect(skipped.getByText("1 Black Lotus")).toBeVisible();
-  expect(skipped.getByText("Looked up: LEA #232 (es / la)")).toBeVisible();
+  const [knownRow, unknownRow] = skipped.getAllByRole("listitem");
+  if (!knownRow || !unknownRow) throw new Error("Expected both skipped rows");
+  const known = within(knownRow);
+  const unknown = within(unknownRow);
+  expect(known.getByText("Line 2")).toBeVisible();
+  expect(known.getByText("1 Black Lotus")).toBeVisible();
+  expect(known.getByText("Looked up: LEA #232 (es / la)")).toBeVisible();
+  expect(known.getByText("No usable scan in Spanish / Latin.")).toBeVisible();
+  expect(unknown.getByText("Line 3")).toBeVisible();
+  expect(unknown.getByText("1 Not A Card")).toBeVisible();
+  expect(unknown.getByText(/Exact card or printing not found\./)).toBeVisible();
+  expect(unknown.queryByText(/Looked up:|No usable/)).not.toBeInTheDocument();
 });
 
 it("identifies which of two printings of the same card fell back before save", () => {
