@@ -1124,7 +1124,9 @@ it.each([
     await user.click(
       await screen.findByRole("button", { name: "Back to print setup" }),
     );
-    await waitFor(() => expect(status.firstElementChild).not.toBe(announcement));
+    await waitFor(() =>
+      expect(status.firstElementChild).not.toBe(announcement),
+    );
     expect(status.firstElementChild).toHaveTextContent(
       `Opening Print setup for ${deck.name}.`,
     );
