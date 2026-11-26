@@ -109,6 +109,7 @@ pub async fn compare_upscalers(
     request_id: String,
     art: Art,
     settings: PrintSettings,
+    position: Option<preview::CropPosition>,
 ) -> AppResult<Vec<ModelCrop>> {
     let cancel = comparisons
         .lock()
@@ -120,7 +121,14 @@ pub async fn compare_upscalers(
         let source = state.images.read(&art.image_url).await?;
         let models = Arc::clone(&state.models);
         tokio::task::spawn_blocking(move || {
-            preview::compare(&source, &art, &settings, &models, &cancel)
+            preview::compare_at(
+                &source,
+                &art,
+                &settings,
+                &models,
+                position.unwrap_or_default(),
+                &cancel,
+            )
         })
         .await?
     }

@@ -10,6 +10,32 @@
   align-items: end;
   margin-top: var(--space-3);
 }
+.upscale-crop-picker {
+  margin-top: var(--space-3);
+}
+.upscale-crop-picker button {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  min-width: var(--space-8);
+  min-height: var(--space-8);
+  cursor: crosshair;
+  touch-action: none;
+}
+.upscale-crop-picker img {
+  display: block;
+}
+.upscale-crop-target {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: var(--space-4);
+  height: var(--space-4);
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 1px var(--canvas);
+  pointer-events: none;
+}
 .upscale-crops {
   display: flex;
   gap: var(--space-3);

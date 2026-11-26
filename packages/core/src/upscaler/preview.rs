@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use image::{imageops::crop_imm, RgbImage};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{manifest::ModelManager, CancelToken, Upscaler};
 use crate::error::{AppError, AppResult};
@@ -13,6 +13,19 @@ const CONTEXT: u32 = 256;
 const CROP_WIDTH: u32 = 56;
 const CROP_HEIGHT: u32 = 36;
 const SCALE: u32 = 4;
+const THUMBNAIL_SIZE: u32 = 180;
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct CropPosition {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Default for CropPosition {
+    fn default() -> Self {
+        Self { x: 0.5, y: 0.78 }
+    }
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,7 +53,7 @@ pub enum CropResult {
 
 fn render(
     context: &RgbImage,
-    text_y: u32,
+    center: (u32, u32),
     model: Option<&dyn Upscaler>,
     cancel: &CancelToken,
 ) -> AppResult<CropPreview> {
@@ -56,8 +69,10 @@ fn render(
     let height = output.height().min(CROP_HEIGHT * SCALE);
     let crop = crop_imm(
         &output,
-        (output.width() - width) / 2,
-        (text_y * SCALE)
+        (center.0 * SCALE)
+            .saturating_sub(width / 2)
+            .min(output.width() - width),
+        (center.1 * SCALE)
             .saturating_sub(height / 2)
             .min(output.height() - height),
         width,
@@ -80,8 +95,27 @@ pub fn compare(
     models: &ModelManager,
     cancel: &CancelToken,
 ) -> AppResult<Vec<ModelCrop>> {
+    compare_at(
+        source,
+        art,
+        settings,
+        models,
+        CropPosition::default(),
+        cancel,
+    )
+}
+
+/// Compare a normalized position on the trimmed card face.
+pub fn compare_at(
+    source: &[u8],
+    art: &Art,
+    settings: &PrintSettings,
+    models: &ModelManager,
+    position: CropPosition,
+    cancel: &CancelToken,
+) -> AppResult<Vec<ModelCrop>> {
     cancel.check()?;
-    compare_models(
+    compare_models_at(
         source,
         art,
         settings,
@@ -91,6 +125,7 @@ pub fn compare(
             .filter(|status| status.installed)
             .map(|status| status.spec.id),
         |id| models.upscaler(id),
+        position,
         cancel,
     )
 }
@@ -103,31 +138,53 @@ pub fn compare_models(
     load: impl Fn(&str) -> AppResult<Arc<dyn Upscaler>>,
     cancel: &CancelToken,
 ) -> AppResult<Vec<ModelCrop>> {
+    compare_models_at(
+        source,
+        art,
+        settings,
+        ids,
+        load,
+        CropPosition::default(),
+        cancel,
+    )
+}
+
+fn compare_models_at(
+    source: &[u8],
+    art: &Art,
+    settings: &PrintSettings,
+    ids: impl IntoIterator<Item = String>,
+    load: impl Fn(&str) -> AppResult<Arc<dyn Upscaler>>,
+    position: CropPosition,
+    cancel: &CancelToken,
+) -> AppResult<Vec<ModelCrop>> {
     cancel.check()?;
+    if !(0.0..=1.0).contains(&position.x) || !(0.0..=1.0).contains(&position.y) {
+        return Err(AppError::user("Crop position must be within the card"));
+    }
     settings.validate()?;
-    let decoded = to_rgb(
-        crate::images::decode(source)?,
-        parse_hex_color(&settings.bleed_color),
-    );
-    let face = strip_bleed(&decoded, art, settings);
+    let face = card_face(source, art, settings)?;
     let width = face.width().min(CONTEXT);
     let height = face.height().min(CONTEXT);
-    let center_y = (f64::from(face.height()) * 0.78).round() as u32;
+    let center_x = ((f64::from(face.width()) * position.x).round() as u32).min(face.width() - 1);
+    let center_y = ((f64::from(face.height()) * position.y).round() as u32).min(face.height() - 1);
+    let left = center_x.saturating_sub(width / 2).min(face.width() - width);
     let top = center_y
         .saturating_sub(height / 2)
         .min(face.height() - height);
-    let context = crop_imm(&face, (face.width() - width) / 2, top, width, height).to_image();
+    let context = crop_imm(&face, left, top, width, height).to_image();
+    let center = (center_x - left, center_y - top);
 
     let mut crops = vec![ModelCrop {
         model_id: None,
         result: CropResult::Ready {
-            crop: render(&context, center_y - top, None, cancel)?,
+            crop: render(&context, center, None, cancel)?,
         },
     }];
     for id in ids {
         cancel.check()?;
-        let rendered = load(&id)
-            .and_then(|model| render(&context, center_y - top, Some(model.as_ref()), cancel));
+        let rendered =
+            load(&id).and_then(|model| render(&context, center, Some(model.as_ref()), cancel));
         cancel.check()?;
         let result = match rendered {
             Ok(crop) => CropResult::Ready { crop },
@@ -143,4 +200,24 @@ pub fn compare_models(
     }
     cancel.check()?;
     Ok(crops)
+}
+
+fn card_face(source: &[u8], art: &Art, settings: &PrintSettings) -> AppResult<RgbImage> {
+    let decoded = to_rgb(
+        crate::images::decode(source)?,
+        parse_hex_color(&settings.bleed_color),
+    );
+    Ok(strip_bleed(&decoded, art, settings))
+}
+
+pub fn thumbnail(source: &[u8], art: &Art, settings: &PrintSettings) -> AppResult<Vec<u8>> {
+    settings.validate()?;
+    let face = card_face(source, art, settings)?;
+    let scale = f64::from(THUMBNAIL_SIZE) / f64::from(face.width().max(face.height()));
+    if scale >= 1.0 {
+        return encode_png(&face);
+    }
+    let width = (f64::from(face.width()) * scale).round().max(1.0) as u32;
+    let height = (f64::from(face.height()) * scale).round().max(1.0) as u32;
+    encode_png(&resize(&face, width, height)?)
 }

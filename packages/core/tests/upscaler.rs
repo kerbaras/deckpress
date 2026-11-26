@@ -6,7 +6,9 @@ use deckpress_core::models::{PrintSettings, Provider};
 use deckpress_core::upscaler::manifest::{
     default_model_id, sha256_file, specs, ModelKind, ModelManager,
 };
-use deckpress_core::upscaler::preview::{compare, compare_models, CropResult};
+use deckpress_core::upscaler::preview::{
+    compare, compare_at, compare_models, thumbnail, CropPosition, CropResult,
+};
 use deckpress_core::upscaler::tiling::{feather, positions, reflect, TiledUpscaler};
 use deckpress_core::upscaler::{CancelToken, TileModel, Upscaler, UpscalerInfo};
 use image::RgbImage;
@@ -128,6 +130,55 @@ fn comparison_renders_lanczos_and_each_installed_upscaler() {
     }
     assert_ne!(outputs[0], outputs[1]);
     assert_ne!(outputs[0], outputs[2]);
+}
+
+#[test]
+fn comparison_moves_every_model_from_the_rules_area_to_the_selected_region() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = ModelManager::new(bundled_resources(), dir.path()).unwrap();
+    let settings = PrintSettings::default();
+    let art = common::art(0.0, Provider::Scryfall);
+    let scan = RgbImage::from_fn(360, 500, |x, y| {
+        if x < 120 && y < 120 {
+            image::Rgb([230, 10, 20])
+        } else {
+            image::Rgb([10, 20, 230])
+        }
+    });
+    let source = deckpress_core::raster::encode_png(&scan).unwrap();
+    let thumb = deckpress_core::images::decode(&thumbnail(&source, &art, &settings).unwrap())
+        .unwrap()
+        .to_rgb8();
+    assert_eq!(thumb.dimensions(), (130, 180));
+    assert!(thumb.get_pixel(13, 18)[0] > 200);
+    let cancel = CancelToken::default();
+    let default = compare(&source, &art, &settings, &manager, &cancel).unwrap();
+    let moved = compare_at(
+        &source,
+        &art,
+        &settings,
+        &manager,
+        CropPosition { x: 0.1, y: 0.1 },
+        &cancel,
+    )
+    .unwrap();
+    assert_eq!(default.len(), 3);
+    assert_eq!(moved.len(), default.len());
+    for (default, moved) in default.into_iter().zip(moved) {
+        assert_eq!(default.model_id, moved.model_id);
+        for (result, channel) in [(default.result, 2), (moved.result, 0)] {
+            let CropResult::Ready { crop } = result else {
+                panic!("comparison failed for {:?}", default.model_id);
+            };
+            assert_eq!((crop.width, crop.height), (224, 144));
+            let image = deckpress_core::images::decode(&crop.png).unwrap().to_rgb8();
+            assert!(
+                image.get_pixel(112, 72)[channel] > 180,
+                "{:?}",
+                default.model_id
+            );
+        }
+    }
 }
 
 #[test]
