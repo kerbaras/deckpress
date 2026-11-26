@@ -18,8 +18,8 @@
 - Edit bleed on saved art uploads without re-uploading them. Backup and restore preserve the setting. (#109)
 - In Print Jobs, use Retry to queue a failed export with its original settings when available. Back to print setup opens the proof without queuing a job and focuses the failing card or Model setting when identified. (#104)
 - Import companions into a dedicated Companion zone and print them alongside the main deck by default. (#128)
-- Prefer higher-quality Scryfall scans that keep the same illustration and language. Check effective source DPI and whether AI upscaling will apply to MPC images in Print Setup. (#105)
-- Use localized printings that keep the same illustration, and preview and apply art policies across the deck without overwriting custom artwork. Undo last art change reverses the most recent policy application in one step. (#106)
+- Prefer higher-quality Scryfall scans that keep the same illustration and language. Check effective source DPI and whether AI upscaling will apply for each print source (Scryfall, MPC and uploads) in Print Setup. (#105)
+- Use localized printings that keep the same illustration, and preview and apply art policies across the deck without overwriting custom artwork. Undo last art change reverses the most recent art-policy application or per-card localization in one step. (#106)
 
 ### Fixed
 
