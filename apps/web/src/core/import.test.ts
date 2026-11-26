@@ -544,9 +544,9 @@ describe("decklist import", () => {
       invalid: 5,
     },
     {
-      name: "several leading comments and mixed endings",
+      name: "several leading comments with mixed endings",
       input:
-        "\uFEFF\r\n# notes\r\n// Board: Sideboard\n\t// Board: Companions\r\n\r\nName;Quantity\r\nLurrus of the Dream-Den;1\nOpt;invalid\r\n  // Board: testing Pool\nShock;1",
+        "\uFEFF\r\n# notes\r\n// Board: Sideboard\n\t// Board: Companions\r\n\r\nName;Quantity\r\nLurrus of the Dream-Den;1\r\nOpt;invalid\r\n// Board: testing Pool\r\nShock;1",
       entries: [
         { name: "Lurrus of the Dream-Den", zone: "companion" },
         { name: "Shock", zone: "main", board: "testing Pool" },
@@ -572,29 +572,36 @@ describe("decklist import", () => {
     },
   );
 
-  it("keeps quoted multiline Board values byte-for-byte", () => {
-    const result = parseDecklist(
-      [
-        "Name,Quantity,Board",
-        'Opt,1,"Testing',
-        '  // Board: notes"',
-        'Opt,2,"Testing',
-        '// Board: notes"',
-        "  // Board: testing Pool",
-        "Shock,1,",
-      ].join("\r\n"),
-    );
-    expect(result.entries).toMatchObject([
-      { name: "Opt", quantity: 1, board: "Testing\n  // Board: notes" },
-      { name: "Opt", quantity: 2, board: "Testing\n// Board: notes" },
-      { name: "Shock", quantity: 1, zone: "main", board: "testing Pool" },
-    ]);
-    expect(result.lines).toEqual([2, 4, 7]);
-    expect(result.issues).toEqual([
-      expect.objectContaining({ line: 2, input: "Testing\n  // Board: notes" }),
-      expect.objectContaining({ line: 4, input: "Testing\n// Board: notes" }),
-    ]);
-  });
+  it.each([
+    ["a plain header", "Name,Quantity,Board", ""],
+    ["a quoted header", 'Name,Quantity,Board,"Notes;Name;Source"', ",x"],
+  ])(
+    "keeps quoted multiline Board values byte-for-byte with %s",
+    (_case, header, extra) => {
+      const result = parseDecklist(
+        [
+          "// Exported",
+          header,
+          'Opt,1,"Testing',
+          `  // Board: notes"${extra}`,
+          'Opt,2,"Testing',
+          `// Board: notes"${extra}`,
+        ].join("\n"),
+      );
+      expect(result.entries).toMatchObject([
+        { name: "Opt", quantity: 1, board: "Testing\n  // Board: notes" },
+        { name: "Opt", quantity: 2, board: "Testing\n// Board: notes" },
+      ]);
+      expect(result.lines).toEqual([3, 5]);
+      expect(result.issues).toEqual([
+        expect.objectContaining({
+          line: 3,
+          input: "Testing\n  // Board: notes",
+        }),
+        expect.objectContaining({ line: 5, input: "Testing\n// Board: notes" }),
+      ]);
+    },
+  );
 
   it("reports CSV rows that produce no cards instead of an empty import", () => {
     const parse = Papa.parse;

@@ -75,30 +75,11 @@ function lineBreakCount(text: string): number {
   return text.match(/\r\n|\r|\n/g)?.length ?? 0;
 }
 
-function trimBoardComments(text: string, delimiter: string) {
-  let quoted = false;
-  return text
-    .split("\n")
-    .map((line) => {
-      if (!quoted && line.trimStart().startsWith(csvComment))
-        return line.trimStart();
-      for (let index = 0; index < line.length; index++) {
-        if (line[index] !== '"') continue;
-        if (!quoted)
-          quoted =
-            index === 0 || line.startsWith(delimiter, index - delimiter.length);
-        else if (line[index + 1] === '"') index++;
-        else quoted = false;
-      }
-      return line;
-    })
-    .join("\n");
-}
-
 function csvSourceLines(
   text: string,
   firstLine: number,
   { delimiter, linebreak }: Papa.ParseMeta,
+  leadingBoard: string | undefined,
 ) {
   const newline = linebreak === "\r\n" || linebreak === "\r" ? linebreak : "\n";
   const recordLines: number[] = [];
@@ -107,7 +88,7 @@ function csvSourceLines(
   const headingLines = new Set<number>();
   let offset = 0;
   let line = firstLine;
-  let board: string | undefined;
+  let board = leadingBoard;
   Papa.parse<string[]>(text, {
     delimiter,
     newline,
@@ -141,8 +122,9 @@ export function parseDecklist(input: string): ParsedDecklist {
   const text = source.trim();
   const leadingLines =
     /^(?:[ \t]*(?:(?:\/\/|#)[^\r\n]*)?(?:\r\n|\r|\n))*/.exec(text)?.[0] ?? "";
+  const csvText = text.slice(leadingLines.length);
   const csvHeaderDelimiter = /^(?:.*[;,])?(?:name|card name)([;,])/i.exec(
-    text.slice(leadingLines.length).split(/\r?\n/, 1)[0] ?? "",
+    csvText.split(/\r?\n/, 1)[0] ?? "",
   )?.[1];
   const result: ParsedDecklist = {
     entries: [],
@@ -203,18 +185,6 @@ export function parseDecklist(input: string): ParsedDecklist {
     });
   } else if (csvHeaderDelimiter) {
     result.format = "CSV";
-    const leadingBoard = leadingLines
-      .split(/\r\n|\r|\n/)
-      .map((line) => boardComment(line.trim()))
-      .filter(Boolean)
-      .pop();
-    const boardLine = leadingBoard ? `${csvComment} ${leadingBoard}\n` : "";
-    const csvText =
-      boardLine +
-      trimBoardComments(
-        text.slice(leadingLines.length).replace(/\r\n?/g, "\n"),
-        csvHeaderDelimiter,
-      );
     const config: Papa.ParseConfig<Record<string, string>> = {
       header: true,
       comments: csvComment,
@@ -232,12 +202,17 @@ export function parseDecklist(input: string): ParsedDecklist {
       lineBreakCount(
         source.slice(0, source.length - source.trimStart().length),
       ) +
-      lineBreakCount(leadingLines) -
-      lineBreakCount(boardLine);
+      lineBreakCount(leadingLines);
+    const leadingBoard = leadingLines
+      .split(/\r\n|\r|\n/)
+      .map((line) => boardComment(line.trim()))
+      .filter(Boolean)
+      .pop();
     const { recordLines, nonEmptyLines, boards, headingLines } = csvSourceLines(
       csvText,
       firstLine,
       csv.meta,
+      leadingBoard,
     );
     const [headerLine = firstLine, ...dataLines] = nonEmptyLines;
     const invalidLines = new Set<number>();
