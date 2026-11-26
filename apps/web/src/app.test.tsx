@@ -2815,6 +2815,10 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   expect(screen.getByRole("alert")).toHaveTextContent("Cards do not fit");
   for (const button of screen.getAllByRole("button", { name: "Generate PDF" }))
     expect(button).toBeDisabled();
+  const columnsLink = screen.getByRole("link", { name: "Adjust columns" });
+  columnsLink.focus();
+  await user.keyboard("{Enter}");
+  expect(screen.getByRole("spinbutton", { name: /^Columns/ })).toHaveFocus();
   await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
   await user.click(screen.getByRole("button", { name: "Next page" }));
   const proof = screen.getByRole("img", {
@@ -2948,7 +2952,21 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
     );
   }
   renderWithClient(<PrintHarness />);
-  expect(screen.getByText(/Trim 63 × 88 mm ·/)).toBeVisible();
+  const summary = within(screen.getByRole("region", { name: "Print summary" }));
+  expect(summary.getByText("A4 · portrait")).toBeVisible();
+  expect(summary.getByText("63 × 88 mm")).toBeVisible();
+  expect(summary.getByText("1 mm per side · Mirror")).toBeVisible();
+  expect(summary.getByText("800 DPI")).toBeVisible();
+  expect(summary.getByText("Fronts only")).toBeVisible();
+  expect(summary.getByText("Main deck · All sheets")).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "Generate PDF" })).toHaveLength(
+    1,
+  );
+  summary.getByRole("button", { name: "Generate PDF" }).focus();
+  await user.tab();
+  expect(screen.getByRole("button", { name: "Next page" })).toHaveFocus();
+  await user.tab({ shift: true });
+  expect(summary.getByRole("button", { name: "Generate PDF" })).toHaveFocus();
   const cardSize = screen.getByLabelText("Card size");
   await user.selectOptions(
     cardSize,
@@ -2956,12 +2974,195 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
       name: "Poker / MPC 63.5 × 88.9 mm (larger than MTG)",
     }),
   );
-  expect(screen.getByText(/Trim 63.5 × 88.9 mm ·/)).toBeVisible();
+  expect(summary.getByText("63.5 × 88.9 mm")).toBeVisible();
   expect(screen.getByText(/Bleed exceeds half the gap/)).toBeVisible();
   const gap = screen.getByRole("spinbutton", { name: /Gap between bleeds/ });
   await user.clear(gap);
   await user.type(gap, "2");
   expect(screen.queryByText(/Bleed exceeds half the gap/)).toBeNull();
+});
+
+it.each([
+  {
+    name: "a range beyond the deck",
+    entries: [entry],
+    settings: { pageFrom: 3 },
+    message: "No sheets in the selected range",
+    action: "Adjust first sheet",
+    role: "spinbutton",
+    control: /^First sheet/,
+  },
+  {
+    name: "a filtered board",
+    entries: [{ ...entry, zone: "side" as const }],
+    settings: {},
+    message: "No printable cards",
+    action: "Review card inclusion",
+    role: "checkbox",
+    control: "Include sideboard",
+  },
+  {
+    name: "an excluded card",
+    entries: [{ ...entry, excluded: true }],
+    settings: {},
+    message: "No printable cards",
+    action: "Include Lightning Bolt",
+    role: "checkbox",
+    control: "Print Lightning Bolt",
+  },
+  {
+    name: "an unavailable selected model",
+    entries: [entry],
+    settings: { upscale: true, upscaleModel: "not-installed" },
+    message: "The selected upscaler is unavailable",
+    action: "Choose an upscaler",
+    role: "combobox",
+    control: "Model",
+  },
+  {
+    name: "an invalid advanced value",
+    entries: [entry],
+    settings: { dpi: 50 },
+    message: "Too small",
+    action: "Go to invalid setting",
+    role: "spinbutton",
+    control: /^Custom resolution/,
+  },
+])("links the export blocker to the control for $name", async (fixture) => {
+  const user = userEvent.setup();
+  function PrintHarness() {
+    const [value, setValue] = useState<Deck>({
+      ...deck,
+      entries: fixture.entries,
+      printSettings: { ...deck.printSettings, ...fixture.settings },
+    });
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async (next) => next}
+        onJobs={() => {}}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  const blockers = screen.getByRole("region", { name: "Export blockers" });
+  const action = await within(blockers).findByRole("link", {
+    name: fixture.action,
+  });
+  expect(blockers).toHaveTextContent(fixture.message);
+  const exportButton = screen.getByRole("button", { name: "Generate PDF" });
+  expect(exportButton).toBeDisabled();
+  action.focus();
+  await user.keyboard("{Enter}");
+  const control = screen.getByRole(fixture.role, { name: fixture.control });
+  expect(control).toHaveFocus();
+  expect(control).toHaveClass("blocker-focus");
+  if (fixture.action === "Include Lightning Bolt") {
+    await user.keyboard(" ");
+    expect(exportButton).toBeEnabled();
+    expect(
+      screen.getByRole("heading", { name: "Include & page range" }),
+    ).toHaveFocus();
+  }
+});
+
+it.each(["width", "height"] as const)(
+  "reveals invalid saved Custom paper %s without navigating or changing paper",
+  async (dimension) => {
+    const user = userEvent.setup();
+    const changes = vi.fn();
+    function PrintHarness() {
+      const [value, setValue] = useState(deck);
+      return (
+        <PrintSetup
+          deck={value}
+          onChange={(next) => {
+            changes(next);
+            setValue(next);
+          }}
+          onSave={async (next) => next}
+          onJobs={() => {}}
+        />
+      );
+    }
+    renderWithClient(<PrintHarness />);
+    const paper = screen.getByRole("combobox", { name: "Paper size" });
+    const label = new RegExp(`^Sheet ${dimension}`);
+    await user.selectOptions(paper, "custom");
+    const input = screen.getByRole("spinbutton", { name: label });
+    await user.clear(input);
+    await user.type(input, "20");
+    await user.selectOptions(paper, "a4");
+    expect(screen.queryByRole("spinbutton", { name: label })).toBeNull();
+    const href = window.location.href;
+    const before = changes.mock.calls.length;
+    await user.click(
+      screen.getByRole("link", { name: "Go to invalid setting" }),
+    );
+    expect(screen.getByRole("spinbutton", { name: label })).toHaveFocus();
+    expect(screen.getByRole("spinbutton", { name: label })).toHaveClass(
+      "blocker-focus",
+    );
+    expect(paper).toHaveValue("a4");
+    expect(window.location.href).toBe(href);
+    expect(changes).toHaveBeenCalledTimes(before);
+  },
+);
+
+it.each([
+  { patch: { guides: "none", guideWidthPt: 0 }, target: /^Line thickness/ },
+  { patch: { guides: "none", guideColor: "invalid" }, target: /^Guide color/ },
+  { patch: { guides: "full", guideLengthMm: 0 }, target: /^Mark length/ },
+  { patch: { guides: "full", guideOffsetMm: -1 }, target: /^Mark offset/ },
+  {
+    patch: { bleedMode: "mirror", bleedColor: "invalid" },
+    target: /^Solid colour/,
+  },
+] as const)(
+  "reveals a conditional advanced control: $target",
+  async ({ patch, target }) => {
+    const user = userEvent.setup();
+    const change = vi.fn();
+    renderWithClient(
+      <PrintSetup
+        deck={{ ...deck, printSettings: { ...deck.printSettings, ...patch } }}
+        onChange={change}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+      />,
+    );
+    await user.click(
+      screen.getByRole("link", { name: "Go to invalid setting" }),
+    );
+    const control = screen.getByLabelText(target);
+    expect(control).toBeVisible();
+    expect(control).toHaveFocus();
+    expect(control.closest("details")).toHaveAttribute("open");
+    expect(change).not.toHaveBeenCalled();
+  },
+);
+
+it("moves pointer-activated blocker focus to Print and clears its ring on blur", async () => {
+  const user = userEvent.setup();
+  renderWithClient(
+    <PrintSetup
+      deck={{ ...deck, entries: [{ ...entry, excluded: true }] }}
+      onChange={vi.fn()}
+      onSave={async (next) => next}
+      onJobs={() => {}}
+    />,
+  );
+  await user.click(
+    screen.getByRole("link", { name: "Include Lightning Bolt" }),
+  );
+  const checkbox = screen.getByRole("checkbox", {
+    name: "Print Lightning Bolt",
+  });
+  expect(checkbox).toHaveFocus();
+  expect(checkbox).toHaveClass("blocker-focus");
+  await user.tab();
+  expect(checkbox).not.toHaveClass("blocker-focus");
 });
 
 it.each(printPageCounts)(
@@ -2982,7 +3183,7 @@ it.each(printPageCounts)(
         onJobs={() => {}}
       />,
     );
-    const summary = screen.getByText(/^Trim [\d.]+ × [\d.]+ mm/);
+    const summary = screen.getByRole("region", { name: "Print summary" });
     const sheets = `${cardSheets} card ${cardSheets === 1 ? "sheet" : "sheets"}`;
     const pages = `${pdfPages} PDF ${pdfPages === 1 ? "page" : "pages"}`;
     expect(summary).toHaveTextContent(`${sheets} · ${pages}`);
@@ -3072,6 +3273,14 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
   expect(bleed).toHaveValue(0.625);
   const backs = screen.getByRole("combobox", { name: "Back pages" });
   expect(backs).toHaveValue("long-edge");
+  const summary = within(screen.getByRole("region", { name: "Print summary" }));
+  expect(summary.getByText("A4 · Standard layout")).toBeVisible();
+  expect(summary.getByText(/mm · locked by template/)).toBeVisible();
+  expect(summary.getByText("0.625 mm per side · Mirror")).toBeVisible();
+  expect(summary.getByText("Duplex · flip long edge")).toBeVisible();
+  expect(
+    screen.queryByRole("spinbutton", { name: /^Card width/ }),
+  ).not.toBeInTheDocument();
   const mode = screen.getByRole("combobox", { name: "Layout mode" });
   await user.selectOptions(mode, "free");
   expect(bleed).toHaveValue(1.4);

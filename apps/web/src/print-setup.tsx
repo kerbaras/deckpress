@@ -11,7 +11,13 @@ import {
   Save,
   UnfoldHorizontal,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  type MouseEvent,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useState,
+} from "react";
 import { api, downloadCutTemplate, previewSrc } from "./api.ts";
 import {
   type Art,
@@ -59,6 +65,12 @@ const scmVariants = [
   { value: "default", label: "Standard layout" },
   { value: "borderless", label: "Borderless layout" },
 ] as const;
+const backsNames = {
+  none: "Fronts only",
+  "long-edge": "Duplex · flip long edge",
+  "short-edge": "Duplex · flip short edge",
+  separate: "All fronts, then all backs",
+};
 const scmTree =
   "https://github.com/Alan-Cha/silhouette-card-maker/tree/0da09b729814aa5aafde024b5a6059624fa87951";
 const scmCuttingTemplates = `${scmTree}/cutting_templates`;
@@ -90,6 +102,24 @@ export const bleedModes: {
   },
 ];
 
+const freeLayoutControls = new Set([
+  "paper",
+  "customWidthMm",
+  "customHeightMm",
+  "orientation",
+  "marginMm",
+  "cardWidthMm",
+  "cardHeightMm",
+  "gapMm",
+  "columns",
+  "rows",
+  "guides",
+  "guideWidthPt",
+  "guideColor",
+  "guideLengthMm",
+  "guideOffsetMm",
+]);
+
 export function PrintSetup({
   deck,
   onChange,
@@ -118,6 +148,39 @@ export function PrintSetup({
   const [trim, setTrim] = useState(false);
   const [presetMessage, setPresetMessage] = useState("");
   const [previewSettings, setPreviewSettings] = useState(settings);
+  const controlPrefix = useId();
+  const [jump, setJump] = useState<{ key: string } | null>(null);
+  const revealed = jump?.key;
+  const controlId = (key: string) => `${controlPrefix}-${key}`;
+  const jumpTo = (key: string) => ({
+    href: `#${controlId(key)}`,
+    onClick: (event: MouseEvent<HTMLAnchorElement>) => {
+      event.preventDefault();
+      setJump({ key });
+    },
+  });
+  useLayoutEffect(() => {
+    if (!jump) return;
+    const target = document.getElementById(`${controlPrefix}-${jump.key}`);
+    if (!target) return;
+    for (
+      let parent = target.parentElement;
+      parent;
+      parent = parent.parentElement
+    )
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+    target.focus({ preventScroll: true });
+    if (target !== document.activeElement) return;
+    target.classList.add("blocker-focus");
+    target.addEventListener(
+      "blur",
+      () => target.classList.remove("blocker-focus"),
+      {
+        once: true,
+      },
+    );
+    target.scrollIntoView?.({ block: "nearest" });
+  }, [controlPrefix, jump]);
   useEffect(() => {
     const timer = setTimeout(() => setPreviewSettings(settings), 250);
     return () => clearTimeout(timer);
@@ -146,6 +209,7 @@ export function PrintSetup({
   const trimHeight = isScm
     ? Number(effective.cardHeightMm.toFixed(2))
     : effective.cardHeightMm;
+  const scmPaperName = paperNames[template.paper as keyof typeof paperNames];
   const sheetName = layout?.scm?.name ?? paperNames[settings.paper];
   const cutFile = layout?.scm && scmCutFile(layout.scm.name);
   const changeTemplate = (patch: Partial<ScmTemplate>) =>
@@ -170,12 +234,42 @@ export function PrintSetup({
     effective,
   );
   const models = system.data?.models ?? [];
-  const selectedModel =
-    models.find((model) => model.id === settings.upscaleModel) ??
-    models.find((model) => model.id === system.data?.defaultModel);
+  const selectedModel = models.find(
+    (model) =>
+      model.id === (settings.upscaleModel || system.data?.defaultModel),
+  );
   const upscalerReady = !!selectedModel?.installed;
-  const valid =
-    !!layout && selectedSheets > 0 && (!settings.upscale || upscalerReady);
+  const noCards = cards.length === 0;
+  const emptyRange = !!layout && !noCards && selectedSheets === 0;
+  const blockedModel = settings.upscale && !upscalerReady;
+  const excludedCard = noCards
+    ? deck.entries.find((entry) => entry.excluded)
+    : undefined;
+  const blockedInclusion =
+    noCards && deck.entries.find((entry) => !entry.excluded);
+  const inclusionTarget = blockedInclusion
+    ? blockedInclusion.zone === "side" && !settings.includeSideboard
+      ? "includeSideboard"
+      : blockedInclusion.zone === "maybe" && !settings.includeMaybeboard
+        ? "includeMaybeboard"
+        : "skipBasics"
+    : excludedCard
+      ? "excluded-card"
+      : "inclusion";
+  const parsed = layoutError ? printSettingsSchema.safeParse(settings) : null;
+  const invalidSetting =
+    parsed && !parsed.success ? parsed.error.issues[0]?.path[0] : null;
+  const invalidControl = invalidSetting == null ? null : String(invalidSetting);
+  const invalidInOtherLayout =
+    invalidControl !== null &&
+    (isScm
+      ? freeLayoutControls.has(invalidControl)
+      : invalidControl === "scmTemplate");
+  const showCustomSheet =
+    settings.paper === "custom" ||
+    revealed === "customWidthMm" ||
+    revealed === "customHeightMm";
+  const valid = !!layout && !noCards && !emptyRange && !blockedModel;
   const previewPage = Math.max(0, Math.min(page, pdfPages - 1));
   const calibration = previewPage < calibrationPages;
   const side = previewPage - calibrationPages;
@@ -253,13 +347,6 @@ export function PrintSetup({
           </p>
         </div>
         <div className="spacer" />
-        <span className="mono muted">
-          Trim {trimWidth} × {trimHeight} mm · {selectedSheets} card{" "}
-          {selectedSheets === 1 ? "sheet" : "sheets"} · {pdfPages} PDF{" "}
-          {pdfPages === 1 ? "page" : "pages"}
-          {calibrationPages > 0 &&
-            ` (includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`}
-        </span>
         {isScm ? (
           <span className="muted">
             {cutFile
@@ -291,17 +378,7 @@ export function PrintSetup({
           <Images size={16} />
           Export PNGs
         </button>
-        <button
-          type="button"
-          className="primary"
-          disabled={!valid || task.busy}
-          onClick={() => start("pdf")}
-        >
-          <Download size={16} />
-          {task.busy ? "Queuing…" : "Generate PDF"}
-        </button>
       </div>
-      <ErrorNotice error={task.error ?? layoutError} />
       <ErrorNotice error={cutTemplateTask.error} />
       <StatusRegion
         className={cutTemplateStatus.path ? "notice success" : "sr-only"}
@@ -399,6 +476,7 @@ export function PrintSetup({
             <label className="setting-row">
               Layout mode
               <select
+                id={controlId("layoutMode")}
                 value={settings.layoutMode}
                 onChange={(event) =>
                   change({
@@ -415,6 +493,7 @@ export function PrintSetup({
                 <label className="setting-row card-size-setting">
                   Template card size
                   <select
+                    id={controlId("scm-card")}
                     value={
                       scmCardSizes.includes(template.card) ? template.card : ""
                     }
@@ -441,6 +520,7 @@ export function PrintSetup({
                 <label className="setting-row card-size-setting">
                   Silhouette Cameo template
                   <select
+                    id={controlId("scmTemplate")}
                     value={
                       matchingPapers.includes(template.paper)
                         ? `${template.paper}:${template.variant}`
@@ -556,6 +636,7 @@ export function PrintSetup({
             <label className="setting-row">
               Paper size
               <select
+                id={controlId("paper")}
                 value={settings.paper}
                 onChange={(event) =>
                   change({
@@ -570,9 +651,15 @@ export function PrintSetup({
                 ))}
               </select>
             </label>
-            {settings.paper === "custom" && (
+            {showCustomSheet && (
               <>
+                {settings.paper !== "custom" && (
+                  <p className="hint">
+                    Saved Custom paper dimensions (not used by this paper size).
+                  </p>
+                )}
                 <NumberSetting
+                  id={controlId("customWidthMm")}
                   label="Sheet width"
                   value={settings.customWidthMm}
                   min={40}
@@ -580,6 +667,7 @@ export function PrintSetup({
                   set={(value) => change({ customWidthMm: value })}
                 />
                 <NumberSetting
+                  id={controlId("customHeightMm")}
                   label="Sheet height"
                   value={settings.customHeightMm}
                   min={40}
@@ -591,6 +679,7 @@ export function PrintSetup({
             <label className="setting-row">
               Orientation
               <select
+                id={controlId("orientation")}
                 value={settings.orientation}
                 onChange={(event) =>
                   change({
@@ -604,6 +693,7 @@ export function PrintSetup({
               </select>
             </label>
             <NumberSetting
+              id={controlId("marginMm")}
               label="Printer margin"
               value={settings.marginMm}
               min={0}
@@ -620,6 +710,7 @@ export function PrintSetup({
             <label className="setting-row card-size-setting">
               Card size
               <select
+                id={controlId("card-size")}
                 value={`${settings.cardWidthMm}x${settings.cardHeightMm}`}
                 onChange={(event) => {
                   if (event.target.value === "custom") return;
@@ -645,6 +736,7 @@ export function PrintSetup({
               </select>
             </label>
             <NumberSetting
+              id={controlId("cardWidthMm")}
               label="Card width"
               min={25}
               max={200}
@@ -652,6 +744,7 @@ export function PrintSetup({
               set={(value) => change({ cardWidthMm: value })}
             />
             <NumberSetting
+              id={controlId("cardHeightMm")}
               label="Card height"
               min={25}
               max={250}
@@ -659,6 +752,7 @@ export function PrintSetup({
               set={(value) => change({ cardHeightMm: value })}
             />
             <NumberSetting
+              id={controlId("gapMm")}
               label="Gap between bleeds"
               min={0}
               max={20}
@@ -666,6 +760,7 @@ export function PrintSetup({
               set={(value) => change({ gapMm: value })}
             />
             <NumberSetting
+              id={controlId("columns")}
               label="Columns · 0 is auto"
               min={0}
               max={20}
@@ -675,6 +770,7 @@ export function PrintSetup({
               set={(value) => change({ columns: value })}
             />
             <NumberSetting
+              id={controlId("rows")}
               label="Rows · 0 is auto"
               min={0}
               max={20}
@@ -687,6 +783,7 @@ export function PrintSetup({
           <section className="panel settings-panel">
             <h3>Bleed</h3>
             <NumberSetting
+              id={controlId("bleedMm")}
               label="Bleed per side"
               min={0}
               max={isScm ? MAX_SCM_BLEED_MM : 5}
@@ -704,26 +801,39 @@ export function PrintSetup({
                 template spacing.
               </p>
             )}
-            <BleedModeControl
-              value={settings.bleedMode}
-              onChange={(bleedMode) => change({ bleedMode })}
-            />
-            <label
-              className="setting-row"
-              aria-disabled={settings.bleedMode !== "solid"}
-            >
-              Solid colour
-              <input
-                type="color"
-                value={settings.bleedColor}
-                disabled={settings.bleedMode !== "solid"}
-                onChange={(event) => change({ bleedColor: event.target.value })}
-              />
-            </label>
-            <p className="hint">
-              Existing MPC bleed is cropped first. Your chosen bleed is then
-              added outside the card's trim line.
-            </p>
+            <details className="print-advanced">
+              <summary>Advanced · bleed and colour</summary>
+              <div className="advanced-fields">
+                <BleedModeControl
+                  value={settings.bleedMode}
+                  onChange={(bleedMode) => change({ bleedMode })}
+                />
+                <label
+                  className="setting-row"
+                  aria-disabled={
+                    settings.bleedMode !== "solid" && revealed !== "bleedColor"
+                  }
+                >
+                  Solid colour
+                  <input
+                    id={controlId("bleedColor")}
+                    type="color"
+                    value={settings.bleedColor}
+                    disabled={
+                      settings.bleedMode !== "solid" &&
+                      revealed !== "bleedColor"
+                    }
+                    onChange={(event) =>
+                      change({ bleedColor: event.target.value })
+                    }
+                  />
+                </label>
+                <p className="hint">
+                  Existing MPC bleed is cropped first. Your chosen bleed is then
+                  added outside the card's trim line.
+                </p>
+              </div>
+            </details>
             {!isScm && settings.bleedMm > settings.gapMm / 2 && (
               <p className="hint warning-text">
                 Bleed exceeds half the gap. It can overlap neighbouring cards in
@@ -732,26 +842,31 @@ export function PrintSetup({
               </p>
             )}
           </section>
-          <section className="panel settings-panel" hidden={isScm}>
-            <h3>Cut guides</h3>
-            <label className="setting-row">
-              Style
-              <select
-                value={settings.guides}
-                onChange={(event) =>
-                  change({
-                    guides: event.target.value as PrintSettings["guides"],
-                  })
-                }
-              >
-                <option value="crop">Crop marks (sheet and card)</option>
-                <option value="full">Full cutting lines</option>
-                <option value="none">None</option>
-              </select>
-            </label>
-            {settings.guides !== "none" && (
-              <>
+          <details
+            className="panel settings-panel print-advanced"
+            hidden={isScm}
+          >
+            <summary>Advanced · cut guides</summary>
+            <div className="advanced-fields">
+              <label className="setting-row">
+                Style
+                <select
+                  id={controlId("guides")}
+                  value={settings.guides}
+                  onChange={(event) =>
+                    change({
+                      guides: event.target.value as PrintSettings["guides"],
+                    })
+                  }
+                >
+                  <option value="crop">Crop marks (sheet and card)</option>
+                  <option value="full">Full cutting lines</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+              {(settings.guides !== "none" || revealed === "guideWidthPt") && (
                 <NumberSetting
+                  id={controlId("guideWidthPt")}
                   label="Line thickness"
                   value={settings.guideWidthPt}
                   min={0.1}
@@ -760,9 +875,12 @@ export function PrintSetup({
                   unit="pt"
                   set={(value) => change({ guideWidthPt: value })}
                 />
+              )}
+              {(settings.guides !== "none" || revealed === "guideColor") && (
                 <label className="setting-row">
                   Guide color
                   <input
+                    id={controlId("guideColor")}
                     type="color"
                     value={settings.guideColor}
                     onChange={(event) =>
@@ -770,24 +888,28 @@ export function PrintSetup({
                     }
                   />
                 </label>
-              </>
-            )}
-            {settings.guides === "crop" && (
-              <>
+              )}
+              {(settings.guides === "crop" || revealed === "guideLengthMm") && (
                 <NumberSetting
+                  id={controlId("guideLengthMm")}
                   label="Mark length"
                   value={settings.guideLengthMm}
                   min={0.5}
                   max={10}
                   set={(value) => change({ guideLengthMm: value })}
                 />
+              )}
+              {(settings.guides === "crop" || revealed === "guideOffsetMm") && (
                 <NumberSetting
+                  id={controlId("guideOffsetMm")}
                   label="Mark offset"
                   value={settings.guideOffsetMm}
                   min={0}
                   max={5}
                   set={(value) => change({ guideOffsetMm: value })}
                 />
+              )}
+              {settings.guides === "crop" && (
                 <p className="hint">
                   Marks in the sheet margin line up every cut. Each card also
                   gets corner ticks in the bleed between neighbours
@@ -796,17 +918,19 @@ export function PrintSetup({
                     : ""}
                   . Duplex sheets add registration targets on both faces.
                 </p>
-              </>
-            )}
-            {settings.guides === "full" && (
-              <p className="hint warning-text">
-                Full lines cross the trim edges. Use crop marks if you do not
-                want ink along the cut.
-              </p>
-            )}
-          </section>
+              )}
+              {settings.guides === "full" && (
+                <p className="hint warning-text">
+                  Full lines cross the trim edges. Use crop marks if you do not
+                  want ink along the cut.
+                </p>
+              )}
+            </div>
+          </details>
           <section className="panel settings-panel">
-            <h3>Output & local AI</h3>
+            <h3 id={controlId("output")} tabIndex={-1}>
+              Output & local AI
+            </h3>
             <label className="setting-row">
               Resolution
               <select
@@ -824,26 +948,34 @@ export function PrintSetup({
                 )}
               </select>
             </label>
-            <NumberSetting
-              label="Custom resolution"
-              min={150}
-              max={1200}
-              step={1}
-              unit="dpi"
-              value={settings.dpi}
-              set={(value) => change({ dpi: value })}
-            />
-            <NumberSetting
-              label="JPEG quality"
-              min={60}
-              max={100}
-              step={1}
-              unit="%"
-              value={settings.quality}
-              set={(value) => change({ quality: value })}
-            />
+            <details className="print-advanced">
+              <summary>Advanced · output</summary>
+              <div className="advanced-fields">
+                <NumberSetting
+                  id={controlId("dpi")}
+                  label="Custom resolution"
+                  min={150}
+                  max={1200}
+                  step={1}
+                  unit="dpi"
+                  value={settings.dpi}
+                  set={(value) => change({ dpi: value })}
+                />
+                <NumberSetting
+                  id={controlId("quality")}
+                  label="JPEG quality"
+                  min={60}
+                  max={100}
+                  step={1}
+                  unit="%"
+                  value={settings.quality}
+                  set={(value) => change({ quality: value })}
+                />
+              </div>
+            </details>
             <label className="check-label">
               <input
+                id={controlId("upscale")}
                 type="checkbox"
                 checked={settings.upscale}
                 disabled={!system.data}
@@ -854,12 +986,14 @@ export function PrintSetup({
             <label className="setting-row">
               Model
               <select
+                id={controlId("upscaleModel")}
                 value={selectedModel?.id ?? ""}
                 disabled={!settings.upscale || models.length === 0}
                 onChange={(event) =>
                   change({ upscaleModel: event.target.value })
                 }
               >
+                {!selectedModel && <option value="">Choose a model</option>}
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
@@ -903,6 +1037,7 @@ export function PrintSetup({
             <label className="setting-row">
               Back pages
               <select
+                id={controlId("backs")}
                 value={effective.backs}
                 onChange={(event) =>
                   change({
@@ -910,12 +1045,12 @@ export function PrintSetup({
                   })
                 }
               >
-                <option value="none">Fronts only</option>
-                <option value="long-edge">Duplex · flip long edge</option>
+                <option value="none">{backsNames.none}</option>
+                <option value="long-edge">{backsNames["long-edge"]}</option>
                 {!isScm && (
-                  <option value="short-edge">Duplex · flip short edge</option>
+                  <option value="short-edge">{backsNames["short-edge"]}</option>
                 )}
-                <option value="separate">All fronts, then all backs</option>
+                <option value="separate">{backsNames.separate}</option>
               </select>
             </label>
             {effective.backs !== "none" && (
@@ -932,7 +1067,9 @@ export function PrintSetup({
             onChange={change}
           />
           <section className="panel settings-panel">
-            <h3>Include & page range</h3>
+            <h3 id={controlId("inclusion")} tabIndex={-1}>
+              Include & page range
+            </h3>
             {(
               [
                 ["includeSideboard", "Include sideboard"],
@@ -942,6 +1079,7 @@ export function PrintSetup({
             ).map(([key, label]) => (
               <label className="check-label" key={key}>
                 <input
+                  id={controlId(key)}
                   type="checkbox"
                   checked={settings[key]}
                   onChange={(event) => change({ [key]: event.target.checked })}
@@ -950,6 +1088,7 @@ export function PrintSetup({
               </label>
             ))}
             <NumberSetting
+              id={controlId("pageFrom")}
               label="First sheet"
               min={1}
               max={1000}
@@ -959,6 +1098,7 @@ export function PrintSetup({
               set={(value) => change({ pageFrom: value })}
             />
             <NumberSetting
+              id={controlId("pageTo")}
               label="Last sheet · 0 is all"
               min={0}
               max={1000}
@@ -971,10 +1111,212 @@ export function PrintSetup({
               Use sheet ranges to split large exports. Both faces of a duplex
               sheet stay together.
             </p>
+            {excludedCard && (
+              <label className="check-label">
+                <input
+                  id={controlId("excluded-card")}
+                  type="checkbox"
+                  checked={!excludedCard.excluded}
+                  onChange={(event) => {
+                    const excluded = !event.target.checked;
+                    onChange({
+                      ...deck,
+                      entries: deck.entries.map((entry) =>
+                        entry.id === excludedCard.id
+                          ? { ...entry, excluded }
+                          : entry,
+                      ),
+                    });
+                    setPage(0);
+                    document.getElementById(controlId("inclusion"))?.focus();
+                  }}
+                />
+                Print {excludedCard.card.name}
+              </label>
+            )}
           </section>
         </div>
         <section className="proof-area">
           <div className="proof-sticky">
+            <section className="print-summary" aria-label="Print summary">
+              <div className="toolbar print-summary-heading">
+                <h3>Print summary</h3>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={!valid || task.busy}
+                  onClick={() => start("pdf")}
+                >
+                  <Download size={16} aria-hidden="true" />
+                  {task.busy ? "Queuing…" : "Generate PDF"}
+                </button>
+              </div>
+              <dl className="print-summary-values">
+                <div>
+                  <dt>{isScm ? "Paper / SCM template" : "Paper"}</dt>
+                  <dd>
+                    {isScm
+                      ? `${scmPaperName ?? template.paper} · ${scmVariants.find(({ value }) => value === template.variant)?.label}`
+                      : `${sheetName} · ${settings.orientation}`}
+                    {!isScm &&
+                      settings.paper === "custom" &&
+                      ` · ${settings.customWidthMm} × ${settings.customHeightMm} mm`}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Card size</dt>
+                  <dd>
+                    {trimWidth} × {trimHeight} mm
+                    {isScm && " · locked by template"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Bleed</dt>
+                  <dd>
+                    {effective.bleedMm} mm per side ·{" "}
+                    {
+                      bleedModes.find(
+                        ({ value }) => value === settings.bleedMode,
+                      )?.label
+                    }
+                  </dd>
+                </div>
+                <div>
+                  <dt>DPI</dt>
+                  <dd>{effective.dpi} DPI</dd>
+                </div>
+                <div>
+                  <dt>Backs</dt>
+                  <dd>{backsNames[effective.backs]}</dd>
+                </div>
+              </dl>
+              <p className="text-meta text-muted">
+                {selectedCards.length}{" "}
+                {selectedCards.length === 1 ? "card" : "cards"} ·{" "}
+                {selectedSheets} card{" "}
+                {selectedSheets === 1 ? "sheet" : "sheets"} · {pdfPages} PDF{" "}
+                {pdfPages === 1 ? "page" : "pages"}
+                {calibrationPages > 0 &&
+                  ` (includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`}
+              </p>
+              <p className="text-meta text-muted">
+                Main deck
+                {deck.entries.some((entry) => entry.zone === "commander") &&
+                  " + commanders"}
+                {deck.entries.some((entry) => entry.zone === "tokens") &&
+                  " + tokens"}
+                {settings.includeSideboard && " + sideboard"}
+                {settings.includeMaybeboard && " + maybeboard"}
+                {settings.skipBasics && " · no basic lands"}
+                {" · "}
+                {settings.pageFrom === 1 && settings.pageTo === 0
+                  ? "All sheets"
+                  : `Sheets ${settings.pageFrom}–${settings.pageTo || "end"}`}
+              </p>
+              {!valid && (
+                <section
+                  className="print-blockers"
+                  aria-label="Export blockers"
+                >
+                  <h4>Export blocked</h4>
+                  {layoutError !== null && (
+                    <div>
+                      <ErrorNotice error={layoutError} />
+                      {invalidControl ? (
+                        <a
+                          {...jumpTo(
+                            invalidInOtherLayout
+                              ? "layoutMode"
+                              : invalidControl,
+                          )}
+                        >
+                          {invalidInOtherLayout
+                            ? `Switch to ${isScm ? "Free layout" : "SCM"} to fix the invalid setting`
+                            : "Go to invalid setting"}
+                        </a>
+                      ) : isScm ? (
+                        <a
+                          {...jumpTo(
+                            scmCardSizes.includes(template.card)
+                              ? "scmTemplate"
+                              : "scm-card",
+                          )}
+                        >
+                          Choose a valid SCM template
+                        </a>
+                      ) : (
+                        <>
+                          {settings.columns > 0 && (
+                            <a {...jumpTo("columns")}>Adjust columns</a>
+                          )}
+                          {settings.rows > 0 && (
+                            <a {...jumpTo("rows")}>Adjust rows</a>
+                          )}
+                          <a
+                            {...jumpTo(
+                              settings.paper === "custom"
+                                ? "customWidthMm"
+                                : "paper",
+                            )}
+                          >
+                            Choose larger paper
+                          </a>
+                          <a {...jumpTo("card-size")}>Adjust card size</a>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {noCards && (
+                    <p>
+                      No printable cards.{" "}
+                      <a {...jumpTo(inclusionTarget)}>
+                        {blockedInclusion || !excludedCard
+                          ? "Review card inclusion"
+                          : `Include ${excludedCard.card.name}`}
+                      </a>
+                    </p>
+                  )}
+                  {emptyRange && (
+                    <p>
+                      No sheets in the selected range ({totalSheets} available).{" "}
+                      {settings.pageFrom > totalSheets ||
+                      settings.pageTo === 0 ? (
+                        <a {...jumpTo("pageFrom")}>Adjust first sheet</a>
+                      ) : (
+                        <a {...jumpTo("pageTo")}>Adjust last sheet</a>
+                      )}
+                    </p>
+                  )}
+                  {blockedModel && (
+                    <p>
+                      {system.isError
+                        ? "Could not check local AI models."
+                        : system.isPending
+                          ? "Checking local AI models…"
+                          : selectedModel
+                            ? `${selectedModel.name} is not downloaded yet. Download it in Print setup or pick another model.`
+                            : "The selected upscaler is unavailable."}{" "}
+                      <a
+                        {...jumpTo(
+                          models.length > 0
+                            ? "upscaleModel"
+                            : system.isError || system.isPending
+                              ? "output"
+                              : "upscale",
+                        )}
+                      >
+                        {models.length > 0
+                          ? "Choose an upscaler"
+                          : system.isError || system.isPending
+                            ? "Review local AI settings"
+                            : "Turn off AI upscaling"}
+                      </a>
+                    </p>
+                  )}
+                </section>
+              )}
+              <ErrorNotice error={task.error} />
+            </section>
             <div className="toolbar">
               <button
                 type="button"
@@ -1013,7 +1355,7 @@ export function PrintSetup({
                 <svg
                   className="proof-sheet"
                   style={{
-                    width: `min(100%, ${(66 * layout.width) / layout.height}vh, ${(650 * layout.width) / layout.height}px)`,
+                    width: `min(100%, calc(var(--proof-height) * ${layout.width / layout.height}), ${(650 * layout.width) / layout.height}px)`,
                   }}
                   viewBox={`0 0 ${layout.width} ${layout.height}`}
                   role="img"
@@ -1230,58 +1572,49 @@ export function PrintSetup({
               Trim boundary is preview-only. Actual bleed and image cropping are
               rendered by the PDF raster pipeline.
             </p>
-            <div className="preflight">
-              <div className="preflight-title">
-                <h3>Print check</h3>
-                <span className="badge">sRGB output</span>
-              </div>
-              <dl>
-                <div>
-                  <dt>Cards in export</dt>
-                  <dd>{selectedCards.length}</dd>
-                </div>
-                <div>
-                  <dt>Raster per card, without bleed</dt>
-                  <dd className="mono">
-                    {trimPixels.trimWidth} × {trimPixels.trimHeight} px
-                  </dd>
-                </div>
-                <div>
-                  <dt>Estimated PDF size</dt>
-                  <dd>~{Math.max(0.1, estimatedMB).toFixed(1)} MB</dd>
-                </div>
-              </dl>
-              {lowResolution > 0 && (
-                <p className="notice warning">
-                  <AlertTriangle size={16} />
-                  {lowResolution} unique images below target DPI.{" "}
-                  {settings.upscale
-                    ? "AI will process lower-resolution sources."
-                    : "Resizing alone does not add detail."}
-                </p>
-              )}
-              {settings.marginMm < 4 && (
-                <p className="notice warning">
-                  Some printers will clip margins below 4 mm.
-                </p>
-              )}
-              <p className="print-reminder">
-                <Printer size={17} />
-                <span>
-                  Print at <strong>100% / actual size.</strong> Turn off “Fit to
-                  page”. Check a ruler against the first sheet.
-                </span>
-              </p>
-              <button
-                type="button"
-                className="primary wide"
-                disabled={!valid || task.busy}
-                onClick={() => start("pdf")}
-              >
-                <Download size={16} />
-                Generate PDF
-              </button>
+          </div>
+          <div className="preflight">
+            <div className="preflight-title">
+              <h3>Print check</h3>
+              <span className="badge">sRGB output</span>
             </div>
+            <dl>
+              <div>
+                <dt>Cards in export</dt>
+                <dd>{selectedCards.length}</dd>
+              </div>
+              <div>
+                <dt>Raster per card, without bleed</dt>
+                <dd className="mono">
+                  {trimPixels.trimWidth} × {trimPixels.trimHeight} px
+                </dd>
+              </div>
+              <div>
+                <dt>Estimated PDF size</dt>
+                <dd>~{Math.max(0.1, estimatedMB).toFixed(1)} MB</dd>
+              </div>
+            </dl>
+            {lowResolution > 0 && (
+              <p className="notice warning">
+                <AlertTriangle size={16} />
+                {lowResolution} unique images below target DPI.{" "}
+                {settings.upscale
+                  ? "AI will process lower-resolution sources."
+                  : "Resizing alone does not add detail."}
+              </p>
+            )}
+            {settings.marginMm < 4 && (
+              <p className="notice warning">
+                Some printers will clip margins below 4 mm.
+              </p>
+            )}
+            <p className="print-reminder">
+              <Printer size={17} />
+              <span>
+                Print at <strong>100% / actual size.</strong> Turn off “Fit to
+                page”. Check a ruler against the first sheet.
+              </span>
+            </p>
           </div>
         </section>
       </div>
@@ -1316,7 +1649,7 @@ function CalibrationProof({
     <svg
       className="proof-sheet"
       style={{
-        width: `min(100%, ${(66 * layout.width) / layout.height}vh, ${(650 * layout.width) / layout.height}px)`,
+        width: `min(100%, calc(var(--proof-height) * ${layout.width / layout.height}), ${(650 * layout.width) / layout.height}px)`,
       }}
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       role="img"
@@ -1419,6 +1752,7 @@ function BleedModeControl({
 }
 
 function NumberSetting({
+  id,
   label,
   value,
   set,
@@ -1427,6 +1761,7 @@ function NumberSetting({
   step = 0.1,
   unit = "mm",
 }: {
+  id?: string;
   label: string;
   value: number;
   set: (value: number) => void;
@@ -1440,6 +1775,7 @@ function NumberSetting({
       {label}
       <span className="number-unit">
         <input
+          id={id}
           type="number"
           value={value}
           min={min}
