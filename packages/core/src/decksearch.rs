@@ -358,7 +358,8 @@ pub fn parse_archidekt_search(value: &Value, page: u32) -> DeckSearchPage {
 
 /// Normalises an Archidekt `/api/decks/<id>/` response into import lines.
 /// Categories flagged `includedInDeck: false` land in the maybeboard, a
-/// "Commander" category in the commander zone and "Sideboard" in the side.
+/// "Commander" category in the commander zone, "Companion" in the companion
+/// zone and "Sideboard" in the side.
 /// Private and unlisted decks are rejected like they are in search results.
 pub fn parse_archidekt_deck(value: &Value) -> AppResult<ExternalDeck> {
     if !is_public(value) {
@@ -401,10 +402,15 @@ pub fn parse_archidekt_deck(value: &Value) -> AppResult<ExternalDeck> {
             .filter_map(Value::as_str)
             .map(str::to_lowercase)
             .collect();
-        let zone = if categories.iter().any(|c| excluded.contains(c)) {
+        let zone = if categories
+            .iter()
+            .any(|c| c != "companion" && excluded.contains(c))
+        {
             Zone::Maybe
         } else if categories.iter().any(|c| c == "commander") {
             Zone::Commander
+        } else if categories.iter().any(|c| c == "companion") {
+            Zone::Companion
         } else if categories.iter().any(|c| c == "sideboard") {
             Zone::Side
         } else {

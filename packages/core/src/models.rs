@@ -78,6 +78,7 @@ pub struct Card {
 pub enum Zone {
     Main,
     Commander,
+    Companion,
     Side,
     Maybe,
     Tokens,

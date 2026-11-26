@@ -45,12 +45,13 @@ it.each(["companions", "COMPANION", "Com–panions："])(
         expect.objectContaining({ name: "Opt", zone: "side" }),
         expect.objectContaining({ name: "Negate", zone: "main" }),
         expect.objectContaining({ name: "Typo" }),
-        expect.objectContaining({ name: "Spirited Companion", zone: "main" }),
+        expect.objectContaining({
+          name: "Spirited Companion",
+          zone: "companion",
+        }),
       ],
     });
-    expect(result.issues.map(({ line }) => line)).toEqual([
-      7, 8, 9, 10, 11, 12,
-    ]);
+    expect(result.issues.map(({ line }) => line)).toEqual([7, 8, 9, 10, 12]);
   },
 );
 
@@ -178,10 +179,14 @@ it("reviews a CRLF file with CSV errors, unresolved cards, and warnings separate
       .map((row) => row.textContent),
   ).toEqual([
     "Line 10QA Custom BoardUnrecognized board; imported to Mainboard",
-    "Line 12CompanionsUnrecognized board; imported to Mainboard",
   ]);
+  expect(
+    within(screen.getByRole("list", { name: "Resolved cards by board" }))
+      .getAllByRole("listitem")
+      .map((row) => row.textContent),
+  ).toEqual(["Mainboard2", "Companion1", "Sideboard2"]);
   expect(announcements).toEqual([
-    "5 cards resolved. 1 line needs review. 3 CSV errors. 2 warnings.",
+    "5 cards resolved. 1 line needs review. 3 CSV errors. 1 warning.",
   ]);
   observer.disconnect();
 
@@ -196,7 +201,7 @@ it("reviews a CRLF file with CSV errors, unresolved cards, and warnings separate
     ["Opt", "side"],
     ["Negate", "main"],
     ["Lightning Bolt", "main"],
-    ["Lurrus of the Dream-Den", "main"],
+    ["Lurrus of the Dream-Den", "companion"],
     ["Spirited Companion", "side"],
   ]);
 });

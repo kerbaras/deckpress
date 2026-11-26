@@ -16,10 +16,14 @@ import type { Art, DeckEntry } from "./core/index.ts";
 export const zoneNames = {
   main: "Mainboard",
   commander: "Commander",
+  companion: "Companion",
   side: "Sideboard",
   maybe: "Maybeboard",
   tokens: "Tokens",
 };
+/** Board label for a count: one Companion, several Companions. */
+export const zoneLabel = (zone: DeckEntry["zone"], count: number) =>
+  zone === "companion" && count !== 1 ? "Companions" : zoneNames[zone];
 export const countCards = (entries: DeckEntry[]) =>
   entries.reduce((sum, entry) => sum + entry.quantity, 0);
 export const providerName = (art: Art) =>

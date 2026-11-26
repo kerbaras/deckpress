@@ -118,7 +118,7 @@ async fn moxfield_import_labels_nonempty_boards() {
     assert_eq!(
         text,
         concat!(
-            "commanders\n1 Jori En, Ruin Diver\nCommander\n// Board: companions\n1 Lurrus of the Dream-Den\n",
+            "commanders\n1 Jori En, Ruin Diver\nCompanion\n1 Lurrus of the Dream-Den\n",
             "mainboard\n4 Lightning Bolt (m10) 146\nsideboard\n2 Negate\n",
             "Deck\n// Board: sideboard2\n1 Shock\nDeck\n// Board: testing Pool\n1 Opt"
         )
@@ -126,7 +126,7 @@ async fn moxfield_import_labels_nonempty_boards() {
 }
 
 #[tokio::test]
-async fn moxfield_companion_section_does_not_depend_on_board_order() {
+async fn moxfield_companion_section_is_a_companion_heading_in_any_board_order() {
     struct OrderedBoards<'a>([(&'a str, &'a Value); 4]);
     impl serde::Serialize for OrderedBoards<'_> {
         fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -149,30 +149,12 @@ async fn moxfield_companion_section_does_not_depend_on_board_order() {
     let custom = card("Opt");
     let empty = serde_json::json!({"cards": {}});
 
-    for (commander_key, commander_cards, companion_key, custom_key, expected) in [
-        (
-            "commanders",
-            &commander,
-            "companions",
-            "testing Pool",
-            "Commander",
-        ),
-        (
-            "commanders",
-            &commander,
-            "companions",
-            "commanders2",
-            "Commander",
-        ),
-        (
-            "Commanders",
-            &commander,
-            "COMPANIONS",
-            "testing Pool",
-            "Commander",
-        ),
-        ("commanders", &empty, "companions", "testing Pool", "Deck"),
-        ("commanders", &empty, "companions", "commanders2", "Deck"),
+    for (commander_key, commander_cards, companion_key, custom_key) in [
+        ("commanders", &commander, "companions", "testing Pool"),
+        ("commanders", &commander, "companions", "commanders2"),
+        ("Commanders", &commander, "COMPANIONS", "testing Pool"),
+        ("commanders", &empty, "companions", "testing Pool"),
+        ("commanders", &empty, "companion", "commanders2"),
     ] {
         let boards = [
             (commander_key, commander_cards),
@@ -180,7 +162,6 @@ async fn moxfield_companion_section_does_not_depend_on_board_order() {
             (custom_key, &custom),
             ("empty Board", &empty),
         ];
-        let companion_label = format!("// Board: {companion_key}");
         for a in 0..4 {
             for b in (0..4).filter(|b| *b != a) {
                 for c in (0..4).filter(|c| *c != a && *c != b) {
@@ -197,23 +178,52 @@ async fn moxfield_companion_section_does_not_depend_on_board_order() {
                         output
                             .lines()
                             .collect::<Vec<_>>()
-                            .windows(3)
-                            .any(|section| {
-                                section
-                                    == [
-                                        expected,
-                                        companion_label.as_str(),
-                                        "1 Lurrus of the Dream-Den",
-                                    ]
-                            }),
+                            .windows(2)
+                            .any(|section| section == ["Companion", "1 Lurrus of the Dream-Den"]),
                         "order {:?}: {output}",
                         order.map(|i| boards[i].0)
                     );
                     assert!(!output.contains("empty Board"));
+                    assert!(!output.contains("// Board: companion"), "{output}");
                 }
             }
         }
     }
+}
+
+#[tokio::test]
+async fn archidekt_import_puts_companion_categories_under_a_companion_heading() {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let key = hex::encode(Sha256::digest("https://archidekt.com/api/decks/42/null"));
+    let card = |name: &str, category: &str, set: &str, cn: &str| {
+        serde_json::json!({"quantity": 1, "categories": [category], "card": {
+            "oracleCard": {"name": name},
+            "edition": {"editioncode": set},
+            "collectorNumber": cn
+        }})
+    };
+    store
+        .put(
+            "cache",
+            &key,
+            &serde_json::json!({
+                "categories": [{"name": "Companion", "includedInDeck": false}],
+                "cards": [
+                    card("Lurrus of the Dream-Den", "Companion", "iko", "226"),
+                    card("Ranger-Captain of Eos", "Creature", "mh1", "21"),
+                ]
+            }),
+        )
+        .unwrap();
+    let text = Providers::new(store)
+        .unwrap()
+        .import_url("https://archidekt.com/decks/42/lurrus")
+        .await
+        .unwrap();
+    assert_eq!(
+        text,
+        "Companion\n1 Lurrus of the Dream-Den (iko) 226\nDeck\n1 Ranger-Captain of Eos (mh1) 21"
+    );
 }
 
 #[tokio::test]
@@ -442,6 +452,7 @@ async fn resolves_named_boards_without_changing_their_zones() {
     let mut input = lines();
     input[0].zone = Zone::Maybe;
     input[0].board = Some("Maybeboard".into());
+    input[1].zone = Zone::Companion;
     input[2].zone = Zone::Maybe;
     input[2].board = Some("Considering".into());
     let resolved = recorded_providers().resolve(input).await.unwrap();
@@ -454,7 +465,7 @@ async fn resolves_named_boards_without_changing_their_zones() {
             .collect::<Vec<_>>(),
         [
             (Zone::Maybe, Some("Maybeboard")),
-            (Zone::Main, None),
+            (Zone::Companion, None),
             (Zone::Maybe, Some("Considering"))
         ]
     );

@@ -491,6 +491,12 @@ it.each([false, true])(
         zone: "maybe",
         board: "Considering",
       });
+      original.entries.push({
+        ...entry,
+        id: "6f1e2c55-3d7a-4c9e-9a51-2b8f0d4e7c13",
+        quantity: 1,
+        zone: "companion",
+      });
     }
     let restored: Deck | undefined;
     const saveText = vi.fn();
@@ -556,6 +562,9 @@ it.each([false, true])(
       expect(
         screen.getByRole("combobox", { name: "Board for Lightning Bolt" }),
       ).toHaveDisplayValue("Considering");
+      expect(
+        screen.getByRole("button", { name: /^Companion\s*1$/ }),
+      ).toBeVisible();
     }
   },
 );
@@ -3858,6 +3867,33 @@ it("loading an older preset does not retain the previous selection's profile id"
   const loaded = change.mock.lastCall?.[0].printSettings;
   expect(loaded.backOffsetXmm).toBe(2);
   expect(loaded.printerProfileId).toBeUndefined();
+});
+
+it.each([
+  [1, "Main deck + companion · All sheets"],
+  [2, "Main deck + companions · All sheets"],
+])("prints %i companion card(s) by default", (quantity, label) => {
+  renderWithClient(
+    <PrintSetup
+      deck={{
+        ...deck,
+        entries: [
+          ...deck.entries,
+          {
+            ...entry,
+            id: "6f1e2c55-3d7a-4c9e-9a51-2b8f0d4e7c13",
+            quantity,
+            zone: "companion",
+          },
+        ],
+      }}
+      onChange={() => {}}
+      onSave={async (value) => value}
+      onJobs={() => {}}
+    />,
+  );
+  const summary = within(screen.getByRole("region", { name: "Print summary" }));
+  expect(summary.getByText(label)).toBeVisible();
 });
 
 it("shows the selected trim and warns when bleed exceeds half the gap", async () => {

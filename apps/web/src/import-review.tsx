@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import type { ImportResult } from "./api.ts";
 import { formatCount, frontArt, mpcXmlFormat, zones } from "./core/index.ts";
 import { isEnglishFallback, languageList } from "./print-language.tsx";
-import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
+import { countCards, ErrorNotice, zoneLabel } from "./ui.tsx";
 
 const printingLabel = (set: string, collectorNumber: string) =>
   [set.toUpperCase(), collectorNumber && `#${collectorNumber}`]
@@ -194,7 +194,7 @@ export function ImportReview({
         <ul className="import-boards" aria-label="Resolved cards by board">
           {boards.map((board) => (
             <li key={board.zone}>
-              <span>{zoneNames[board.zone]}</span>
+              <span>{zoneLabel(board.zone, board.count)}</span>
               <strong>{board.count}</strong>
             </li>
           ))}

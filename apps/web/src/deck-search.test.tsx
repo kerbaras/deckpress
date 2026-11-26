@@ -45,6 +45,13 @@ const lines: ImportLine[] = [
   },
   {
     quantity: 1,
+    name: "Lurrus of the Dream-Den",
+    zone: "companion",
+    set: "",
+    collectorNumber: "",
+  },
+  {
+    quantity: 1,
     name: "Not A Card",
     zone: "maybe",
     set: "",
@@ -69,10 +76,12 @@ it("groups decklist lines by zone in play order and skips empty zones", () => {
   const groups = groupByZone(lines);
   expect(groups.map((group) => group.zone)).toEqual([
     "commander",
+    "companion",
     "main",
     "maybe",
   ]);
-  expect(groups[1]).toMatchObject({ name: "Main deck", count: 5 });
+  expect(groups[1]).toMatchObject({ name: "Companion", count: 1 });
+  expect(groups[2]).toMatchObject({ name: "Main deck", count: 5 });
   expect(groupByZone([])).toEqual([]);
 });
 

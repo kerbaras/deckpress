@@ -50,7 +50,13 @@ import {
 import { DuplexCalibration } from "./duplex-calibration.tsx";
 import { type MenuAction, MenuButton } from "./export-menu.tsx";
 import { isEnglishFallback } from "./print-language.tsx";
-import { ErrorNotice, ExternalLink, StatusRegion, useTask } from "./ui.tsx";
+import {
+  countCards,
+  ErrorNotice,
+  ExternalLink,
+  StatusRegion,
+  useTask,
+} from "./ui.tsx";
 import { UpscaleComparison } from "./upscale-comparison.tsx";
 
 const paperNames = {
@@ -238,6 +244,9 @@ export function PrintSetup({
     ? scmPapers.filter((paper) => scmCards(paper).includes(template.card))
     : [];
   const entries = printableEntries(deck, settings);
+  const companionCount = countCards(
+    entries.filter((entry) => entry.zone === "companion"),
+  );
   const cards = entries.flatMap((entry) =>
     Array.from({ length: entry.quantity }, () => entry),
   );
@@ -1319,6 +1328,8 @@ export function PrintSetup({
                 Main deck
                 {deck.entries.some((entry) => entry.zone === "commander") &&
                   " + commanders"}
+                {companionCount > 0 &&
+                  ` + ${companionCount === 1 ? "companion" : "companions"}`}
                 {deck.entries.some((entry) => entry.zone === "tokens") &&
                   " + tokens"}
                 {settings.includeSideboard && " + sideboard"}

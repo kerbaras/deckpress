@@ -220,6 +220,21 @@ fn excluded_categories_win_over_commander_and_sideboard() {
 }
 
 #[test]
+fn companion_categories_land_in_the_companion_zone_even_when_excluded() {
+    let mut value = deck_fixture();
+    value["categories"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({"name": "Companion", "includedInDeck": false}));
+    value["cards"][1]["categories"] = serde_json::json!(["Companion"]);
+    value["cards"][2]["categories"] = serde_json::json!(["Companion", "Maybeboard"]);
+    let deck = parse_archidekt_deck(&value).unwrap();
+    assert_eq!(deck.lines[1].zone, Zone::Companion);
+    assert_eq!(deck.lines[1].board, None);
+    assert_eq!(deck.lines[2].zone, Zone::Maybe);
+}
+
+#[test]
 fn rejects_decks_without_ids_or_that_are_not_public() {
     assert!(parse_archidekt_deck(&serde_json::json!({ "name": "x", "cards": [] })).is_err());
     for flag in ["private", "unlisted"] {
