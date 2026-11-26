@@ -425,6 +425,20 @@ pub struct ImportIssue {
     pub line: u32,
     pub input: String,
     pub message: String,
+    #[serde(
+        rename = "printLookup",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub print_lookup: Option<ImportPrintLookup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPrintLookup {
+    pub set: String,
+    pub collector_number: String,
+    pub languages: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

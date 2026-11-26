@@ -1093,12 +1093,12 @@ export function PrintSetup({
                               width={69}
                               height={14}
                               rx={3}
-                              fill="#1a1a1a"
+                              fill="var(--warning-bg)"
                             />
                             <text
                               x={slot.trim.x + 8}
                               y={slot.trim.y + slot.trim.height - 8}
-                              fill="white"
+                              fill="var(--warning-text)"
                               fontSize={8}
                               fontFamily="Helvetica, sans-serif"
                             >

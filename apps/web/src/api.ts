@@ -13,7 +13,6 @@ import {
   entrySchema,
   exportMpcXml,
   healthResponseSchema,
-  type ImportIssue,
   importLineSchema,
   importMpcXml,
   isMpcXml,
@@ -123,7 +122,18 @@ const artPageSchema = z.object({
 const resolvedSchema = z.object({
   entries: z.array(entrySchema),
   issues: z.array(
-    z.object({ line: z.number(), input: z.string(), message: z.string() }),
+    z.object({
+      line: z.number(),
+      input: z.string(),
+      message: z.string(),
+      printLookup: z
+        .object({
+          set: z.string(),
+          collectorNumber: z.string(),
+          languages: z.array(z.string()),
+        })
+        .optional(),
+    }),
   ),
   missingPrints: z.array(missingPrintSchema).optional(),
 });
@@ -133,7 +143,7 @@ export class UrlImportError extends Error {}
 export type ResolvedCards = z.infer<typeof resolvedSchema>;
 export interface ImportResult {
   entries: z.infer<typeof entrySchema>[];
-  issues: ImportIssue[];
+  issues: ResolvedCards["issues"];
   format: string;
   missingPrints?: ResolvedCards["missingPrints"];
 }

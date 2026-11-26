@@ -6,6 +6,22 @@ import { isEnglishFallback } from "./print-language.tsx";
 import { countCards, ErrorNotice, zoneNames } from "./ui.tsx";
 
 const plural = (count: number) => `${count} ${count === 1 ? "card" : "cards"}`;
+const printingLabel = (set: string, collectorNumber: string) =>
+  [set.toUpperCase(), collectorNumber && `#${collectorNumber}`]
+    .filter(Boolean)
+    .join(" ");
+
+export function LookedUpPrinting({
+  printLookup,
+}: Pick<ImportResult["issues"][number], "printLookup">) {
+  if (!printLookup) return null;
+  return (
+    <code>
+      Looked up: {printingLabel(printLookup.set, printLookup.collectorNumber)} (
+      {printLookup.languages.join(" / ")})
+    </code>
+  );
+}
 
 /** Card counts per board, in deck order, skipping empty boards. */
 export function boardCounts(entries: ImportResult["entries"]) {
@@ -78,12 +94,7 @@ export function ImportReview({
     const art = frontArt(entry);
     if (!entry.requestedLanguages?.length || !isEnglishFallback(entry, art))
       return [];
-    const printing = [
-      art.set.toUpperCase(),
-      art.collectorNumber && `#${art.collectorNumber}`,
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const printing = printingLabel(art.set, art.collectorNumber);
     return [
       {
         id: entry.id,
@@ -139,6 +150,7 @@ export function ImportReview({
                   <span className="import-line">Line {issue.line}</span>
                 )}
                 <code>{issue.input}</code>
+                <LookedUpPrinting printLookup={issue.printLookup} />
                 <span>{issue.message}</span>
               </li>
             ))}

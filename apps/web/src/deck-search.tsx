@@ -12,6 +12,7 @@ import {
   searchFields,
 } from "./api.ts";
 import { type Deck, formats, type ImportLine } from "./core/index.ts";
+import { LookedUpPrinting } from "./import-review.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
   CardImage,
@@ -443,12 +444,15 @@ function DeckPreview({
                     {resolved.issues.length === 1 ? "line needs" : "lines need"}{" "}
                     review
                   </strong>
-                  {resolved.issues.map((issue) => (
-                    <div key={`${issue.line}-${issue.input}-${issue.message}`}>
-                      <code>{issue.input}</code>
-                      <span>{issue.message}</span>
-                    </div>
-                  ))}
+                  <ul aria-label="Unresolved lines">
+                    {resolved.issues.map((issue) => (
+                      <li key={`${issue.line}-${issue.input}-${issue.message}`}>
+                        <code>{issue.input}</code>
+                        <LookedUpPrinting printLookup={issue.printLookup} />
+                        <span>{issue.message}</span>
+                      </li>
+                    ))}
+                  </ul>
                   <p>
                     Only resolved cards will be imported. Add the missing cards
                     from the deck editor after import.

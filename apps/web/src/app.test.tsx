@@ -1488,6 +1488,52 @@ it("lists skipped cards and badges English fallbacks in the saved deck", async (
   ).toBeVisible();
 });
 
+it("shows the printing looked up for a name-only skipped line before save", async () => {
+  const user = userEvent.setup();
+  const emptyDeck = { ...deck, entries: [] };
+  mockIPC((cmd) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return [emptyDeck];
+      case "get_deck":
+        return emptyDeck;
+      case "resolve_cards":
+        return {
+          entries: [],
+          issues: [
+            {
+              line: 1,
+              input: "1 Black Lotus",
+              message: "No printable scan found in es, la.",
+              printLookup: {
+                set: "lea",
+                collectorNumber: "232",
+                languages: ["es", "la"],
+              },
+            },
+          ],
+          missingPrints: [{ input: "1 Black Lotus", languages: ["es", "la"] }],
+        };
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  window.location.hash = `#/decks/${id}`;
+  renderWithClient(<App />);
+  await user.type(
+    await screen.findByLabelText("Decklist"),
+    "# Main{enter}1 Black Lotus",
+  );
+  await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  const skipped = within(
+    await screen.findByRole("list", { name: "Unresolved lines" }),
+  );
+  expect(skipped.getByText("Line 2")).toBeVisible();
+  expect(skipped.getByText("1 Black Lotus")).toBeVisible();
+  expect(skipped.getByText("Looked up: LEA #232 (es / la)")).toBeVisible();
+});
+
 it("identifies which of two printings of the same card fell back before save", () => {
   const localized = {
     ...entry,

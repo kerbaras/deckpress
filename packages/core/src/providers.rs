@@ -15,8 +15,8 @@ use url::Url;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    new_id, Art, ArtPage, Card, DeckEntry, ImportIssue, ImportLine, MissingPrint,
-    PrintLanguagePolicy, PrintLanguagePreferences, Provider, ResolvedCards, Zone,
+    new_id, Art, ArtPage, Card, DeckEntry, ImportIssue, ImportLine, ImportPrintLookup,
+    MissingPrint, PrintLanguagePolicy, PrintLanguagePreferences, Provider, ResolvedCards, Zone,
 };
 use crate::store::Store;
 
@@ -465,6 +465,8 @@ impl Providers {
         let mut missing_prints = Vec::new();
         let languages = &preferences.languages;
         let english_only = languages.as_slice() == ["en"];
+        let fallback_english = preferences.policy == PrintLanguagePolicy::FallbackToEnglish
+            && !languages.iter().any(|lang| lang == "en");
         for (offset, batch) in lines.chunks(COLLECTION_BATCH).enumerate() {
             let identifiers: Vec<Value> = batch
                 .iter()
@@ -492,6 +494,7 @@ impl Providers {
                         line: 0,
                         input: "Card without a printable scan".into(),
                         message: "Scryfall returned a card without supported imagery".into(),
+                        print_lookup: None,
                     }),
                     Err(_) => {}
                 }
@@ -527,10 +530,7 @@ impl Providers {
                             break;
                         }
                     }
-                    if localized.is_none()
-                        && preferences.policy == PrintLanguagePolicy::FallbackToEnglish
-                        && !languages.iter().any(|lang| lang == "en")
-                    {
+                    if localized.is_none() && fallback_english {
                         localized = self.localized_print(line, found, "en").await?;
                     }
                     localized
@@ -548,12 +548,26 @@ impl Providers {
                     }),
                     None if found.is_some() || !english_only => {
                         let input = import_label(line);
+                        let print_lookup = found
+                            .filter(|_| line.collector_number.is_empty())
+                            .map(|card| {
+                                let art = &card.faces[0];
+                                let mut attempted = languages.clone();
+                                if fallback_english {
+                                    attempted.push("en".into());
+                                }
+                                ImportPrintLookup {
+                                    set: art.set.clone(),
+                                    collector_number: art.collector_number.clone(),
+                                    languages: attempted,
+                                }
+                            });
                         issues.push(ImportIssue {
                             line: position as u32,
                             input: input.clone(),
                             message: format!("No printable scan found in {}{}.", languages.join(", "),
-                                if preferences.policy == PrintLanguagePolicy::FallbackToEnglish
-                                    && !languages.iter().any(|lang| lang == "en") { " or English" } else { "" }),
+                                if fallback_english { " or English" } else { "" }),
+                            print_lookup,
                         });
                         missing_prints.push(MissingPrint { input, languages: languages.clone() });
                     }
@@ -561,6 +575,7 @@ impl Providers {
                         line: position as u32,
                         input: import_label(line),
                         message: "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.".into(),
+                        print_lookup: None,
                     }),
                 }
             }

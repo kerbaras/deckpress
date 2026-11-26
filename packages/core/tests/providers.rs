@@ -288,6 +288,52 @@ async fn spanish_policy_and_art_search_use_recorded_scryfall_prints() {
 }
 
 #[tokio::test]
+async fn strict_name_only_skip_reports_the_printing_used_for_lookup() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/scryfall-languages.json")).unwrap();
+    let store = Arc::new(Store::in_memory().unwrap());
+    record(
+        &store,
+        "https://api.scryfall.com/cards/collection",
+        json!({"identifiers": [{"name": "Black Lotus"}]}),
+        &json!({"data": [fixture["collection"]["data"][1]]}),
+    );
+    for language in ["es", "la"] {
+        record(
+            &store,
+            &search_url(&format!("oracleid:{LOTUS} game:paper lang:{language}")),
+            Value::Null,
+            &fixture["absent_search_es"],
+        );
+    }
+    let providers = Providers::new(store).unwrap();
+    providers
+        .save_print_language_preferences(preferences(&["es", "la"], PrintLanguagePolicy::Strict))
+        .unwrap();
+    let result = providers
+        .resolve_import(vec![ImportLine {
+            name: "Black Lotus".into(),
+            set: String::new(),
+            collector_number: String::new(),
+            quantity: 1,
+            zone: Zone::Main,
+        }])
+        .await
+        .unwrap();
+    assert!(result.entries.is_empty());
+    assert_eq!(result.issues.len(), 1);
+    assert_eq!(
+        serde_json::to_value(&result.issues[0]).unwrap(),
+        json!({
+            "line": 1,
+            "input": "1 Black Lotus",
+            "message": "No printable scan found in es, la.",
+            "printLookup": {"set": "lea", "collectorNumber": "232", "languages": ["es", "la"]},
+        })
+    );
+}
+
+#[tokio::test]
 async fn unusable_exact_scan_is_skipped_in_strict_mode_and_falls_back_to_exact_english() {
     let fixture: Value =
         serde_json::from_str(include_str!("fixtures/scryfall-languages.json")).unwrap();
