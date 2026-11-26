@@ -825,6 +825,23 @@ it("re-renders every installed crop after keyboard movement and a thumbnail drag
     expect.objectContaining({ position: { x: 0.8, y: 0.25 } }),
   );
   expect(picker).toHaveAccessibleDescription(/80% across, 25% down/);
+
+  fireEvent.pointerDown(picker, {
+    button: 0,
+    pointerId: 2,
+    clientX: 110,
+    clientY: 70,
+  });
+  fireEvent.pointerUp(picker, { pointerId: 2, clientX: 110, clientY: 70 });
+  expect(await screen.findAllByText("37.5 ms")).toHaveLength(4);
+  expect(picker).toHaveAccessibleDescription(/100% across, 25% down/);
+  await user.keyboard("{ArrowRight}{ArrowRight}");
+  expect(calls).toHaveLength(3);
+  await user.keyboard("{ArrowLeft}");
+  expect(await screen.findAllByText("50.0 ms")).toHaveLength(4);
+  expect(calls[3]).toEqual(
+    expect.objectContaining({ position: { x: 0.95, y: 0.25 } }),
+  );
 });
 
 it("cancels comparison requests on cancel, restart and navigation out of print setup", async () => {
