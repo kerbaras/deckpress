@@ -344,7 +344,7 @@ it("creates a deck, imports resolved cards, and reopens the saved project", asyn
   });
   renderWithClient(<App />);
   await user.click(
-    await screen.findByRole("button", { name: "Create your first deck" }),
+    await screen.findByRole("button", { name: "Start an empty deck" }),
   );
   await user.type(screen.getByLabelText("Deck name"), "Burn");
   await user.click(screen.getByRole("button", { name: "Create deck" }));
@@ -1195,6 +1195,6 @@ it("keeps a failed library request visible and lets the user retry", async () =>
   expect(error).toHaveTextContent("Local storage unavailable");
   await user.click(within(error).getByRole("button", { name: "Retry" }));
   expect(
-    await screen.findByRole("button", { name: "Create your first deck" }),
+    await screen.findByRole("button", { name: "Start an empty deck" }),
   ).toBeVisible();
 });
