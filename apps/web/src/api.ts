@@ -94,6 +94,9 @@ const resolvedSchema = z.object({
     z.object({ line: z.number(), input: z.string(), message: z.string() }),
   ),
 });
+/** The deck URL could not be turned into a list; the pasted list still can. */
+export class UrlImportError extends Error {}
+
 export interface ImportResult {
   entries: z.infer<typeof entrySchema>[];
   issues: ImportIssue[];
@@ -316,15 +319,29 @@ export const api = {
   ): Promise<ImportResult> => {
     const text =
       "url" in value
-        ? await command("import_url", z.string(), { url: value.url })
+        ? await command("import_url", z.string(), { url: value.url }).catch(
+            (error: unknown) => {
+              throw new UrlImportError(
+                error instanceof Error ? error.message : String(error),
+              );
+            },
+          )
         : value.text;
     const parsed = parseDecklist(text);
     const resolved = await command("resolve_cards", resolvedSchema, {
       lines: parsed.entries,
     });
+    // `resolve_cards` numbers issues by position in `lines`; map them back to
+    // the line the user typed.
+    const issues = resolved.issues.map((issue) => ({
+      ...issue,
+      line: issue.line > 0 ? (parsed.lines[issue.line - 1] ?? 0) : 0,
+    }));
     return {
       entries: resolved.entries,
-      issues: [...parsed.issues, ...resolved.issues],
+      issues: [...parsed.issues, ...issues].sort(
+        (a, b) => (a.line || Infinity) - (b.line || Infinity),
+      ),
       format: parsed.format,
     };
   },

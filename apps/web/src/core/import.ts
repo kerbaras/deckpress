@@ -18,6 +18,8 @@ export interface ImportIssue {
 }
 export interface ParsedDecklist {
   entries: ImportLine[];
+  /** Source line (1-based) of the first line that produced each entry. */
+  lines: number[];
   issues: ImportIssue[];
   format: string;
 }
@@ -46,13 +48,16 @@ export function parseDecklist(input: string): ParsedDecklist {
   const text = input.replace(/^\uFEFF/, "").trim();
   const result: ParsedDecklist = {
     entries: [],
+    lines: [],
     issues: [],
     format: "Text / Arena",
   };
   const add = (value: unknown, line: number, source: string) => {
     const parsed = importLineSchema.safeParse(value);
-    if (parsed.success) result.entries.push(parsed.data);
-    else
+    if (parsed.success) {
+      result.entries.push(parsed.data);
+      result.lines.push(line);
+    } else
       result.issues.push({
         line,
         input: source,
@@ -164,8 +169,9 @@ export function parseDecklist(input: string): ParsedDecklist {
       );
     });
   }
-  const merged = new Map<string, ImportLine>();
-  for (const entry of result.entries) {
+  const merged = new Map<string, { entry: ImportLine; line: number }>();
+  result.entries.forEach((entry, index) => {
+    const line = result.lines[index] ?? 0;
     const key = JSON.stringify([
       entry.name.toLowerCase(),
       entry.set,
@@ -173,19 +179,23 @@ export function parseDecklist(input: string): ParsedDecklist {
       entry.zone,
     ]);
     const old = merged.get(key);
-    if (old && old.quantity + entry.quantity > 250)
+    if (old && old.entry.quantity + entry.quantity > 250)
       result.issues.push({
-        line: 0,
+        line,
         input: entry.name,
         message: "Combined quantity exceeds 250",
       });
     else
       merged.set(key, {
-        ...entry,
-        quantity: (old?.quantity ?? 0) + entry.quantity,
+        entry: {
+          ...entry,
+          quantity: (old?.entry.quantity ?? 0) + entry.quantity,
+        },
+        line: old?.line ?? line,
       });
-  }
-  result.entries = [...merged.values()];
+  });
+  result.entries = [...merged.values()].map((item) => item.entry);
+  result.lines = [...merged.values()].map((item) => item.line);
   if (
     result.entries.length > 1000 ||
     result.entries.reduce((n, entry) => n + entry.quantity, 0) > 1500
