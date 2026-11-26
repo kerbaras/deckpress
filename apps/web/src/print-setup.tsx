@@ -27,11 +27,12 @@ import {
   printableEntries,
   printSettingsSchema,
   type ScmTemplate,
+  scmCardLabel,
   scmCards,
   scmPapers,
   sheetLabel,
 } from "./core/index.ts";
-import { ErrorNotice, useTask } from "./ui.tsx";
+import { ErrorNotice, ExternalLink, useTask } from "./ui.tsx";
 
 const paperNames = {
   a4: "A4",
@@ -43,6 +44,14 @@ const paperNames = {
   arch_b: "Arch B (12 × 18 in)",
   custom: "Custom",
 };
+
+const scmCardSizes = [...new Set(scmPapers.flatMap(scmCards))].sort();
+const scmVariants = [
+  { value: "default", label: "Standard layout" },
+  { value: "borderless", label: "Borderless layout" },
+] as const;
+const scmCuttingTemplates =
+  "https://github.com/Alan-Cha/silhouette-card-maker/tree/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates";
 
 export const bleedModes: {
   value: PrintSettings["bleedMode"];
@@ -119,6 +128,9 @@ export function PrintSetup({
   const sheetName = layout?.scm?.name ?? paperNames[settings.paper];
   const changeTemplate = (patch: Partial<ScmTemplate>) =>
     change({ scmTemplate: { ...template, ...patch } });
+  const matchingPapers = isScm
+    ? scmPapers.filter((paper) => scmCards(paper).includes(template.card))
+    : [];
   const entries = printableEntries(deck, settings);
   const cards = entries.flatMap((entry) =>
     Array.from({ length: entry.quantity }, () => entry),
@@ -281,63 +293,71 @@ export function PrintSetup({
                 }
               >
                 <option value="free">Free layout</option>
-                <option value="scm">Silhouette Card Maker (SCM)</option>
+                <option value="scm">Silhouette template (SCM)</option>
               </select>
             </label>
             {isScm && (
               <>
-                <label className="setting-row">
-                  SCM paper
+                <label className="setting-row card-size-setting">
+                  Template card size
                   <select
-                    value={template.paper}
+                    value={
+                      scmCardSizes.includes(template.card) ? template.card : ""
+                    }
                     onChange={(event) => {
-                      const paper = event.target.value;
-                      const cards = scmCards(paper);
-                      changeTemplate({
-                        paper,
-                        card: cards.includes(template.card)
-                          ? template.card
-                          : (cards[0] ?? template.card),
-                      });
+                      const card = event.target.value;
+                      const paper = scmCards(template.paper).includes(card)
+                        ? template.paper
+                        : scmPapers.find((paper) =>
+                            scmCards(paper).includes(card),
+                          );
+                      if (paper) changeTemplate({ paper, card });
                     }}
                   >
-                    {scmPapers.map((paper) => (
-                      <option key={paper} value={paper}>
-                        {paperNames[paper as keyof typeof paperNames]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="setting-row">
-                  SCM card
-                  <select
-                    value={template.card}
-                    onChange={(event) =>
-                      changeTemplate({ card: event.target.value })
-                    }
-                  >
-                    {scmCards(template.paper).map((card) => (
+                    <option value="" disabled>
+                      Choose a card size
+                    </option>
+                    {scmCardSizes.map((card) => (
                       <option key={card} value={card}>
-                        {card.replaceAll("_", " ")}
+                        {scmCardLabel(card)}
                       </option>
                     ))}
                   </select>
                 </label>
-                <label className="setting-row">
-                  SCM variant
+                <label className="setting-row card-size-setting">
+                  Silhouette Cameo template
                   <select
-                    value={template.variant}
-                    onChange={(event) =>
-                      changeTemplate({
-                        variant:
-                          event.target.value === "borderless"
-                            ? "borderless"
-                            : "default",
-                      })
+                    value={
+                      matchingPapers.includes(template.paper)
+                        ? `${template.paper}:${template.variant}`
+                        : ""
                     }
+                    onChange={(event) => {
+                      const [paper, variant] = event.target.value.split(":");
+                      if (paper) {
+                        changeTemplate({
+                          paper,
+                          variant:
+                            variant === "borderless" ? "borderless" : "default",
+                        });
+                      }
+                    }}
                   >
-                    <option value="default">Default</option>
-                    <option value="borderless">Borderless</option>
+                    <option value="" disabled>
+                      Choose a template
+                    </option>
+                    {matchingPapers.map((paper) => {
+                      const name = paperNames[paper as keyof typeof paperNames];
+                      return (
+                        <optgroup key={paper} label={name}>
+                          {scmVariants.map(({ value, label }) => (
+                            <option key={value} value={`${paper}:${value}`}>
+                              {name} · {label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
                   </select>
                 </label>
                 <label className="setting-row">
@@ -354,10 +374,59 @@ export function PrintSetup({
                     <option value="4">4 marks</option>
                   </select>
                 </label>
-                <p className="hint">
-                  Use the matching .studio3 template: {layout?.scm?.name}. SCM
-                  replaces crop marks and uses long-edge duplex.
-                </p>
+                {layout?.scm && (
+                  <>
+                    <h3>Fixed by template</h3>
+                    <dl className="my-0" aria-live="polite" aria-atomic="true">
+                      <div>
+                        <dt>Paper & orientation</dt>
+                        <dd>
+                          {
+                            paperNames[
+                              template.paper as keyof typeof paperNames
+                            ]
+                          }{" "}
+                          · {layout.scm.orientation}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Card trim</dt>
+                        <dd className="mono">
+                          {trimWidth} × {trimHeight} mm
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Grid</dt>
+                        <dd className="mono">
+                          {layout.columns} × {layout.rows} ·{" "}
+                          {layout.slots.length} cards per sheet
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Cut file</dt>
+                        <dd>
+                          <code>{layout.scm.name}.studio3</code>
+                        </dd>
+                      </div>
+                    </dl>
+                    <ExternalLink href={scmCuttingTemplates}>
+                      SCM cutting templates
+                    </ExternalLink>
+                    {template.variant === "borderless" &&
+                      (template.paper === "a3" ||
+                        template.paper === "arch_b") && (
+                        <p className="hint">
+                          SCM does not publish a cut file for this borderless
+                          layout.
+                        </p>
+                      )}
+                    <p className="hint">
+                      Registration marks replace crop guides. Template spacing
+                      replaces free margins and gaps. Duplex uses long-edge
+                      alignment.
+                    </p>
+                  </>
+                )}
               </>
             )}
           </section>

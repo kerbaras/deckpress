@@ -24,6 +24,14 @@ export const scmPapers = Object.keys(layouts);
 export const scmCards = (paper: string) =>
   Object.hasOwn(layouts, paper) ? Object.keys(layouts[paper] ?? {}).sort() : [];
 
+export function scmCardLabel(card: string) {
+  const name = card
+    .replaceAll("_", " ")
+    .replace(/\b[a-z]/g, (initial) => initial.toUpperCase());
+  const size = Object.hasOwn(cardSizes, card) ? cardSizes[card] : undefined;
+  return size ? `${name} · ${size.width} × ${size.height}` : name;
+}
+
 export interface ScmSheet {
   name: string;
   marks: Rect[];
