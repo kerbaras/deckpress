@@ -540,6 +540,74 @@ it("shows the model download error and retries the same model", async () => {
   ]);
 });
 
+it("announces PNG export phases once, naming skipped faces on completion", async () => {
+  const user = userEvent.setup();
+  const queued: PrintJob = {
+    id,
+    deckId: id,
+    deckName: "Burn",
+    status: "queued",
+    completed: 0,
+    total: 3,
+    message: "Queued · PNG files",
+    createdAt: deck.createdAt,
+    fileName: "Burn-800dpi-png.zip",
+    bytes: 0,
+    pages: 0,
+    calibrationPage: false,
+    format: "png",
+  };
+  let jobs = [queued];
+  mockIPC((cmd) => (cmd === "list_jobs" ? jobs : []));
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  const status = screen.getByRole("status", {
+    name: "Print job announcements",
+  });
+  const alert = screen.getByRole("alert", { name: "Print job failures" });
+  await waitFor(() =>
+    expect(status).toHaveTextContent(/^PNG export for Burn queued\.$/),
+  );
+  const refresh = screen.getByRole("button", { name: "Refresh print jobs" });
+
+  const message =
+    "2 PNG files ready · 1 face without art skipped: Bolt back (sheet 1, slot 1)";
+  const completed: PrintJob = {
+    ...queued,
+    status: "completed",
+    completed: 3,
+    pages: 2,
+    message,
+  };
+  jobs = [completed];
+  await user.click(refresh);
+  expect(await screen.findByText(message)).toBeVisible();
+  expect(status).toHaveTextContent(
+    `PNG export for Burn started and completed: ${message}`,
+  );
+  const announcement = status.firstChild;
+  await user.click(refresh);
+  expect(status.firstChild).toBe(announcement);
+  expect(alert).toBeEmptyDOMElement();
+
+  jobs = [
+    completed,
+    {
+      ...queued,
+      id: "338aacf8-01a2-4e63-a43a-e42eb1abc32c",
+      status: "failed",
+      message: "None of the selected faces have art to export",
+    },
+  ];
+  await user.click(refresh);
+  await waitFor(() =>
+    expect(alert).toHaveTextContent(
+      "PNG export for Burn started and failed: None of the selected faces have art to export",
+    ),
+  );
+  expect(status.firstChild).toBe(announcement);
+});
+
 it("announces print job phases once, leaving polling ticks in the progress control", async () => {
   const user = userEvent.setup();
   const queued: PrintJob = {
@@ -555,6 +623,7 @@ it("announces print job phases once, leaving polling ticks in the progress contr
     bytes: 0,
     pages: 1,
     calibrationPage: false,
+    format: "pdf",
   };
   const oldJob: PrintJob = {
     ...queued,
@@ -675,6 +744,7 @@ it.each([
       bytes: 0,
       pages: 0,
       calibrationPage: false,
+      format: "pdf",
     };
     let job = queued;
     mockIPC((cmd) => (cmd === "list_jobs" ? [job] : []));

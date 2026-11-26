@@ -396,7 +396,7 @@ function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
   const announceJobs = useCallback((snapshot: PrintJob[], initial = false) => {
     const polite: JobAnnouncement[] = [];
     const failures: JobAnnouncement[] = [];
-    for (const { id, status, deckName, message } of snapshot) {
+    for (const { id, status, deckName, message, format } of snapshot) {
       let statuses = seen.current.get(id);
       if (!statuses) {
         statuses = new Set();
@@ -416,12 +416,15 @@ function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
       if (initial && finished && statuses.size === 1) continue;
       const phase =
         finished && !statuses.has("running") ? `started and ${status}` : status;
+      const subject = `${format === "png" ? "PNG export" : "Print job"} for ${deckName}`;
+      // PNG results name the faces skipped for missing art.
+      const detail =
+        status === "failed" || (status === "completed" && format === "png");
       (status === "failed" ? failures : polite).push({
         key: `${id}:${status}`,
-        text:
-          status === "failed"
-            ? `Print job for ${deckName} ${phase}: ${message}`
-            : `Print job for ${deckName} ${phase}.`,
+        text: detail
+          ? `${subject} ${phase}: ${message}`
+          : `${subject} ${phase}.`,
       });
     }
     if (polite.length || failures.length)
