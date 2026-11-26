@@ -164,6 +164,7 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
     <>
       <PageToolbar title="Discover decks" subtitle={subtitle}>
         <SearchField
+          compact
           ref={searchField}
           label={`Search public decks by ${fieldNames[field].toLowerCase()}`}
           value={text}

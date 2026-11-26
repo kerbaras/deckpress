@@ -97,24 +97,28 @@ export function SearchField({
   onChange,
   label,
   ref,
+  compact = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   label: string;
   ref?: Ref<HTMLInputElement>;
+  compact?: boolean;
 }) {
+  const Container = compact ? "div" : "label";
   return (
-    <div className="search">
+    <Container className="search">
+      {!compact && <span className="search-label">{label}</span>}
       <Search className="size-icon stroke-icon" aria-hidden="true" />
       <input
         ref={ref}
         type="search"
-        aria-label={label}
-        placeholder={label}
+        aria-label={compact ? label : undefined}
+        placeholder={compact ? label : undefined}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
-    </div>
+    </Container>
   );
 }
 

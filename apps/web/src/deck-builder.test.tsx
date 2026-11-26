@@ -258,6 +258,7 @@ async function buildRadhaDraft(user: ReturnType<typeof userEvent.setup>) {
     screen.getByRole("searchbox", { name: /Search legendary creatures/ }),
     "ra",
   );
+  expect(screen.getByText("Search legendary creatures by name")).toBeVisible();
   await user.click(await screen.findByRole("button", { name: /^Radha/ }));
   await user.click(screen.getByRole("button", { name: /Next/ }));
   await user.click(screen.getByRole("button", { name: /^Aggro/ }));
