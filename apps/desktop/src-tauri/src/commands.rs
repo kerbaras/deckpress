@@ -223,7 +223,7 @@ pub struct UploadMeta {
     #[serde(default)]
     pub artist: String,
     #[serde(default)]
-    pub bleed_mm: f64,
+    pub bleed_mm: Option<f64>,
 }
 
 /// The image travels as the raw IPC body; metadata is a percent-encoded JSON
@@ -247,9 +247,6 @@ pub async fn upload_art(
             .map_err(|_| AppError::user("Upload metadata is invalid"))?;
     if meta.name.trim().is_empty() || meta.name.chars().count() > 300 {
         return Err(AppError::user("Card name is required"));
-    }
-    if !(0.0..=10.0).contains(&meta.bleed_mm) {
-        return Err(AppError::user("Bleed must be between 0 and 10 mm"));
     }
     let images = Arc::clone(&state.images);
     tokio::task::spawn_blocking(move || {

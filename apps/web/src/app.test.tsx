@@ -1,6 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
@@ -308,6 +314,69 @@ it("keeps the original scan while selecting art for one copy and saving a person
     [1, alternate.id],
   ]);
 });
+
+it.each([
+  ["auto", undefined],
+  ["0", 0],
+  ["custom", 1.25],
+] as const)(
+  "uploads art with the %s source bleed setting",
+  async (mode, bleedMm) => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "art").mockResolvedValue({
+      items: [],
+      page: 1,
+      hasMore: false,
+      total: 0,
+    });
+    vi.spyOn(api, "uploads").mockResolvedValue([]);
+    vi.spyOn(api, "preferences").mockResolvedValue({
+      preferences: {},
+      usage: {},
+    });
+    const uploaded = artSchema.parse({
+      ...community,
+      provider: "upload",
+      bleedMm: bleedMm ?? 3.048,
+    });
+    const upload = vi.spyOn(api, "upload").mockResolvedValue(uploaded);
+    renderWithClient(
+      <ArtPicker
+        deck={deck}
+        entry={entry}
+        onSelect={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Upload your own art" }),
+    );
+    const dialog = within(
+      screen.getByRole("dialog", { name: "Upload card art" }),
+    );
+    const input = dialog.getByLabelText("Existing bleed per side");
+    expect(input).toHaveValue("auto");
+    if (mode !== "auto") await user.selectOptions(input, mode);
+    if (mode === "custom") {
+      await user.type(
+        dialog.getByLabelText("Custom bleed per side (mm)"),
+        "1.25",
+      );
+    }
+    const file = new File(["image"], "card.png", { type: "image/png" });
+    await user.upload(dialog.getByLabelText(/Image · PNG/), file);
+    const submit = dialog.getByRole("button", { name: "Upload & preview" });
+    expect(submit).toBeEnabled();
+    const form = submit.closest("form");
+    if (!form) throw new Error("Upload form not found");
+    fireEvent.submit(form);
+    expect(upload).toHaveBeenCalledOnce();
+    const [submitted, meta] = upload.mock.calls[0] ?? [];
+    expect(submitted).toBe(file);
+    if (bleedMm === undefined) expect(meta).not.toHaveProperty("bleedMm");
+    else expect(meta).toHaveProperty("bleedMm", bleedMm);
+  },
+);
 
 it("ranks the other cards against a reference art and only applies the picks the user keeps", async () => {
   const user = userEvent.setup();

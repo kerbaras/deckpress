@@ -26,6 +26,18 @@ fn strips_mpc_bleed_using_the_mpc_card_size() {
     assert_eq!(untouched.dimensions(), image.dimensions());
 }
 
+#[test]
+fn strips_upload_bleed_using_the_source_size_even_for_custom_print_trim() {
+    let image = RgbImage::new(816, 1112);
+    let settings = PrintSettings {
+        card_width_mm: 40.0,
+        card_height_mm: 60.0,
+        ..PrintSettings::default()
+    };
+    let out = strip_bleed(&image, &art(3.048, Provider::Upload), &settings);
+    assert_eq!(out.dimensions(), (744, 1040));
+}
+
 /// Every pixel gets a unique colour so reflections can be traced exactly.
 fn labelled(width: u32, height: u32) -> RgbImage {
     let mut image = RgbImage::new(width, height);
@@ -320,6 +332,34 @@ fn corners_are_filled_outside_the_radius_only() {
     assert_eq!(*image.get_pixel(39, 59), Rgb([0, 0, 0]));
     assert_eq!(*image.get_pixel(8, 8), Rgb([255, 255, 255]));
     assert_eq!(*image.get_pixel(20, 0), Rgb([255, 255, 255]));
+}
+
+#[test]
+fn edge_fills_near_matching_trim_without_cropping_mismatched_art() {
+    let settings = PrintSettings {
+        dpi: 300,
+        bleed_mm: 2.0,
+        bleed_mode: BleedMode::Edge,
+        ..PrintSettings::default()
+    };
+    let art_color = Rgb([200, 40, 40]);
+    let background = parse_hex_color(&settings.bleed_color);
+    for (w, h, vertical_edge) in [(372, 520, art_color), (900, 900, background)] {
+        let source = common::png(w, h, art_color.0);
+        let out = rasterize(
+            &source,
+            &art(0.0, Provider::Scryfall),
+            &settings,
+            None,
+            &CancelToken::default(),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        let (width, height) = out.image.dimensions();
+        assert!((0..width).all(|x| *out.image.get_pixel(x, height / 2) == art_color));
+        assert_eq!(*out.image.get_pixel(width / 2, 0), vertical_edge);
+        assert_eq!(*out.image.get_pixel(width / 2, height - 1), vertical_edge);
+    }
 }
 
 #[test]

@@ -19,6 +19,7 @@ use url::Url;
 use crate::error::{AppError, AppResult};
 use crate::models::{new_id, now_iso, Art, Provider, Upload};
 use crate::providers::USER_AGENT;
+use crate::raster::{detect_upload_bleed, UPLOAD_CARD_MM};
 use crate::store::Store;
 
 pub const UPLOAD_SCHEME: &str = "upload://";
@@ -310,19 +311,25 @@ impl Images {
         if input.name.trim().is_empty() || input.name.chars().count() > 300 {
             return Err(AppError::user("Give the upload a name"));
         }
-        if !(0.0..=10.0).contains(&input.bleed_mm) {
+        if input
+            .bleed_mm
+            .is_some_and(|bleed| !(0.0..=10.0).contains(&bleed))
+        {
             return Err(AppError::user("Bleed must be between 0 and 10 mm"));
         }
         let image = decode(bytes)?;
         let (width, height) = (image.width(), image.height());
+        let bleed_mm = input
+            .bleed_mm
+            .unwrap_or_else(|| detect_upload_bleed(width, height));
         let id = new_id();
         let path = self.upload_path(&id);
         std::fs::create_dir_all(path.parent().expect("upload dir has a parent"))?;
         image.to_rgba8().save_with_format(&path, ImageFormat::Png)?;
         let image_url = format!("{UPLOAD_SCHEME}{id}");
         let dpi = f64::min(
-            f64::from(width) / ((63.0 + 2.0 * input.bleed_mm) / 25.4),
-            f64::from(height) / ((88.0 + 2.0 * input.bleed_mm) / 25.4),
+            f64::from(width) / ((UPLOAD_CARD_MM.0 + 2.0 * bleed_mm) / 25.4),
+            f64::from(height) / ((UPLOAD_CARD_MM.1 + 2.0 * bleed_mm) / 25.4),
         )
         .round();
         let art = Art {
@@ -342,7 +349,7 @@ impl Images {
             set: String::new(),
             collector_number: String::new(),
             language: "en".into(),
-            bleed_mm: input.bleed_mm,
+            bleed_mm,
             dpi: dpi.clamp(1.0, 10_000.0),
             released_at: now_iso(),
             tags: vec!["custom".into()],
@@ -366,5 +373,5 @@ pub struct UploadInput {
     pub oracle_id: String,
     pub name: String,
     pub artist: String,
-    pub bleed_mm: f64,
+    pub bleed_mm: Option<f64>,
 }

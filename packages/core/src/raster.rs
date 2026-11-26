@@ -15,10 +15,15 @@ use crate::upscaler::{CancelToken, Upscaler};
 
 /// Physical size MPC Autofill scans describe (2.5 x 3.5 inches).
 const MPC_CARD_MM: (f64, f64) = (63.5, 88.9);
+pub(crate) const UPLOAD_CARD_MM: (f64, f64) = (63.0, 88.0);
+const MPC_BLEED_MM: f64 = 3.048;
+const EIGHTH_INCH_MM: f64 = 3.175;
+const BLEED_ASPECT_TOLERANCE: f64 = 0.0015;
+const TRIM_ASPECT_TOLERANCE: f64 = 0.01;
 
 /// Bump when `rasterize` output changes for identical inputs so cached
 /// previews and PDF rasters are regenerated.
-pub const PIPELINE_VERSION: u32 = 2;
+pub const PIPELINE_VERSION: u32 = 4;
 
 /// Corner radius of a real card.
 pub const CORNER_RADIUS_MM: f64 = 3.0;
@@ -52,16 +57,34 @@ fn to_rgb(image: image::DynamicImage, background: Rgb<u8>) -> RgbImage {
     }
 }
 
-/// Removes the bleed a provider already baked into the scan so every source
-/// starts as a bare card face.
+/// Match common full-bleed formats without treating any wide image as bleed.
+pub(crate) fn detect_upload_bleed(width: u32, height: u32) -> f64 {
+    let ratio = f64::from(width) / f64::from(height);
+    let formats = [
+        (UPLOAD_CARD_MM, MPC_BLEED_MM),
+        (MPC_CARD_MM, MPC_BLEED_MM),
+        (UPLOAD_CARD_MM, EIGHTH_INCH_MM),
+    ];
+    formats
+        .into_iter()
+        .map(|((w, h), bleed)| {
+            let expected = (w + 2.0 * bleed) / (h + 2.0 * bleed);
+            (((ratio / expected) - 1.0).abs(), bleed)
+        })
+        .filter(|(error, _)| *error <= BLEED_ASPECT_TOLERANCE)
+        .min_by(|(a, _), (b, _)| a.total_cmp(b))
+        .map_or(0.0, |(_, bleed)| bleed)
+}
+
+/// Removes the bleed baked into the source before fitting it to the print trim.
 pub fn strip_bleed(image: &RgbImage, art: &Art, settings: &PrintSettings) -> RgbImage {
     if art.bleed_mm <= 0.0 {
         return image.clone();
     }
-    let (native_w, native_h) = if art.provider == Provider::Mpc {
-        MPC_CARD_MM
-    } else {
-        (settings.card_width_mm, settings.card_height_mm)
+    let (native_w, native_h) = match art.provider {
+        Provider::Mpc => MPC_CARD_MM,
+        Provider::Upload => UPLOAD_CARD_MM,
+        _ => (settings.card_width_mm, settings.card_height_mm),
     };
     let (w, h) = (image.width(), image.height());
     let x = (f64::from(w) * art.bleed_mm / (native_w + art.bleed_mm * 2.0)).round() as u32;
@@ -308,6 +331,16 @@ pub fn rasterize(
     if target_w == 0 || target_h == 0 {
         return Err(AppError::user("Card dimensions are too small to print"));
     }
+    let trim_aspect = settings.card_width_mm / settings.card_height_mm;
+    let expected_width = f64::from(face.height()) * trim_aspect;
+    // Rounding the two crop edges can cost a source pixel per axis.
+    let crop_rounding = if art.bleed_mm > 0.0 {
+        1.0 + trim_aspect
+    } else {
+        0.0
+    };
+    let fills_trim = (f64::from(face.width()) - expected_width).abs()
+        <= expected_width * TRIM_ASPECT_TOLERANCE + crop_rounding;
     let mut upscaled = false;
     if settings.upscale
         && f64::from(face.width()) < f64::from(target_w) * 0.95
@@ -318,7 +351,11 @@ pub fn rasterize(
         upscaled = true;
     }
     cancel.check()?;
-    let face = contain(&face, target_w, target_h, background)?;
+    let face = if fills_trim {
+        resize(&face, target_w, target_h)?
+    } else {
+        contain(&face, target_w, target_h, background)?
+    };
     Ok(RasterOutput {
         image: finish_face(&face, settings, background),
         upscaled,
