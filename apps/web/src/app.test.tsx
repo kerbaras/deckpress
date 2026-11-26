@@ -3723,6 +3723,22 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   );
 });
 
+it("keeps Print check outside the sticky proof's scroll range", () => {
+  renderWithClient(
+    <PrintSetup
+      deck={deck}
+      onChange={() => {}}
+      onSave={async (value) => value}
+      onJobs={() => {}}
+      mpcExport={{ busy: false, run: () => {} }}
+    />,
+  );
+  const check = screen.getByRole("heading", { name: "Print check" });
+  const proof = document.querySelector(".proof-sticky");
+  expect(proof?.parentElement).toHaveClass("proof-area");
+  expect(proof?.parentElement).not.toContainElement(check);
+});
+
 it("saves a cut template from the Other exports menu and explains it in SCM mode", async () => {
   const user = userEvent.setup();
   const saveDialog = vi

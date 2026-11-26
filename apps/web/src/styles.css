@@ -2128,10 +2128,12 @@ dd {
 .print-layout {
   display: grid;
   grid-template-columns: 340px minmax(0, 1fr);
-  gap: var(--space-6);
+  grid-template-rows: 1fr auto;
+  gap: 0 var(--space-6);
   align-items: start;
 }
 .print-controls {
+  grid-row: span 2;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -2332,6 +2334,7 @@ dd {
 }
 
 .preflight {
+  grid-column: 2;
   margin-top: var(--space-4);
   padding: var(--space-4);
   background: var(--panel);
@@ -3004,8 +3007,12 @@ progress::-webkit-progress-value {
     flex-direction: column-reverse;
   }
   .print-controls,
-  .proof-area {
+  .proof-area,
+  .preflight {
     width: 100%;
+  }
+  .proof-area {
+    order: 1;
   }
   .proof-sticky {
     position: static;
