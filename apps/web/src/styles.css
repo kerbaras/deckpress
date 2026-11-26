@@ -20,6 +20,13 @@
 * {
   box-sizing: border-box;
 }
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 body {
   margin: 0;
   min-width: 360px;
@@ -342,7 +349,8 @@ pre {
   left: var(--space-2);
 }
 .app-shell {
-  height: 100vh;
+  position: relative;
+  height: 100%;
   display: grid;
   grid-template-columns: var(--sidebar) minmax(0, 1fr);
   overflow: hidden;
@@ -664,9 +672,11 @@ pre {
   outline-offset: calc(-1 * var(--focus-width));
 }
 .main-content {
+  position: relative;
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   outline: 0;
 }
 .heading-group {
