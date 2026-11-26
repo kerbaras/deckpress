@@ -202,12 +202,14 @@ export function Modal({
   onClose,
   busy = false,
   wide = false,
+  showClose = true,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   busy?: boolean;
   wide?: boolean;
+  showClose?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -232,15 +234,17 @@ export function Modal({
     >
       <div className="modal-heading">
         <h2>{title}</h2>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label="Close dialog"
-          disabled={busy}
-          onClick={onClose}
-        >
-          <X size={18} />
-        </button>
+        {showClose && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close dialog"
+            disabled={busy}
+            onClick={onClose}
+          >
+            <X size={18} />
+          </button>
+        )}
       </div>
       {children}
     </dialog>
