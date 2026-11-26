@@ -25,6 +25,7 @@ import {
   mmToPixels,
   type PrintSettings,
   printableEntries,
+  printPageCount,
   printSettingsSchema,
   type ScmTemplate,
   scmCardLabel,
@@ -143,6 +144,10 @@ export function PrintSetup({
     ? Math.min(settings.pageTo, totalSheets)
     : totalSheets;
   const selectedSheets = Math.max(0, last - first);
+  const { pdfPages, calibrationPages } = printPageCount(
+    selectedSheets,
+    effective,
+  );
   const models = system.data?.models ?? [];
   const selectedModel =
     models.find((model) => model.id === settings.upscaleModel) ??
@@ -196,8 +201,11 @@ export function PrintSetup({
         </div>
         <div className="spacer" />
         <span className="mono muted">
-          Trim {trimWidth} × {trimHeight} mm · {selectedSheets} sheets ·{" "}
-          {selectedSheets * (effective.backs === "none" ? 1 : 2)} PDF pages
+          Trim {trimWidth} × {trimHeight} mm · {selectedSheets} card{" "}
+          {selectedSheets === 1 ? "sheet" : "sheets"} · {pdfPages} PDF{" "}
+          {pdfPages === 1 ? "page" : "pages"}
+          {calibrationPages > 0 &&
+            ` (includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`}
         </span>
         <button
           type="button"

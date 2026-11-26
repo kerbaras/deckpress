@@ -10,6 +10,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
+import printPageCounts from "../../../packages/core/tests/fixtures/print-page-counts.json";
 import { api } from "./api.ts";
 import { App } from "./app.tsx";
 import { ArtPicker, filterArt } from "./art-picker.tsx";
@@ -879,6 +880,40 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
   await user.clear(gap);
   await user.type(gap, "2");
   expect(screen.queryByText(/Bleed exceeds half the gap/)).toBeNull();
+});
+
+it.each(printPageCounts)("shows the PDF page count for $name", (fixture) => {
+  const { quantity, settings, cardSheets, pdfPages, calibrationPages } =
+    fixture;
+  renderWithClient(
+    <PrintSetup
+      deck={{
+        ...deck,
+        entries: quantity ? [{ ...entry, quantity }] : [],
+        printSettings: printSettingsSchema.parse(settings),
+      }}
+      onChange={() => {}}
+      onSave={async (value) => value}
+      onJobs={() => {}}
+    />,
+  );
+  const summary = screen.getByText(/^Trim [\d.]+ × [\d.]+ mm/);
+  const sheets = `${cardSheets} card ${cardSheets === 1 ? "sheet" : "sheets"}`;
+  const pages = `${pdfPages} PDF ${pdfPages === 1 ? "page" : "pages"}`;
+  expect(summary).toHaveTextContent(`${sheets} · ${pages}`);
+  if (calibrationPages) {
+    expect(summary).toHaveTextContent(
+      `(includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`,
+    );
+  } else {
+    expect(summary).not.toHaveTextContent(/calibration/);
+  }
+  for (const button of screen.getAllByRole("button", {
+    name: "Generate PDF",
+  })) {
+    if (cardSheets) expect(button).toBeEnabled();
+    else expect(button).toBeDisabled();
+  }
 });
 
 it("clamps SCM bleed visibly and previews the selected registration template", async () => {

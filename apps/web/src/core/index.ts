@@ -14,4 +14,5 @@ export * from "./import.ts";
 export * from "./layout.ts";
 export * from "./models.ts";
 export * from "./mpc-xml.ts";
+export * from "./print-page-count.ts";
 export * from "./scm.ts";
