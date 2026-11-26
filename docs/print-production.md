@@ -148,9 +148,10 @@ flip. Calibration adjusts back artwork; it does not move cutter marks.
 
 In Print Setup, choose **Silhouette template (SCM)**, select a card size,
 then choose a layout under its paper size. Pick the 3- or 4-mark pattern
-for your cutter setup. The picker shows the fixed grid and exact `.studio3`
-filename, and links to SCM's cutting templates. SCM does not publish
-borderless cut files for A3 or Arch B. The sheet label includes the template
+for your cutter setup. The picker shows the fixed grid and the exact `.studio3`
+filename from SCM's cutting templates, and links to them. SCM does not publish
+borderless cut files for A3 or Arch B, so those layouts show a warning and a
+link to SCM's borderless docs instead of a filename. The sheet label includes the template
 name and version. SCM mode
 replaces crop marks with registration marks, caps bleed at **0.625 mm per
 side**, and uses long-edge alignment for backs. Switching modes does not
