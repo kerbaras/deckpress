@@ -116,8 +116,10 @@ none of these are implemented yet and the app does not claim they are.
 
 - Print at 100% / actual size. "Fit to page", "shrink to printable area" and
   borderless modes all rescale the sheet.
-- Check the calibration page's 50 mm ruler and 63 × 88 mm reference box with a
-  real ruler before a full run; a 1% scale error is 0.9 mm on a card.
+- Measure the ruler on the print-size calibration page before a full run.
+  On standard sheets, also check the 63 × 88 mm reference box; a 1% scale error
+  is 0.9 mm on a card. Very small custom sheets use a compact ruler and omit
+  the box if it would not fit.
 - Use the heaviest paper the printer feeds reliably (200–300 gsm card stock)
   or print on plain paper and sleeve with a real card behind it.
 - For duplex, print one sheet first and hold it against a light to check
@@ -125,6 +127,22 @@ none of these are implemented yet and the app does not claim they are.
 
 Deckpress prints these reminders on the calibration page and in the Print jobs
 view.
+
+### Duplex alignment
+
+In Print Setup, choose the paper and flip edge you use for the job. In
+**Duplex calibration**, start with zero offsets and rotation. Export the
+two-page sheet, print it double-sided at 100% with the indicated flip edge,
+and hold it to the light with the back facing you. Use the centre target to
+estimate how far to move the back crosses to meet the front rings. Compare
+the outer targets to see if the back also needs to turn. Positive X moves
+right, positive Y moves down, and positive rotation turns clockwise around
+the sheet centre after the offsets. Export again to check the correction.
+
+Save the values as a named printer profile and select it on another deck to
+copy its correction into that deck. Make separate profiles if paper or feed
+settings change alignment. SCM uses the template's paper size and long-edge
+flip. Calibration adjusts back artwork; it does not move cutter marks.
 
 ## Silhouette Card Maker mode
 

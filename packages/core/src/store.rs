@@ -10,8 +10,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{new_id, now_iso, Deck, DeckEntry, NewDeck, PrintSettings};
-use crate::validate::validate_entries;
+use crate::models::{
+    new_id, now_iso, Deck, DeckEntry, NewDeck, PrintSettings, PrinterProfile, PrinterProfileInput,
+};
+use crate::validate::{validate_duplex_adjustment, validate_entries};
 
 fn check_deck(
     name: &str,
@@ -35,6 +37,7 @@ pub struct Store {
 }
 
 const CACHE_TTL_MS: i64 = 86_400_000;
+const PRINTER_PROFILE: &str = "printer_profile";
 
 fn now_ms() -> i64 {
     SystemTime::now()
@@ -153,6 +156,53 @@ impl Store {
                 None => None,
             })
         })
+    }
+
+    pub fn printer_profiles(&self) -> AppResult<Vec<PrinterProfile>> {
+        self.list(PRINTER_PROFILE)
+    }
+
+    pub fn save_printer_profile(
+        &self,
+        id: Option<String>,
+        mut input: PrinterProfileInput,
+    ) -> AppResult<PrinterProfile> {
+        input.name = input.name.trim().to_owned();
+        if input.name.is_empty() || input.name.chars().count() > 100 {
+            return Err(AppError::user(
+                "Printer profile name must be 1-100 characters",
+            ));
+        }
+        validate_duplex_adjustment(
+            input.back_offset_xmm,
+            input.back_offset_ymm,
+            input.back_rotation_deg,
+        )?;
+        let update = id.is_some();
+        let profile = PrinterProfile {
+            id: id.unwrap_or_else(new_id),
+            input,
+        };
+        if update {
+            let json = serde_json::to_string(&profile)?;
+            self.with(|conn| {
+                let changed = conn.execute(
+                    "UPDATE documents SET json = ?1, updated_at = ?2 WHERE kind = ?3 AND id = ?4",
+                    params![json, now_ms(), PRINTER_PROFILE, profile.id],
+                )?;
+                if changed == 0 {
+                    return Err(AppError::not_found("Printer profile not found"));
+                }
+                Ok(())
+            })?;
+        } else {
+            self.put(PRINTER_PROFILE, &profile.id, &profile)?;
+        }
+        Ok(profile)
+    }
+
+    pub fn delete_printer_profile(&self, id: &str) -> AppResult<()> {
+        self.remove(PRINTER_PROFILE, id)
     }
 
     pub fn create_deck(&self, input: NewDeck) -> AppResult<Deck> {

@@ -145,12 +145,7 @@ pub fn create_layout(options: &PrintSettings) -> AppResult<PrintLayout> {
     if options.layout_mode == LayoutMode::Scm {
         return scm::create_layout(options);
     }
-    let (w, h) = options
-        .paper
-        .size_mm((options.custom_width_mm, options.custom_height_mm));
-    let portrait = options.orientation == Orientation::Portrait;
-    let width = mm_to_pt(if portrait { w.min(h) } else { w.max(h) });
-    let height = mm_to_pt(if portrait { w.max(h) } else { w.min(h) });
+    let (width, height) = free_page_size(options);
     let margin = mm_to_pt(options.margin_mm);
     let gap = mm_to_pt(options.gap_mm);
     let bleed = mm_to_pt(options.bleed_mm);
@@ -354,27 +349,67 @@ pub fn create_layout(options: &PrintSettings) -> AppResult<PrintLayout> {
 }
 
 pub fn duplex_slot(slot: &Slot, layout: &PrintLayout, settings: &PrintSettings) -> Slot {
-    if layout.scm.is_some() {
-        return scm::duplex_slot(slot, layout, settings);
-    }
-    let mirror_x = (settings.backs != Backs::ShortEdge) == (layout.height >= layout.width);
-    let dx = mm_to_pt(settings.back_offset_xmm);
-    let dy = mm_to_pt(settings.back_offset_ymm);
-    let transform = |rect: Rect| Rect {
-        x: if mirror_x {
-            layout.width - rect.x - rect.width
-        } else {
-            rect.x
-        } + dx,
-        y: if mirror_x {
-            rect.y
-        } else {
-            layout.height - rect.y - rect.height
-        } + dy,
-        ..rect
+    let (dx, dy) = duplex_offset(settings);
+    let backs = if layout.scm.is_some() {
+        Backs::LongEdge
+    } else {
+        settings.backs
     };
+    let mirror_x = duplex_mirrors_x(layout.width, layout.height, backs);
+    let transform = |rect: Rect, first: Rect, last: Rect| {
+        let (right, bottom) = if layout.scm.is_some() {
+            (first.x + last.x, first.y + last.y)
+        } else {
+            (layout.width - rect.width, layout.height - rect.height)
+        };
+        Rect {
+            x: (if mirror_x { right - rect.x } else { rect.x }) + dx,
+            y: (if mirror_x { rect.y } else { bottom - rect.y }) + dy,
+            ..rect
+        }
+    };
+    let first = layout.slots.first().unwrap_or(slot);
+    let last = layout.slots.last().unwrap_or(slot);
     Slot {
-        rect: transform(slot.rect),
-        trim: transform(slot.trim),
+        rect: transform(slot.rect, first.rect, last.rect),
+        trim: transform(slot.trim, first.trim, last.trim),
     }
+}
+
+pub(crate) fn free_page_size(settings: &PrintSettings) -> (f64, f64) {
+    let (w, h) = settings
+        .paper
+        .size_mm((settings.custom_width_mm, settings.custom_height_mm));
+    if settings.orientation == Orientation::Portrait {
+        (mm_to_pt(w.min(h)), mm_to_pt(w.max(h)))
+    } else {
+        (mm_to_pt(w.max(h)), mm_to_pt(w.min(h)))
+    }
+}
+
+pub(crate) fn duplex_mirrors_x(width: f64, height: f64, backs: Backs) -> bool {
+    (backs != Backs::ShortEdge) == (height >= width)
+}
+
+pub(crate) fn duplex_offset(settings: &PrintSettings) -> (f64, f64) {
+    (
+        mm_to_pt(settings.back_offset_xmm),
+        mm_to_pt(settings.back_offset_ymm),
+    )
+}
+
+pub fn duplex_rotation(width: f64, height: f64, settings: &PrintSettings) -> Option<[f64; 6]> {
+    if settings.back_rotation_deg == 0.0 {
+        return None;
+    }
+    let (x, y) = (width / 2.0, height / 2.0);
+    let (sin, cos) = settings.back_rotation_deg.to_radians().sin_cos();
+    Some([
+        cos,
+        sin,
+        -sin,
+        cos,
+        x - cos * x + sin * y,
+        y - sin * x - cos * y,
+    ])
 }

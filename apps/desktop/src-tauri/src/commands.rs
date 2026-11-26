@@ -15,8 +15,9 @@ use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::UploadInput;
 use deckpress_core::models::{
     Art, ArtPage, ArtPreference, Deck, DeckEntry, ImportLine, NewDeck, PrintJob, PrintSettings,
-    ResolvedCards,
+    PrinterProfile, PrinterProfileInput, ResolvedCards,
 };
+use deckpress_core::pdf::build_duplex_calibration_pdf;
 use deckpress_core::providers::MpcArtwork;
 use deckpress_core::style::{StyleReport, StyleRequest};
 use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
@@ -366,6 +367,40 @@ pub async fn save_cut_template(destination: String, settings: PrintSettings) -> 
     }
     let svg = build_cut_svg(&settings)?;
     Ok(tokio::fs::write(destination, svg).await?)
+}
+
+#[tauri::command]
+pub fn list_printer_profiles(state: State<'_, AppState>) -> AppResult<Vec<PrinterProfile>> {
+    state.store.printer_profiles()
+}
+
+#[tauri::command]
+pub fn save_printer_profile(
+    state: State<'_, AppState>,
+    id: Option<String>,
+    input: PrinterProfileInput,
+) -> AppResult<PrinterProfile> {
+    state.store.save_printer_profile(id, input)
+}
+
+#[tauri::command]
+pub fn delete_printer_profile(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.store.delete_printer_profile(&id)
+}
+
+#[tauri::command]
+pub async fn save_duplex_calibration(
+    settings: PrintSettings,
+    destination: String,
+) -> AppResult<()> {
+    let destination = PathBuf::from(destination);
+    if destination.extension().and_then(|e| e.to_str()) != Some("pdf") {
+        return Err(AppError::user("Save the export as a .pdf file"));
+    }
+    let bytes = tokio::task::spawn_blocking(move || build_duplex_calibration_pdf(&settings))
+        .await
+        .map_err(AppError::internal)??;
+    Ok(tokio::fs::write(destination, bytes).await?)
 }
 
 /// Writes user-visible text (deck backups) to a path the save dialog returned.

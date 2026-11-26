@@ -326,28 +326,3 @@ pub fn create_layout(settings: &PrintSettings) -> AppResult<PrintLayout> {
         }),
     })
 }
-
-pub fn duplex_slot(slot: &Slot, layout: &PrintLayout, settings: &PrintSettings) -> Slot {
-    let first = &layout.slots[0];
-    let last = &layout.slots[layout.slots.len() - 1];
-    let transform = |rect: Rect, first: Rect, last: Rect| {
-        let portrait = layout.height >= layout.width;
-        Rect {
-            x: (if portrait {
-                first.x + last.x - rect.x
-            } else {
-                rect.x
-            }) + mm_to_pt(settings.back_offset_xmm),
-            y: (if portrait {
-                rect.y
-            } else {
-                first.y + last.y - rect.y
-            }) + mm_to_pt(settings.back_offset_ymm),
-            ..rect
-        }
-    };
-    Slot {
-        rect: transform(slot.rect, first.rect, last.rect),
-        trim: transform(slot.trim, first.trim, last.trim),
-    }
-}

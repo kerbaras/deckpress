@@ -122,6 +122,7 @@ export const printSettingsSchema = z.object({
     .default("none"),
   backOffsetXmm: z.number().min(-10).max(10).default(0),
   backOffsetYmm: z.number().min(-10).max(10).default(0),
+  backRotationDeg: z.number().min(-180).max(180).default(0),
   includeSideboard: z.boolean().default(false),
   includeMaybeboard: z.boolean().default(false),
   skipBasics: z.boolean().default(false),
@@ -129,6 +130,18 @@ export const printSettingsSchema = z.object({
   pageTo: z.number().int().min(0).max(1000).default(0),
 });
 export type PrintSettings = z.infer<typeof printSettingsSchema>;
+
+export const printerProfileInputSchema = z
+  .object({ name: z.string().trim().min(1).max(100) })
+  .extend({
+    backOffsetXmm: printSettingsSchema.shape.backOffsetXmm.removeDefault(),
+    backOffsetYmm: printSettingsSchema.shape.backOffsetYmm.removeDefault(),
+    backRotationDeg: printSettingsSchema.shape.backRotationDeg.removeDefault(),
+  });
+export const printerProfileSchema = printerProfileInputSchema.extend({
+  id: z.uuid(),
+});
+export type PrinterProfileInput = z.infer<typeof printerProfileInputSchema>;
 
 export const deckSchema = z.object({
   id: z.uuid(),
