@@ -16,6 +16,8 @@ pub fn art(bleed_mm: f64, provider: Provider) -> Art {
         set: String::new(),
         collector_number: String::new(),
         language: String::new(),
+        illustration_id: None,
+        scan_quality: None,
         released_at: String::new(),
         dpi: 300.0,
         tags: vec![],

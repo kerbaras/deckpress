@@ -35,6 +35,10 @@ export const artSchema = z.object({
   set: z.string().max(20).default(""),
   collectorNumber: z.string().max(40).default(""),
   language: z.string().max(20).default(""),
+  scanQuality: z
+    .enum(["missing", "placeholder", "lowres", "highres_scan"])
+    .nullish(),
+  illustrationId: z.string().uuid().nullish(),
   releasedAt: z.string().max(40).default(""),
   tags: z.array(z.string().max(80)).max(40).default([]),
   dpi: z.number().min(1).max(10000).default(300),
@@ -227,6 +231,10 @@ export function backArt(entry: DeckEntry): Art | null {
       id: `${front.id}:back`,
       imageUrl: front.backImageUrl,
       thumbnailUrl: front.backThumbnailUrl || front.backImageUrl,
+      illustrationId:
+        entry.card.faces[1]?.imageUrl === front.backImageUrl
+          ? entry.card.faces[1].illustrationId
+          : undefined,
     };
   return entry.card.faces[1] ?? null;
 }

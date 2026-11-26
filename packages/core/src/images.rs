@@ -608,6 +608,8 @@ impl Images {
             set: String::new(),
             collector_number: String::new(),
             language: "en".into(),
+            illustration_id: None,
+            scan_quality: None,
             bleed_mm,
             dpi,
             released_at: now_iso(),

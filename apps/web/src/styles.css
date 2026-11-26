@@ -2021,6 +2021,9 @@ dd {
 .art-option-meta .mono {
   font-size: 9px;
 }
+.art-option .scan-quality {
+  margin-block-start: var(--space-1);
+}
 .art-states {
   display: flex;
   flex-wrap: wrap;

@@ -32,6 +32,8 @@ fn art(id: &str, artist: &str, set: &str, year: &str, tags: &[&str]) -> Art {
         set: set.into(),
         collector_number: "1".into(),
         language: "en".into(),
+        illustration_id: None,
+        scan_quality: None,
         released_at: format!("{year}-01-01"),
         tags: tags.iter().map(|t| t.to_string()).collect(),
         dpi: 300.0,

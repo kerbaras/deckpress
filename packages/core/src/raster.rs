@@ -78,21 +78,33 @@ pub(crate) fn detect_upload_bleed(width: u32, height: u32) -> f64 {
 
 /// Removes the bleed baked into the source before fitting it to the print trim.
 pub fn strip_bleed(image: &RgbImage, art: &Art, settings: &PrintSettings) -> RgbImage {
-    if art.bleed_mm <= 0.0 {
+    let (x, y, w, h) = trim_bounds(image.width(), image.height(), art, settings);
+    if x == 0 && y == 0 {
         return image.clone();
+    }
+    image::imageops::crop_imm(image, x, y, w, h).to_image()
+}
+
+pub(crate) fn trim_bounds(
+    w: u32,
+    h: u32,
+    art: &Art,
+    settings: &PrintSettings,
+) -> (u32, u32, u32, u32) {
+    if art.bleed_mm <= 0.0 {
+        return (0, 0, w, h);
     }
     let (native_w, native_h) = match art.provider {
         Provider::Mpc => MPC_CARD_MM,
         Provider::Upload => UPLOAD_CARD_MM,
         _ => (settings.card_width_mm, settings.card_height_mm),
     };
-    let (w, h) = (image.width(), image.height());
     let x = (f64::from(w) * art.bleed_mm / (native_w + art.bleed_mm * 2.0)).round() as u32;
     let y = (f64::from(h) * art.bleed_mm / (native_h + art.bleed_mm * 2.0)).round() as u32;
     if 2 * x >= w || 2 * y >= h {
-        return image.clone();
+        return (0, 0, w, h);
     }
-    image::imageops::crop_imm(image, x, y, w - 2 * x, h - 2 * y).to_image()
+    (x, y, w - 2 * x, h - 2 * y)
 }
 
 pub fn resize(image: &RgbImage, width: u32, height: u32) -> AppResult<RgbImage> {

@@ -3,6 +3,7 @@
 //! upscaling and the raster/PDF print pipeline. The crate has no knowledge of
 //! Tauri; the app maps its commands onto these types.
 
+pub mod art_quality;
 pub mod builder;
 pub mod cut_svg;
 pub mod decksearch;

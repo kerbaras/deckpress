@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
 
-use deckpress_core::cut_svg::build_cut_svg;
 use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, ExternalDeck};
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::{RestoreResult, UploadInput};
@@ -23,6 +22,7 @@ use deckpress_core::style::{StyleReport, StyleRequest};
 use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
 use deckpress_core::upscaler::preview::{self, ModelCrop};
 use deckpress_core::upscaler::{CancelToken, UpscalerInfo};
+use deckpress_core::{art_quality, cut_svg::build_cut_svg};
 
 pub type AppState = deckpress_core::Core;
 pub type Comparisons = Mutex<HashMap<String, CancelToken>>;
@@ -244,6 +244,28 @@ pub async fn search_art(
         "mpc" => state.providers.community(&name, page).await,
         _ => Err(AppError::user("Unknown art provider")),
     }
+}
+
+#[tauri::command]
+pub async fn better_scan(
+    state: State<'_, AppState>,
+    selected: Art,
+    oracle_id: String,
+    face: usize,
+) -> AppResult<Art> {
+    let Ok(oracle_id) = oracle_id.parse() else {
+        return Ok(selected);
+    };
+    state.providers.better_scan(selected, oracle_id, face).await
+}
+
+#[tauri::command]
+pub async fn source_dpi(
+    state: State<'_, AppState>,
+    arts: Vec<Art>,
+    settings: PrintSettings,
+) -> AppResult<Vec<Option<f64>>> {
+    Ok(art_quality::source_dpi(&state.images, arts, &settings).await)
 }
 
 #[derive(Debug, Clone, Serialize)]

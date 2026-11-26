@@ -50,6 +50,7 @@ import {
 import { DuplexCalibration } from "./duplex-calibration.tsx";
 import { type MenuAction, MenuButton } from "./export-menu.tsx";
 import { isEnglishFallback } from "./print-language.tsx";
+import { SourcePreflight } from "./source-preflight.tsx";
 import {
   countCards,
   ErrorNotice,
@@ -1723,7 +1724,7 @@ export function PrintSetup({
               rendered by the PDF raster pipeline.
             </p>
           </div>
-        </section>
+          </section>
         <div className="preflight">
           <div className="preflight-title">
             <h3>Print check</h3>
@@ -1745,10 +1746,11 @@ export function PrintSetup({
               <dd>~{Math.max(0.1, estimatedMB).toFixed(1)} MB</dd>
             </div>
           </dl>
+          <SourcePreflight arts={arts} settings={effective} />
           {lowResolution > 0 && (
             <p className="notice warning">
               <AlertTriangle size={16} />
-              {lowResolution} unique images below target DPI.{" "}
+              {lowResolution} unique images estimated below target DPI.{" "}
               {settings.upscale
                 ? "AI will process lower-resolution sources."
                 : "Resizing alone does not add detail."}

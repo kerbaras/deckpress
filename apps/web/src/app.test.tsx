@@ -2022,6 +2022,87 @@ it("protects the preview on hash navigation and Settings shortcut, but not on si
   expect(screen.getByRole("main")).toHaveFocus();
 });
 
+it("shows scan quality and only previews the better printing when prefer high-res is enabled", async () => {
+  const user = userEvent.setup();
+  const key = "deckpress.prefer-high-res";
+  const low = {
+    ...alternate,
+    illustrationId: id,
+    scanQuality: "lowres" as const,
+  };
+  const high = {
+    ...low,
+    id: "scryfall:better",
+    source: "Better edition",
+    scanQuality: "highres_scan" as const,
+  };
+  mockPickerArt([low, high]);
+  const betterScan = vi.spyOn(api, "betterScan").mockResolvedValue(high);
+  const renderPicker = () =>
+    renderWithClient(
+      <ArtPicker
+        deck={pickerDeck}
+        entry={entry}
+        onSelect={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+  try {
+    const view = renderPicker();
+    const tile = await screen.findByRole("button", previewButton);
+    expect(tile).toHaveAccessibleDescription("Low-res scan");
+    expect(within(tile).getByText("Low-res scan")).toBeVisible();
+    await user.click(tile);
+    expect(tile).toHaveAttribute("aria-pressed", "true");
+    expect(betterScan).not.toHaveBeenCalled();
+    const toggle = screen.getByRole("checkbox", { name: "Prefer high-res" });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    view.unmount();
+    renderPicker();
+    expect(
+      screen.getByRole("checkbox", { name: "Prefer high-res" }),
+    ).toBeChecked();
+    await user.click(await screen.findByRole("button", previewButton));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Select Better edition/ }),
+      ).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(betterScan).toHaveBeenCalledExactlyOnceWith(low, id, 0);
+    expect(screen.getByText("High-res scan")).toBeVisible();
+  } finally {
+    localStorage.removeItem(key);
+  }
+});
+
+it("lists images below 300 effective DPI with scan quality in print preflight", async () => {
+  const user = userEvent.setup();
+  const low = { ...original, scanQuality: "lowres" as const };
+  const value = { ...deck, entries: [{ ...entry, selectedArt: low }] };
+  const check = vi.spyOn(api, "sourceDpi").mockResolvedValue([243.8]);
+  renderWithClient(
+    <PrintSetup
+      deck={value}
+      onChange={vi.fn()}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+    />,
+  );
+  expect(check).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Check source DPI" }));
+  expect(
+    await screen.findByText("1 unique images below 300 effective DPI."),
+  ).toBeVisible();
+  const row = screen.getByText(/243 effective DPI — below 300/);
+  expect(row).toHaveTextContent("Lightning Bolt · Magic 2010 146");
+  expect(within(row).getByText("Low-res scan")).toBeVisible();
+  expect(check).toHaveBeenCalledExactlyOnceWith(
+    [low],
+    expect.objectContaining({ cardWidthMm: 63, cardHeightMm: 88 }),
+  );
+});
+
 it("shows original, saved and preview art separately, even when saved art is outside the results", async () => {
   const user = userEvent.setup();
   mockPickerArt([original, alternate]);

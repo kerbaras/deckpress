@@ -61,6 +61,8 @@ pub fn run() {
             commands::related_tokens,
             commands::mpc_artwork,
             commands::search_art,
+            commands::better_scan,
+            commands::source_dpi,
             commands::match_art_style,
             commands::preferences,
             commands::save_preference,

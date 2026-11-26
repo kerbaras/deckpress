@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { api, type Preferences, uploadTrimSrc } from "./api.ts";
+import { ScanQualityBadge, scanLabel } from "./art-quality.tsx";
 import {
   type Art,
   artPreferenceSchema,
@@ -42,6 +43,8 @@ import {
   StatusRegion,
   useTask,
 } from "./ui.tsx";
+
+const preferHighResKey = "deckpress.prefer-high-res";
 
 export function ArtPicker(props: {
   deck: Deck;
@@ -247,7 +250,12 @@ function ArtSession({
     bleed: number | null;
   } | null>(null);
   const [styleMatch, setStyleMatch] = useState(false);
+  const [preferHighRes, setPreferHighRes] = useState(
+    () => localStorage.getItem(preferHighResKey) === "true",
+  );
   const task = useTask();
+  const scanTask = useTask();
+  const busy = task.busy || scanTask.busy;
   const prefs = useQuery({
     queryKey: ["preferences"],
     queryFn: ({ signal }) => api.preferences(signal),
@@ -342,8 +350,21 @@ function ArtSession({
   const preference = artPreferenceSchema.parse(
     candidate ? (personal.preferences[candidate.id] ?? {}) : {},
   );
+  const pick = (art: Art) => {
+    if (
+      !preferHighRes ||
+      art.provider !== "scryfall" ||
+      art.scanQuality === "highres_scan"
+    ) {
+      setCandidate(art);
+      return;
+    }
+    void scanTask.run(async () => {
+      setCandidate(await api.betterScan(art, entry.card.oracleId, face));
+    });
+  };
   const navigate = (id: string) => {
-    if (id === entry.id || task.busy) return;
+    if (id === entry.id || busy) return;
     if (changed) setPending({ entryId: id });
     else onSelect(id);
   };
@@ -436,6 +457,7 @@ function ArtSession({
               type="button"
               ref={face === 0 ? activeFaceControl : undefined}
               aria-pressed={face === 0}
+              disabled={scanTask.busy}
               onClick={(event) => switchFace(0, event.currentTarget)}
             >
               Front
@@ -444,6 +466,7 @@ function ArtSession({
               type="button"
               ref={face === 1 ? activeFaceControl : undefined}
               aria-pressed={face === 1}
+              disabled={scanTask.busy}
               onClick={(event) => switchFace(1, event.currentTarget)}
             >
               Back
@@ -456,7 +479,7 @@ function ArtSession({
               className="icon-button"
               aria-label="Match art style across the deck (beta)"
               title="Match art style across the deck (beta)"
-              disabled={task.busy}
+              disabled={busy}
               onClick={() => setStyleMatch(true)}
             >
               <Sparkles size={15} />
@@ -466,7 +489,7 @@ function ArtSession({
             type="button"
             className="icon-button"
             aria-label="Previous card"
-            disabled={!previousEntry || task.busy}
+            disabled={!previousEntry || busy}
             onClick={() => previousEntry && navigate(previousEntry.id)}
           >
             <ArrowLeft size={15} />
@@ -478,7 +501,7 @@ function ArtSession({
             type="button"
             className="icon-button"
             aria-label="Next card"
-            disabled={!nextEntry || task.busy}
+            disabled={!nextEntry || busy}
             onClick={() => nextEntry && navigate(nextEntry.id)}
           >
             <ArrowRight size={15} />
@@ -507,7 +530,7 @@ function ArtSession({
           </p>
           <button
             type="button"
-            disabled={task.busy}
+            disabled={busy}
             aria-describedby={scopeDescription}
             onClick={() => apply(false)}
           >
@@ -516,7 +539,7 @@ function ArtSession({
           <button
             type="button"
             className="primary"
-            disabled={task.busy}
+            disabled={busy}
             aria-describedby={scopeDescription}
             onClick={() => apply(true)}
           >
@@ -597,7 +620,7 @@ function ArtSession({
               className="icon-button"
               aria-label="Reset to original art"
               title="Reset to original art"
-              disabled={candidate?.id === original?.id}
+              disabled={busy || candidate?.id === original?.id}
               onClick={() => setCandidate(original)}
             >
               <RotateCcw size={14} />
@@ -711,11 +734,30 @@ function ArtSession({
               />
               Official only
             </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={preferHighRes}
+                disabled={scanTask.busy}
+                aria-describedby={`${scopeDescription}-scan`}
+                onChange={(event) => {
+                  const value = event.target.checked;
+                  localStorage.setItem(preferHighResKey, String(value));
+                  setPreferHighRes(value);
+                }}
+              />
+              Prefer high-res
+            </label>
+            <span className="hint" id={`${scopeDescription}-scan`}>
+              Choose a better official scan when the illustration and language
+              match.
+            </span>
             <button
               type="button"
               className="icon-button"
               aria-label="Upload your own art"
               title="Upload your own art"
+              disabled={busy}
               onClick={() => setUpload(true)}
             >
               <Upload size={15} />
@@ -797,6 +839,10 @@ function ArtSession({
             <span className="hint">{matchSummary}</span>
           </div>
           <ErrorNotice error={prefs.error} retry={() => void prefs.refetch()} />
+          <ErrorNotice error={scanTask.error} />
+          <StatusRegion className={scanTask.busy ? "hint" : "sr-only"}>
+            {scanTask.busy ? "Looking for a better scan…" : ""}
+          </StatusRegion>
           {showPrints && (
             <ErrorNotice
               error={prints.error}
@@ -829,8 +875,10 @@ function ArtSession({
                   className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
                   key={art.id}
                   aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}${states.length ? ` — ${states.join(", ")}` : ""}`}
+                  aria-description={scanLabel(art)}
                   aria-pressed={candidate?.id === art.id}
-                  onClick={() => setCandidate(art)}
+                  disabled={busy}
+                  onClick={() => pick(art)}
                 >
                   <span className="art-option-image">
                     <ArtThumbnail
@@ -866,6 +914,7 @@ function ArtSession({
                     </span>
                     <span className="mono muted">{art.dpi} dpi</span>
                   </div>
+                  <ScanQualityBadge art={art} />
                   {personal.preferences[art.id]?.rating ? (
                     <small className="accent">
                       Your rating {personal.preferences[art.id]?.rating}/5

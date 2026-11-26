@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use url::Url;
 
+use crate::art_quality::{prefer_high_res, scryfall_quality, ScanQuality};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     new_id, Art, ArtPage, Card, DeckEntry, ImportIssue, ImportIssueKind, ImportLine,
@@ -109,6 +110,8 @@ impl MpcCard {
                 set: String::new(),
                 collector_number: String::new(),
                 language: self.language.to_lowercase(),
+                illustration_id: None,
+                scan_quality: None,
                 released_at: String::new(),
                 tags,
                 dpi: if self.dpi > 0.0 { self.dpi } else { 300.0 },
@@ -133,6 +136,7 @@ struct ScryfallFace {
     name: String,
     artist: Option<String>,
     image_uris: Option<ScryfallImages>,
+    illustration_id: Option<uuid::Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,6 +155,9 @@ struct ScryfallCard {
     image_status: Option<String>,
     image_uris: Option<ScryfallImages>,
     card_faces: Option<Vec<ScryfallFace>>,
+    illustration_id: Option<uuid::Uuid>,
+    image_status: Option<String>,
+    highres_image: Option<bool>,
     #[serde(default = "unknown")]
     artist: String,
     set: String,
@@ -199,6 +206,7 @@ pub fn normalize_scryfall(value: &Value) -> AppResult<Card> {
             name: card.name.clone(),
             artist: Some(card.artist.clone()),
             image_uris: Some(images),
+            illustration_id: card.illustration_id,
         }],
         None => card.card_faces.unwrap_or_default(),
     };
@@ -242,6 +250,8 @@ pub fn normalize_scryfall(value: &Value) -> AppResult<Card> {
                 set: card.set.clone(),
                 collector_number: card.collector_number.clone(),
                 language: card.lang.clone(),
+                illustration_id: face.illustration_id,
+                scan_quality: scryfall_quality(card.image_status.as_deref(), card.highres_image),
                 released_at: card.released_at.clone(),
                 dpi: 300.0,
                 tags: tags.clone(),
@@ -800,6 +810,82 @@ impl Providers {
                 .and_then(Value::as_u64)
                 .unwrap_or(0),
         })
+    }
+
+    pub async fn better_scan(
+        &self,
+        selected: Art,
+        oracle_id: uuid::Uuid,
+        face: usize,
+    ) -> AppResult<Art> {
+        if selected.provider != Provider::Scryfall
+            || selected.scan_quality == Some(ScanQuality::HighresScan)
+        {
+            return Ok(selected);
+        }
+        let Some(print_id) = selected
+            .id
+            .split(':')
+            .nth(1)
+            .and_then(|id| uuid::Uuid::parse_str(id).ok())
+        else {
+            return Ok(selected);
+        };
+        let mut base = selected;
+        if base.illustration_id.is_none() {
+            let raw = self
+                .json(&format!("https://api.scryfall.com/cards/{print_id}"), None)
+                .await?;
+            let card = normalize_scryfall(&raw)?;
+            let Some(art) = card.faces.into_iter().nth(face) else {
+                return Ok(base);
+            };
+            if art.language != base.language || art.image_url != base.image_url {
+                return Ok(base);
+            }
+            base = art;
+        }
+        let Some(illustration) = base.illustration_id else {
+            return Ok(base);
+        };
+        if base.scan_quality == Some(ScanQuality::HighresScan) {
+            return Ok(base);
+        }
+        let mut url = Url::parse("https://api.scryfall.com/cards/search").expect("static URL");
+        let query = format!(
+            "oracleid:{oracle_id} illustration_id:{illustration} game:paper lang:{}",
+            base.language
+        );
+        url.query_pairs_mut()
+            .append_pair("q", &query)
+            .append_pair("unique", "prints")
+            .append_pair("order", "released")
+            .append_pair("dir", "desc");
+        for page in 1u32.. {
+            let mut url = url.clone();
+            url.query_pairs_mut().append_pair("page", &page.to_string());
+            let response = match self.json_or_status(url.as_str(), None).await? {
+                Ok(value) => value,
+                Err(404) => break,
+                Err(status) => {
+                    return Err(AppError::user(format!(
+                        "Provider returned {status}. Try again."
+                    )))
+                }
+            };
+            let candidates: Vec<_> = response["data"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|raw| normalize_scryfall(raw).ok())
+                .filter_map(|card| card.faces.into_iter().nth(face))
+                .collect();
+            base = prefer_high_res(&base, &candidates).clone();
+            if base.scan_quality == Some(ScanQuality::HighresScan) || response["has_more"] != true {
+                break;
+            }
+        }
+        Ok(base)
     }
 
     async fn mpc_cards_batch(&self, ids: &[String]) -> AppResult<Vec<MpcArtwork>> {
