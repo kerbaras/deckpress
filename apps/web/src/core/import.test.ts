@@ -163,6 +163,38 @@ describe("decklist import", () => {
   });
 
   it.each([
+    ["Board", "Board"],
+    ["Board", "testing Pool"],
+    ["Board", "Sideboard2"],
+    ["Zone", "Sideboard٢"],
+    ["Zone", "Sideboardé"],
+  ])(
+    "warns before defaulting an unknown CSV %s value %j to Mainboard",
+    (column, board) => {
+      const csv = parseDecklist(`Name,Quantity,${column}\nOpt,1,${board}`);
+      expect(csv.entries).toMatchObject([{ name: "Opt", zone: "main" }]);
+      expect(csv.issues).toEqual([
+        {
+          line: 2,
+          input: board,
+          message: "Unrecognized board; imported to Mainboard",
+        },
+      ]);
+    },
+  );
+
+  it("defaults blank and missing CSV board values to Mainboard without warnings", () => {
+    for (const input of [
+      "Name,Quantity,Board\nOpt,1, ",
+      "Name,Quantity\nOpt,1",
+    ]) {
+      const csv = parseDecklist(input);
+      expect(csv.entries).toMatchObject([{ name: "Opt", zone: "main" }]);
+      expect(csv.issues).toEqual([]);
+    }
+  });
+
+  it.each([
     ["deck", "main"],
     ["main", "main"],
     ["main board", "main"],
@@ -177,7 +209,18 @@ describe("decklist import", () => {
     ["tokens", "tokens"],
   ])("recognizes formatted %s aliases in text and CSV", (alias, zone) => {
     const preceding = zone === "main" ? "Sideboard" : "Deck";
-    const spellings = ["", " ", "-", " - ", "  ", "\t"].flatMap((separator) => {
+    const spellings = [
+      "",
+      " ",
+      "-",
+      " - ",
+      "  ",
+      "\t",
+      "_",
+      "–",
+      "—",
+      "／",
+    ].flatMap((separator) => {
       const spelling = alias.replaceAll(" ", separator);
       return [
         spelling,
@@ -188,7 +231,7 @@ describe("decklist import", () => {
     const variants = new Set(
       spellings.flatMap((spelling) =>
         ["", "// ", "//"].flatMap((prefix) =>
-          ["", ":"].flatMap((suffix) => {
+          ["", ":", "::", "!", "："].flatMap((suffix) => {
             const heading = `${prefix}${spelling}${suffix}`;
             return [heading, `  ${heading}  `];
           }),
@@ -234,6 +277,16 @@ describe("decklist import", () => {
       ].join("\n"),
     );
     expect(roundTrip).toEqual(text);
+  });
+
+  it("does not interpret a labeled custom board as a formatted alias", () => {
+    const label = "// Board: Side–Board";
+    const text = parseDecklist(`Deck\n${label}\n1 Opt`);
+    const csv = parseDecklist(`Name,Quantity\n${label}\nOpt,1`);
+    expect(text.entries).toMatchObject([{ name: "Opt", zone: "main" }]);
+    expect(csv.entries).toEqual(text.entries);
+    expect(text.issues).toEqual([]);
+    expect(csv.issues).toEqual([]);
   });
 
   it("reads quoted CSV names and MTGO XML without interpreting entities", () => {

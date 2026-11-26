@@ -24,13 +24,11 @@ export interface ParsedDecklist {
   format: string;
 }
 
-function zoneFrom(value: string): ImportLine["zone"] | undefined {
-  const alias = value
-    .trim()
-    .replace(/^\/\/\s*/, "")
-    .replace(/:$/, "")
-    .replace(/[\s-]+/g, "")
-    .toLowerCase();
+function boardAlias(value: string): string {
+  return value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function zoneFrom(alias: string): ImportLine["zone"] | undefined {
   switch (alias) {
     case "deck":
     case "main":
@@ -129,15 +127,24 @@ export function parseDecklist(input: string): ParsedDecklist {
         message: error.message,
       });
     csv.data.forEach((row, index) => {
+      const line = index + 2;
+      const board = (row.board ?? row.zone ?? "").trim();
+      const zone = zoneFrom(boardAlias(board));
+      if (board && !zone)
+        result.issues.push({
+          line,
+          input: board,
+          message: "Unrecognized board; imported to Mainboard",
+        });
       add(
         {
           name: row.name ?? row.cardname,
           quantity: Number(row.quantity ?? row.count ?? "1"),
           set: (row.setcode ?? row.set ?? "").toLowerCase(),
           collectorNumber: row.collectornumber ?? "",
-          zone: zoneFrom(row.board ?? row.zone ?? "") ?? "main",
+          zone: zone ?? "main",
         },
-        index + 2,
+        line,
         row.name ?? row.cardname ?? "",
       );
     });
@@ -146,7 +153,7 @@ export function parseDecklist(input: string): ParsedDecklist {
     text.split(/\r?\n/).forEach((raw, index) => {
       const line = raw.trim();
       if (!line) return;
-      const header = zoneFrom(line);
+      const header = zoneFrom(boardAlias(line));
       if (header) {
         zone = header;
         return;
