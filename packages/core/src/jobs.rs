@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::error::{AppError, AppResult};
+use crate::format_count;
 use crate::images::Images;
 use crate::models::{new_id, now_iso, Deck, JobStatus, PrintJob, PrintSettings};
 use crate::pdf::{build_pdf, print_plan, PdfServices};
@@ -205,7 +206,10 @@ impl Jobs {
                 .iter()
                 .map(|side| side.entries.len() as u32)
                 .sum(),
-            message: format!("Queued · {} pages", plan.sides.len()),
+            message: format!(
+                "Queued · {}",
+                format_count(plan.sides.len(), "page", "pages")
+            ),
             created_at: now_iso(),
             file_name: file_name(&deck, &settings),
             bytes: 0,
@@ -313,7 +317,11 @@ impl Jobs {
                 job.completed = job.total;
                 job.bytes = bytes;
                 job.pages = pages as u32;
-                self.finish(job, JobStatus::Completed, format!("{pages} pages ready"));
+                self.finish(
+                    job,
+                    JobStatus::Completed,
+                    format!("{} ready", format_count(pages, "page", "pages")),
+                );
             }
             Err(AppError::Cancelled) => {
                 self.finish(job, JobStatus::Cancelled, "Cancelled".into());

@@ -25,6 +25,12 @@ use std::sync::Arc;
 
 pub use error::{AppError, AppResult};
 
+/// Formats an English count with its singular or plural noun.
+pub fn format_count(count: usize, singular: &str, plural: &str) -> String {
+    let noun = if count == 1 { singular } else { plural };
+    format!("{count} {noun}")
+}
+
 /// Every long-lived service, wired together once at startup.
 pub struct Core {
     pub data_dir: PathBuf,
