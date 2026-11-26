@@ -386,7 +386,7 @@ dl.facts dd { margin: 0; text-align: right; }
 .ed-tile .t-row { display: flex; gap: 4px; flex-wrap: wrap; }
 .ed-tile .t-label { font: 12px/16px var(--numeric-font); color: var(--text-muted); }
 .filmstrip { position: sticky; bottom: 0; display: flex; gap: 8px; padding: 8px 24px; background: var(--frame); border-top: 1px solid var(--line-subtle); overflow-x: auto; z-index: 5; }
-.film { gap: 8px; padding: 4px 8px 4px 4px; justify-content: flex-start; min-width: 150px; background: var(--panel); border-color: var(--line-subtle); font-weight: 400; }
+.film { gap: 8px; padding: 4px 8px 4px 4px; justify-content: flex-start; min-width: 150px; background: var(--panel); border-color: var(--line-control); font-weight: 400; }
 .film[aria-current="true"] { border-color: var(--accent); }
 .film .thumb { width: 28px; height: 22px; border-radius: 3px; background: var(--t, var(--raised)); background-size: cover; background-position: center; }
 .film .mono { margin-left: auto; color: var(--text-muted); }
@@ -692,7 +692,7 @@ Deck
                 <li><span class="ln">Line 9</span><span><strong>Command Tower</strong> · The List (PLST) has no Spanish printing. Using English.</span></li>
               </ul>
             </div>
-            <div class="issue-group" data-tone="warn" data-st="plan #88" data-st-note="Warnings grouped apart from unresolved lines (PR #102)">
+            <div class="issue-group" data-tone="warn" data-st="main #102" data-st-note="Warnings grouped apart from unresolved lines (closes #88)">
               <header><i data-i="alert"></i>Imported with warnings <span class="count">1</span></header>
               <ul aria-label="Imported with warnings">
                 <li><span class="ln">Line 12</span><span><strong>Lurrus of the Dream-Den</strong> · Board <code>Companion</code> isn’t a Deckpress board, so it was imported to Mainboard.</span></li>
@@ -706,7 +706,7 @@ Deck
               </ul>
               <p class="group-note">Correct these lines and resolve again to include them.</p>
             </div>
-            <div class="issue-group" data-tone="danger" data-st="plan #88" data-st-note="CSV errors with physical file lines">
+            <div class="issue-group" data-tone="danger" data-st="main #102" data-st-note="CSV errors with physical file lines (closes #88)">
               <header><i data-i="file-x"></i>CSV errors <span class="count">2</span></header>
               <ul aria-label="CSV errors">
                 <li><span class="ln">Line 57</span><span>Quantity <code>x2</code> isn’t a whole number. Row skipped.</span></li>
@@ -859,7 +859,7 @@ Deck
               <div class="counts"><span><b>100</b> cards</span><span><b>7</b> sheets</span><span><b>8</b> PDF pages</span><span>~<b>310</b> MB</span></div>
               <div class="gen-row" style="position:relative">
                 <button type="button" class="primary" id="gen" data-act="generate"><i data-i="file-down"></i>Generate PDF</button>
-                <span data-st="idea" data-st-note="Proposal: one menu for the other exports (PNG ZIP #68, MPC XML #49, SVG #64 are on main as separate buttons)"><button type="button" id="more-exp" aria-haspopup="menu" aria-expanded="false" aria-controls="exp-menu" data-act="menu">Other exports<i data-i="chev-down"></i></button></span>
+                <span data-st="plan #126" data-st-note="One menu for the other exports (PNG ZIP #68, MPC XML #49, SVG #64 are on main as separate buttons)"><button type="button" id="more-exp" aria-haspopup="menu" aria-expanded="false" aria-controls="exp-menu" data-act="menu">Other exports<i data-i="chev-down"></i></button></span>
                 <div class="menu" id="exp-menu" role="menu" aria-label="Other exports" hidden style="bottom:40px;right:0">
                   <button type="button" role="menuitem" tabindex="-1" data-act="export-png"><i data-i="images"></i><strong>PNG ZIP</strong><span class="hint">One print-ready PNG per card face, with bleed.</span></button>
                   <button type="button" role="menuitem" tabindex="-1"><i data-i="code"></i><strong>MPC Autofill XML</strong><span class="hint">Order file with the chosen art, for MakePlayingCards.</span></button>
@@ -979,7 +979,6 @@ Deck
       <div class="legend" style="margin-top:8px">
         <span class="ex"><span class="st-tag plan">plan #39</span>Open v0.4 issue, framed with crop marks</span>
         <span class="ex"><span class="st-tag main">main #108</span>Already on main (merged PR)</span>
-        <span class="ex"><span class="st-tag idea">proposal</span>Layout idea, no issue yet</span>
       </div></div>
   </div>
 </aside>
@@ -1251,7 +1250,7 @@ Deck
     }
     filmIdx = (i + film.length) % film.length;
     $("#art-card").textContent = film[filmIdx];
-    renderFilm();
+    for (const f of $$("[data-film]")) f.setAttribute("aria-current", String(Number(f.dataset.film) === filmIdx));
   };
 
   /* ---------- Dialogs ---------- */
@@ -1335,6 +1334,14 @@ Deck
   ];
   const STATUS_ICON = { running: "loader", failed: "circle-x", cancelled: "ban", completed: "check" };
   const renderJobs = () => {
+    const f = document.activeElement;
+    const key = f?.closest?.("#jobs") ? f.dataset.fk || (f.dataset.job ? `${f.dataset.job}-row` : null) : null;
+    drawJobs();
+    if (!key) return;
+    const id = key.split("-")[0];
+    ($(`[data-fk="${key}"]`) || $(`[data-job="${id}"] [data-fk]`) || $(`[data-job="${id}"]`))?.focus();
+  };
+  const drawJobs = () => {
     const running = jobs.filter((j) => j.status === "running").length;
     $("#jobs-sub").textContent = running ? `${running} running` : "";
     const c = $("#jobs-count");
@@ -1346,17 +1353,17 @@ Deck
         let extra = "";
         const recover = j.status === "failed" || j.status === "cancelled";
         if (j.status === "running") {
-          actions = `<button type="button" class="icon" data-cancel="${j.id}" aria-label="Cancel export for ${j.deck}" title="Cancel export">${icon("x")}</button>`;
+          actions = `<button type="button" class="icon" data-fk="${j.id}-cancel" data-cancel="${j.id}" aria-label="Cancel export for ${j.deck}" title="Cancel export">${icon("x")}</button>`;
           extra = `<div class="j-extra"><progress max="100" value="${j.progress}" aria-label="${j.deck} export progress"></progress><span class="meta muted mono">${j.progress}%</span></div>`;
         } else if (j.status === "completed") {
-          actions = `<button type="button" class="primary">${icon("file")}Open PDF</button><button type="button" class="icon" aria-label="Save a copy" title="Save a copy…">${icon("copy")}</button><button type="button" class="icon" aria-label="Show in folder" title="Show in folder">${icon("folder")}</button>`;
+          actions = `<button type="button" class="primary" data-fk="${j.id}-open">${icon("file")}Open PDF</button><button type="button" class="icon" data-fk="${j.id}-copy" aria-label="Save a copy" title="Save a copy…">${icon("copy")}</button><button type="button" class="icon" data-fk="${j.id}-reveal" aria-label="Show in folder" title="Show in folder">${icon("folder")}</button>`;
           extra = `<p class="j-extra meta muted">${icon("ruler").replace('class="i"', 'class="i" style="width:12px;height:12px;vertical-align:-2px"')} Print at 100% / actual size.</p>`;
         } else if (recover && !j.deleted) {
-          actions = `<span data-st="plan #39" data-st-note="Back to that deck's Print setup; Retry re-queues the same settings" style="display:flex;gap:8px"><button type="button" data-back="${j.id}">${icon("printer")}Back to print setup</button><button type="button" data-retry="${j.id}">${icon("refresh")}Retry</button></span>`;
+          actions = `<span data-st="plan #39" data-st-note="Back to that deck's Print setup; Retry re-queues the same settings" style="display:flex;gap:8px"><button type="button" data-fk="${j.id}-back" data-back="${j.id}">${icon("printer")}Back to print setup</button><button type="button" data-fk="${j.id}-retry" data-retry="${j.id}">${icon("refresh")}Retry</button></span>`;
         } else if (j.deleted) {
           extra = `<p class="j-extra meta muted" data-st="plan #39" data-st-note="Deleted deck explained on the row">The deck “${j.deck}” was deleted, so there is no print setup to open.</p>`;
         }
-        return `<article class="panel job" data-status="${j.status}" aria-label="${j.deck} ${j.fmt} export, ${j.status}">
+        return `<article class="panel job" tabindex="-1" data-job="${j.id}" data-status="${j.status}" aria-label="${j.deck} ${j.fmt} export, ${j.status}">
           <span class="j-ico">${icon(STATUS_ICON[j.status])}</span>
           <div><h3>${j.deck} <span class="status-word ${j.status}">${j.status}</span><span class="mono muted" style="font-weight:400">${j.fmt} · ${j.detail}</span></h3><p class="j-msg">${j.msg}</p></div>
           <div class="j-actions">${actions}</div>${extra}</article>`;
@@ -1383,12 +1390,7 @@ Deck
       }
       changed = true;
     }
-    if (changed && screen === "jobs") {
-      const f = document.activeElement;
-      const key = f && (f.dataset.cancel || f.dataset.back || f.dataset.retry) ? Object.entries(f.dataset)[0] : null;
-      renderJobs();
-      if (key) $(`[data-${key[0]}="${key[1]}"]`)?.focus();
-    } else if (changed) renderJobs();
+    if (changed) renderJobs();
   }, 1500);
 
   /* ---------- Builder ---------- */
