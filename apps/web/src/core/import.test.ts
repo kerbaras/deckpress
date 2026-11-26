@@ -200,6 +200,7 @@ describe("decklist import", () => {
           line: 2,
           input: board,
           message: "Unrecognized board; imported to Mainboard",
+          severity: "warning",
         },
       ]);
     },
@@ -324,6 +325,109 @@ describe("decklist import", () => {
     ]);
     expect(parsed.issues).toEqual([]);
   });
+
+  it.each([
+    "companions",
+    "Companions:",
+    "COMPANION",
+    "// Com-panions:",
+    "Com–panions：",
+  ])("skips the %s heading without changing the current zone", (heading) => {
+    const result = parseDecklist(
+      `Commander\n${heading}\n1 Lurrus of the Dream-Den\nSpirited Companion\n1 Companion`,
+    );
+    expect(result.entries).toMatchObject([
+      { name: "Lurrus of the Dream-Den", zone: "commander" },
+      { name: "Spirited Companion", zone: "commander" },
+      { name: "Companion", zone: "commander" },
+    ]);
+    expect(result.lines).toEqual([3, 4, 5]);
+    expect(result.issues).toEqual([]);
+  });
+
+  it.each([",", ";"])(
+    "silently skips heading-only CSV with %j",
+    (delimiter) => {
+      const result = parseDecklist(
+        `${["Name", "Quantity", "Board"].join(delimiter)}\r\nCompanion\r\nCom–panions：`,
+      );
+      expect(result.format).toBe("CSV");
+      expect(result.entries).toEqual([]);
+      expect(result.issues).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["LF comma-separated", "\n", ","],
+    ["CRLF semicolon-separated", "\r\n", ";"],
+  ])(
+    "reports physical source lines for %s CSV",
+    (_case, newline, delimiter) => {
+      const result = parseDecklist(
+        [
+          "\uFEFF",
+          `Name${delimiter}Quantity${delimiter}Notes${delimiter}Board`,
+          "",
+          ` ${delimiter}""${delimiter} `,
+          "// Board: testing Pool",
+          `Island${delimiter}200${delimiter}"A note with ""quotes""`,
+          `// Board: part of the quoted field"${delimiter}`,
+          `Opt${delimiter}invalid${delimiter}${delimiter}`,
+          `Negate${delimiter}1${delimiter}${delimiter}Board${delimiter}extra`,
+          `Island${delimiter}51${delimiter}${delimiter}`,
+        ].join(newline),
+      );
+      expect(result.format).toBe("CSV");
+      expect(result.entries).toMatchObject([
+        { name: "Island", board: "testing Pool" },
+      ]);
+      expect(result.lines).toEqual([6]);
+      expect(result.issues).toEqual([
+        {
+          line: 9,
+          input: "CSV row",
+          message: "Too many fields: expected 4 fields but parsed 5",
+          category: "csv",
+        },
+        {
+          line: 8,
+          input: "Opt",
+          message: "Expected a card name and a quantity between 1 and 250",
+          category: "csv",
+        },
+        {
+          line: 10,
+          input: "Island",
+          message: "Combined quantity exceeds 250",
+          category: "csv",
+        },
+      ]);
+    },
+  );
+
+  it.each(["\n", "\r\n"])(
+    "maps CSV quote errors to the start line of the malformed record (%j)",
+    (newline) => {
+      const result = parseDecklist(
+        [
+          "Name,Quantity,Notes",
+          "",
+          "// Board: test",
+          'Opt,1,"Unclosed',
+          "note",
+        ].join(newline),
+      );
+      expect(result.lines).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          line: 4,
+          input: "CSV row",
+          message: "Quoted field unterminated",
+          category: "csv",
+        },
+      ]);
+    },
+  );
 
   it("reads quoted CSV names and MTGO XML without interpreting entities", () => {
     const csv = parseDecklist(
