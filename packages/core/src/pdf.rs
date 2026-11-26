@@ -16,6 +16,7 @@ use krilla::Document;
 use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
+use crate::format_count;
 use crate::layout::{
     create_layout, duplex_mirrors_x, duplex_offset, duplex_rotation, duplex_slot, fit_sheet_label,
     free_page_size, mm_to_pt, sheet_label, PrintLayout, Registration, Slot,
@@ -840,7 +841,10 @@ pub fn build_pdf(
             progress(
                 completed,
                 total,
-                format!("Placed {completed} of {total} card faces"),
+                format!(
+                    "Placed {completed} of {}",
+                    format_count(total, "card face", "card faces")
+                ),
             );
         }
         if rotation.is_some() {

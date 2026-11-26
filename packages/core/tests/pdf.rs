@@ -10,6 +10,32 @@ use deckpress_core::upscaler::CancelToken;
 use serde::Deserialize;
 
 #[test]
+fn a_single_card_face_is_singular_in_progress() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut messages = Vec::new();
+    build_pdf(
+        &common::deck(1),
+        &PrintSettings {
+            calibration_page: false,
+            dpi: 150,
+            ..PrintSettings::default()
+        },
+        &PdfServices {
+            raster_dir: dir.path(),
+            upscaler: None,
+        },
+        &CancelToken::default(),
+        &mut |_, _, message| messages.push(message),
+        &mut |_| Ok(common::png(372, 520, [30, 90, 200])),
+    )
+    .unwrap();
+    assert_eq!(
+        messages.last().map(String::as_str),
+        Some("Placed 1 of 1 card face")
+    );
+}
+
+#[test]
 fn pdf_page_tree_matches_the_print_setup_counts() {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
