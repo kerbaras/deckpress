@@ -82,6 +82,175 @@ fn moxfield_refusals_point_at_the_exported_list() {
 }
 
 #[tokio::test]
+async fn moxfield_import_labels_nonempty_boards() {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let key = hex::encode(Sha256::digest(
+        "https://api2.moxfield.com/v3/decks/all/exampleDecknull",
+    ));
+    store
+        .put(
+            "cache",
+            &key,
+            &serde_json::json!({
+                "boards": {
+                    "commanders": {"cards": {"jori": {"card": {"name": "Jori En, Ruin Diver"}}}},
+                    "companions": {"cards": {"lurrus": {"card": {
+                        "name": "Lurrus of the Dream-Den"
+                    }}}},
+                    "mainboard": {"cards": {"bolt": {"quantity": 4, "card": {
+                        "name": "Lightning Bolt", "set": "m10", "cn": "146"
+                    }}}},
+                    "sideboard": {"cards": {"negate": {"quantity": 2, "card": {
+                        "name": "Negate"
+                    }}}},
+                    "sideboard2": {"cards": {"shock": {"card": {"name": "Shock"}}}},
+                    "testing Pool": {"cards": {"opt": {"card": {"name": "Opt"}}}},
+                    "empty Board": {"cards": {}}
+                }
+            }),
+        )
+        .unwrap();
+    let text = Providers::new(store)
+        .unwrap()
+        .import_url("https://moxfield.com/decks/exampleDeck")
+        .await
+        .unwrap();
+    assert_eq!(
+        text,
+        concat!(
+            "commanders\n1 Jori En, Ruin Diver\nCommander\n// Board: companions\n1 Lurrus of the Dream-Den\n",
+            "mainboard\n4 Lightning Bolt (m10) 146\nsideboard\n2 Negate\n",
+            "Deck\n// Board: sideboard2\n1 Shock\nDeck\n// Board: testing Pool\n1 Opt"
+        )
+    );
+}
+
+#[tokio::test]
+async fn moxfield_companion_section_does_not_depend_on_board_order() {
+    struct OrderedBoards<'a>([(&'a str, &'a Value); 4]);
+    impl serde::Serialize for OrderedBoards<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_map(self.0)
+        }
+    }
+    #[derive(serde::Serialize)]
+    struct Fixture<'a> {
+        boards: OrderedBoards<'a>,
+    }
+
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Providers::new(store.clone()).unwrap();
+    let key = hex::encode(Sha256::digest(
+        "https://api2.moxfield.com/v3/decks/all/exampleDecknull",
+    ));
+    let card = |name: &str| serde_json::json!({"cards": {"id": {"card": {"name": name}}}});
+    let commander = card("Jori En, Ruin Diver");
+    let companion = card("Lurrus of the Dream-Den");
+    let custom = card("Opt");
+    let empty = serde_json::json!({"cards": {}});
+
+    for (commander_key, commander_cards, companion_key, custom_key, expected) in [
+        (
+            "commanders",
+            &commander,
+            "companions",
+            "testing Pool",
+            "Commander",
+        ),
+        (
+            "commanders",
+            &commander,
+            "companions",
+            "commanders2",
+            "Commander",
+        ),
+        (
+            "Commanders",
+            &commander,
+            "COMPANIONS",
+            "testing Pool",
+            "Commander",
+        ),
+        ("commanders", &empty, "companions", "testing Pool", "Deck"),
+        ("commanders", &empty, "companions", "commanders2", "Deck"),
+    ] {
+        let boards = [
+            (commander_key, commander_cards),
+            (companion_key, &companion),
+            (custom_key, &custom),
+            ("empty Board", &empty),
+        ];
+        let companion_label = format!("// Board: {companion_key}");
+        for a in 0..4 {
+            for b in (0..4).filter(|b| *b != a) {
+                for c in (0..4).filter(|c| *c != a && *c != b) {
+                    let order = [a, b, c, 6 - a - b - c];
+                    let fixture = Fixture {
+                        boards: OrderedBoards(order.map(|i| boards[i])),
+                    };
+                    store.put("cache", &key, &fixture).unwrap();
+                    let output = providers
+                        .import_url("https://moxfield.com/decks/exampleDeck")
+                        .await
+                        .unwrap();
+                    assert!(
+                        output
+                            .lines()
+                            .collect::<Vec<_>>()
+                            .windows(3)
+                            .any(|section| {
+                                section
+                                    == [
+                                        expected,
+                                        companion_label.as_str(),
+                                        "1 Lurrus of the Dream-Den",
+                                    ]
+                            }),
+                        "order {:?}: {output}",
+                        order.map(|i| boards[i].0)
+                    );
+                    assert!(!output.contains("empty Board"));
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn moxfield_board_keys_are_exact_not_pasted_heading_variants() {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Providers::new(store.clone()).unwrap();
+    let key = hex::encode(Sha256::digest(
+        "https://api2.moxfield.com/v3/decks/all/exampleDecknull",
+    ));
+    for (board, heading) in [
+        ("SIDEBOARD", "SIDEBOARD"),
+        ("Side Board", "Deck\n// Board: Side Board"),
+        ("side-board", "Deck\n// Board: side-board"),
+        ("Sideboard:", "Deck\n// Board: Sideboard:"),
+        ("sideboard2", "Deck\n// Board: sideboard2"),
+        ("Commanders:", "Deck\n// Board: Commanders:"),
+        ("Maybe Board", "Deck\n// Board: Maybe Board"),
+        ("Tokens:", "Deck\n// Board: Tokens:"),
+    ] {
+        store
+            .put(
+                "cache",
+                &key,
+                &serde_json::json!({
+                    "boards": {(board): {"cards": {"id": {"card": {"name": "Negate"}}}}}
+                }),
+            )
+            .unwrap();
+        let output = providers
+            .import_url("https://moxfield.com/decks/exampleDeck")
+            .await
+            .unwrap();
+        assert_eq!(output, format!("{heading}\n1 Negate"), "board {board}");
+    }
+}
+
+#[tokio::test]
 async fn suggests_printable_tokens_and_emblems_from_all_parts() {
     fn cache(store: &Store, ids: &[&str], cards: Vec<Value>) {
         let identifiers: Vec<_> = ids

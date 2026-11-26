@@ -80,6 +80,13 @@ it("offers the paste fallback and a retry when a deck URL is refused", async () 
   });
   render(<ImportPanel existing={0} onApply={vi.fn()} />);
   await user.click(screen.getByRole("button", { name: "URL" }));
+  expect(
+    screen.getByText(
+      /if Moxfield blocks the import, open the deck in your browser/i,
+    ),
+  ).toHaveTextContent(
+    "More › Download / Export › Copy Plain Text. Then paste the list into the Paste tab.",
+  );
   await user.type(screen.getByLabelText("Public deck URL"), url);
   const status = screen.getByRole("status");
   await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));

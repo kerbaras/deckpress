@@ -947,38 +947,39 @@ impl Providers {
                 )
                 .await?
                 .map_err(moxfield_status_error)?;
+            let Some(boards) = data.get("boards").and_then(Value::as_object) else {
+                return Ok(String::new());
+            };
+            let companion_zone = if boards.iter().any(|(zone, board)| {
+                (zone.eq_ignore_ascii_case("commanders") || zone.eq_ignore_ascii_case("commander"))
+                    && moxfield_cards(board).next().is_some()
+            }) {
+                "Commander"
+            } else {
+                "Deck"
+            };
             let mut lines = Vec::new();
-            for (zone, board) in data
-                .get("boards")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flatten()
-            {
+            for (zone, board) in boards {
                 let header = lines.len();
-                for entry in board
-                    .get("cards")
-                    .and_then(Value::as_object)
-                    .into_iter()
-                    .flat_map(|m| m.values())
-                {
+                for (entry, card, name) in moxfield_cards(board) {
                     let quantity = entry.get("quantity").and_then(Value::as_u64).unwrap_or(1);
-                    let card = entry.get("card").cloned().unwrap_or_default();
-                    let name = card.get("name").and_then(Value::as_str).unwrap_or_default();
                     let set = card.get("set").and_then(Value::as_str).unwrap_or_default();
                     let cn = card.get("cn").and_then(Value::as_str).unwrap_or_default();
-                    if name.is_empty() {
-                        continue;
-                    }
                     lines.push(if !set.is_empty() && !cn.is_empty() {
                         format!("{quantity} {name} ({set}) {cn}")
                     } else {
                         format!("{quantity} {name}")
                     });
                 }
-                // Moxfield lists every board, even empty ones; a bare header the
-                // parser doesn't know would otherwise read as a card name.
                 if lines.len() > header {
-                    lines.insert(header, zone.clone());
+                    let heading = match zone.to_ascii_lowercase().as_str() {
+                        "deck" | "main" | "mainboard" | "commander" | "commanders" | "side"
+                        | "sideboard" | "maybe" | "maybeboard" | "considering" | "token"
+                        | "tokens" => zone.clone(),
+                        "companions" => format!("{companion_zone}\n// Board: {zone}"),
+                        _ => format!("Deck\n// Board: {zone}"),
+                    };
+                    lines.insert(header, heading);
                 }
             }
             return Ok(lines.join("\n"));
@@ -1050,6 +1051,19 @@ impl Providers {
             "Only public Moxfield and Archidekt URLs are supported. Other sites can be imported as text or CSV.",
         ))
     }
+}
+
+fn moxfield_cards(board: &Value) -> impl Iterator<Item = (&Value, &Value, &str)> {
+    board
+        .get("cards")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|cards| cards.values())
+        .filter_map(|entry| {
+            let card = entry.get("card")?;
+            let name = card.get("name")?.as_str()?;
+            (!name.is_empty()).then_some((entry, card, name))
+        })
 }
 
 /// Explains a failed Moxfield deck request. Moxfield answers 403 to every

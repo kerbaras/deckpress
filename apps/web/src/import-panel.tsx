@@ -143,9 +143,9 @@ export function ImportPanel({
               />
             </label>
             <p className="hint">
-              Public Archidekt decks import directly. Moxfield may block apps
-              outside the browser. If it does, use More › Download / Export ›
-              Copy Plain Text there and paste the list instead.
+              Public Archidekt decks import directly. If Moxfield blocks the
+              import, open the deck in your browser and choose More › Download /
+              Export › Copy Plain Text. Then paste the list into the Paste tab.
             </p>
           </>
         ) : (
