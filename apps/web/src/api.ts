@@ -148,6 +148,16 @@ export interface ImportResult {
   format: string;
   missingPrints?: ResolvedCards["missingPrints"];
 }
+
+export function importedDeckFields({
+  entries,
+  missingPrints,
+}: Pick<ImportResult, "entries" | "missingPrints">) {
+  return {
+    entries,
+    ...(missingPrints?.length ? { missingPrints } : {}),
+  };
+}
 export type Preferences = z.infer<typeof preferencesSchema>;
 const scoredArtSchema = z.object({
   art: artSchema,

@@ -2020,7 +2020,7 @@ it("intersects official provenance, labels and source resolution without inventi
   ).toEqual([community]);
 });
 
-it("labels only English fallback scans on the proof sheet", async () => {
+it("labels only English fallback scans on each Print Preview page", async () => {
   const user = userEvent.setup();
   const fallback = {
     ...entry,
@@ -2040,18 +2040,41 @@ it("labels only English fallback scans on the proof sheet", async () => {
       faces: [{ ...original, language: "es" }],
     },
   };
+  const otherFallback = {
+    ...fallback,
+    id: "38314027-5003-49ff-aa3a-825082526107",
+    card: { ...fallback.card, name: "Black Lotus" },
+  };
   renderWithClient(
     <PrintSetup
-      deck={{ ...deck, entries: [fallback, localized] }}
+      deck={{
+        ...deck,
+        entries: [fallback, localized, otherFallback],
+        printSettings: printSettingsSchema.parse({
+          calibrationPage: true,
+          columns: 1,
+          rows: 1,
+        }),
+      }}
       onChange={vi.fn()}
       onSave={vi.fn()}
       onJobs={vi.fn()}
     />,
   );
-  await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
+  const next = screen.getByRole("button", { name: "Next page" });
+  expect(screen.getByRole("img", { name: "Calibration page" })).toBeVisible();
+  expect(screen.queryByText("English fallback")).not.toBeInTheDocument();
+  await user.click(next);
   const sheet = screen.getByRole("img", { name: /Print preview/ });
   expect(within(sheet).getByText("English fallback")).toBeVisible();
   expect(sheet).toHaveAccessibleDescription("English fallback: Lightning Bolt");
+  await user.click(next);
+  expect(within(sheet).queryByText("English fallback")).not.toBeInTheDocument();
+  expect(sheet).not.toHaveAccessibleDescription();
+  await user.click(next);
+  expect(within(sheet).getByText("English fallback")).toBeVisible();
+  expect(sheet).toHaveAccessibleDescription("English fallback: Black Lotus");
+  expect(next).toBeDisabled();
 });
 
 it("blocks an impossible sheet and exports the saved settings after correction", async () => {

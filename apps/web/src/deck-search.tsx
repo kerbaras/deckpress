@@ -7,6 +7,7 @@ import {
   type DeckSource,
   type DeckSummary,
   type ExternalDeck,
+  importedDeckFields,
   type SearchField as QueryField,
   type ResolvedCards,
   searchFields,
@@ -360,10 +361,7 @@ function DeckPreview({
     const created = await api.createDeck({
       name: deck.summary.name,
       format: deckFormat(deck.summary.deckpressFormat),
-      entries: result.entries,
-      ...(result.missingPrints?.length && {
-        missingPrints: result.missingPrints,
-      }),
+      ...importedDeckFields(result),
       notes: attribution(deck.summary),
     });
     await client.invalidateQueries({ queryKey: ["decks"] });

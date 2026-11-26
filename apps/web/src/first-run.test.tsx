@@ -9,6 +9,7 @@ import {
   artSchema,
   type Deck,
   type DeckEntry,
+  deckSchema,
   printSettingsSchema,
 } from "./core/index.ts";
 
@@ -245,4 +246,72 @@ it("keeps the focused Add button in view when the import dialog resizes", async 
   window.dispatchEvent(new Event("resize"));
   expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
   expect(add).toHaveFocus();
+});
+
+it("shows the skipped printing on the saved deck after a first-run Strict import", async () => {
+  const user = userEvent.setup();
+  const localized = {
+    ...entry,
+    requestedLanguages: ["es"],
+    card: {
+      ...entry.card,
+      faces: entry.card.faces.map((face) => ({ ...face, language: "es" })),
+    },
+  };
+  const missingPrints = [{ input: "1 Black Lotus", languages: ["es"] }];
+  let saved: Deck | undefined;
+  mockIPC((cmd, args) => {
+    switch (cmd) {
+      case "health":
+        return { status: "ok", service: "@deckpress/desktop" };
+      case "list_decks":
+        return saved ? [saved] : [];
+      case "resolve_cards":
+        return {
+          entries: [localized],
+          issues: [
+            {
+              line: 2,
+              input: "1 Black Lotus",
+              kind: "noUsableScan",
+              message: "No usable scan found in es.",
+              printLookup: {
+                set: "lea",
+                collectorNumber: "232",
+                languages: ["es"],
+              },
+            },
+          ],
+          missingPrints,
+        };
+      case "create_deck":
+        saved = deckSchema.parse({
+          ...deck,
+          ...(args as { deck: object }).deck,
+        });
+        return saved;
+      case "get_deck":
+        return saved;
+    }
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  renderApp();
+  await user.click(
+    await screen.findByRole("button", { name: "Import a list" }),
+  );
+  const dialog = within(screen.getByRole("dialog", { name: "Import a list" }));
+  await user.type(dialog.getByLabelText("Deck name"), "Spanish Burn");
+  await user.type(
+    dialog.getByLabelText("Decklist"),
+    "4 Lightning Bolt{enter}1 Black Lotus",
+  );
+  await user.click(dialog.getByRole("button", { name: "Resolve on Scryfall" }));
+  expect(await dialog.findByText("No usable Spanish scan.")).toBeVisible();
+  await user.click(dialog.getByRole("button", { name: "Add 4 cards to deck" }));
+  expect(
+    await screen.findByText("Not imported (last import): 1 Black Lotus"),
+  ).toBeVisible();
+  expect(saved?.missingPrints).toEqual(missingPrints);
+  expect(saved?.entries).toHaveLength(1);
+  expect(saved?.entries[0]?.requestedLanguages).toEqual(["es"]);
 });

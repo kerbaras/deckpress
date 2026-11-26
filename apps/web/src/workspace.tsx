@@ -13,7 +13,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, confirmAction, downloadJson, downloadMpcXml } from "./api.ts";
+import {
+  api,
+  confirmAction,
+  downloadJson,
+  downloadMpcXml,
+  importedDeckFields,
+} from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import {
   type Deck,
@@ -296,13 +302,15 @@ function DeckWorkspace({
           <ImportPanel
             existing={countCards(deck.entries)}
             onApply={async (result, replace) => {
+              const { entries, missingPrints = [] } =
+                importedDeckFields(result);
               await commit({
                 ...deck,
                 entries:
                   result.format === mpcXmlFormat
-                    ? [...(replace ? [] : deck.entries), ...result.entries]
-                    : mergeImport(deck.entries, result.entries, replace),
-                missingPrints: result.missingPrints ?? [],
+                    ? [...(replace ? [] : deck.entries), ...entries]
+                    : mergeImport(deck.entries, entries, replace),
+                missingPrints,
               });
               heading.current?.focus();
             }}
