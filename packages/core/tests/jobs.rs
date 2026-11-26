@@ -110,6 +110,30 @@ async fn jobs_persist_the_export_calibration_setting_and_read_legacy_records() {
     }
 }
 
+#[test]
+fn long_deck_names_are_cut_by_bytes_on_a_char_boundary() {
+    let settings = PrintSettings {
+        dpi: 1200,
+        ..PrintSettings::default()
+    };
+    for name in ["𝔞".repeat(200), "ñ".repeat(200), "a".repeat(300)] {
+        let deck = Deck {
+            name: name.clone(),
+            entries: vec![],
+            ..common::deck(1)
+        };
+        for (format, suffix) in [
+            (ExportFormat::Pdf, "-1200dpi.pdf"),
+            (ExportFormat::Png, "-1200dpi-png.zip"),
+        ] {
+            let file = file_name(&deck, &settings, format);
+            assert!(file.len() <= 200, "{} bytes", file.len());
+            let stem = file.strip_suffix(suffix).unwrap();
+            assert!(stem.len() > 146 && name.starts_with(stem), "{file}");
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn png_jobs_name_the_faces_skipped_for_missing_art() {
     let dir = tempfile::tempdir().unwrap();

@@ -13,7 +13,7 @@ use crate::format_count;
 use crate::images::Images;
 use crate::models::{new_id, now_iso, Deck, ExportFormat, JobStatus, PrintJob, PrintSettings};
 use crate::pdf::{build_pdf, print_plan, PdfServices};
-use crate::png_export::build_png_zip;
+use crate::png_export::{build_png_zip, truncate_utf8};
 use crate::store::Store;
 use crate::upscaler::manifest::{default_model_id, ModelManager};
 use crate::upscaler::CancelToken;
@@ -41,21 +41,18 @@ pub struct Jobs {
     runtime: tokio::runtime::Handle,
 }
 
+/// Caps the deck-name part so the suggested file name stays far below the
+/// 255-byte limit of common filesystems, whatever the script.
+const MAX_STEM_BYTES: usize = 150;
+
 pub fn file_name(deck: &Deck, settings: &PrintSettings, format: ExportFormat) -> String {
     let stem: String = deck
         .name
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .trim_matches('-')
-        .chars()
-        .take(60)
         .collect();
-    let stem = if stem.is_empty() {
-        "deck".to_string()
-    } else {
-        stem
-    };
+    let stem = truncate_utf8(stem.trim_matches('-'), MAX_STEM_BYTES).trim_end_matches('-');
+    let stem = if stem.is_empty() { "deck" } else { stem };
     match format {
         ExportFormat::Pdf => format!("{stem}-{}dpi.pdf", settings.dpi),
         ExportFormat::Png => format!("{stem}-{}dpi-png.zip", settings.dpi),

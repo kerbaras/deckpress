@@ -52,6 +52,18 @@ impl PngExport {
 /// filesystems even when every character is four bytes of UTF-8.
 const MAX_SLUG_BYTES: usize = 80;
 
+/// The longest prefix of `text` that fits in `max_bytes` without splitting a
+/// character.
+pub(crate) fn truncate_utf8(text: &str, max_bytes: usize) -> &str {
+    let end = text
+        .char_indices()
+        .map(|(index, c)| index + c.len_utf8())
+        .take_while(|&end| end <= max_bytes)
+        .last()
+        .unwrap_or(0);
+    &text[..end]
+}
+
 fn slug(name: &str) -> String {
     let mut out = String::new();
     for c in name.chars().flat_map(char::to_lowercase) {
@@ -61,14 +73,7 @@ fn slug(name: &str) -> String {
             out.push('-');
         }
     }
-    let out = out.trim_matches('-');
-    let end = out
-        .char_indices()
-        .map(|(index, c)| index + c.len_utf8())
-        .take_while(|&end| end <= MAX_SLUG_BYTES)
-        .last()
-        .unwrap_or(0);
-    let out = out[..end].trim_end_matches('-');
+    let out = truncate_utf8(out.trim_matches('-'), MAX_SLUG_BYTES).trim_end_matches('-');
     if out.is_empty() {
         "card".into()
     } else {
