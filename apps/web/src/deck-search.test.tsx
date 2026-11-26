@@ -187,8 +187,10 @@ it("searches after typing, previews the list, and imports only after showing unr
   );
   expect(await within(dialog).findByText("2 lines need review")).toBeVisible();
   expect(within(dialog).getByText("1 Not A Card")).toBeVisible();
-  expect(languageStatus).toHaveTextContent("No usable scan for 1 printing.");
+  const announcement = await within(languageStatus).findByRole("group");
+  expect(announcement).toHaveTextContent("No usable scan for 1 printing.");
   expect(languageStatus).toHaveTextContent("2 lines need review.");
+  expect(announcement).toHaveTextContent("2 lines need review.");
   expect(create).not.toHaveBeenCalled();
   expect(
     within(dialog).getByRole("button", { name: "Import 0 resolved cards" }),

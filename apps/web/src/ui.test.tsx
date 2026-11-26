@@ -1,6 +1,30 @@
 import { act, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { StatusRegion, zoneLabel } from "./ui.tsx";
+import { Loading, StatusRegion, zoneLabel } from "./ui.tsx";
+
+it("adds a keyed loading message to an already mounted region", () => {
+  vi.useFakeTimers();
+  try {
+    const { rerender } = render(<Loading />);
+    const status = screen.getByRole("status");
+    expect(status).toBeEmptyDOMElement();
+    const settle = () => act(() => vi.advanceTimersByTime(50));
+    settle();
+    const first = screen.getByRole("group");
+    expect(first).toHaveTextContent(/^Loading…$/);
+    rerender(<Loading />);
+    settle();
+    expect(screen.getByRole("group")).toBe(first);
+    rerender(<Loading>Searching…</Loading>);
+    settle();
+    expect(screen.getByRole("status")).toBe(status);
+    const next = screen.getByRole("group");
+    expect(next).not.toBe(first);
+    expect(next).toHaveTextContent(/^Searching…$/);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 it("re-inserts changed messages or ids without replacing the live region", () => {
   const { rerender } = render(

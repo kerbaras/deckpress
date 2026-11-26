@@ -390,7 +390,7 @@ function DeckPreview({
   return (
     <Modal title={summary.name} onClose={onClose} busy={task.busy}>
       <div className="discover-preview">
-        <StatusRegion label="Deck import language status">
+        <StatusRegion label="Deck import language status" coalesce>
           {resolved
             ? [
                 `${resolved.issues.length} ${resolved.issues.length === 1 ? "line needs" : "lines need"} review.`,

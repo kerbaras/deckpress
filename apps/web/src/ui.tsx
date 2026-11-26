@@ -70,9 +70,11 @@ export function ErrorNotice({
 
 export function Loading({ children = "Loading…" }: { children?: ReactNode }) {
   return (
-    <div className="loading" role="status">
-      <LoaderCircle size={19} className="spin" />
-      {children}
+    <div className="loading">
+      <LoaderCircle size={19} className="spin" aria-hidden="true" />
+      <StatusRegion as="span" className="" coalesce>
+        {children}
+      </StatusRegion>
     </div>
   );
 }
