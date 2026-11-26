@@ -76,6 +76,7 @@ pub fn run() {
             commands::save_printer_profile,
             commands::delete_printer_profile,
             commands::save_duplex_calibration,
+            commands::export_file_name,
             commands::save_text,
             commands::save_mpc_xml,
             commands::open_data_dir,

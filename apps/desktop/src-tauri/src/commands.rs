@@ -488,6 +488,12 @@ pub async fn save_duplex_calibration(
     Ok(tokio::fs::write(destination, bytes).await?)
 }
 
+/// Default save-dialog name for a deck export such as `.xml` or `-cut-template.svg`.
+#[tauri::command]
+pub fn export_file_name(deck_name: String, suffix: String) -> String {
+    deckpress_core::jobs::export_file_name(&deck_name, &suffix)
+}
+
 /// Writes user-visible text (deck backups) to a path the save dialog returned.
 #[tauri::command]
 pub async fn save_text(destination: String, contents: String) -> AppResult<()> {

@@ -118,6 +118,12 @@ const deck: Deck = {
   printSettings: printSettingsSchema.parse({}),
 };
 
+/** Stands in for the Rust `export_file_name` command. */
+const exportFileName = (args: unknown) => {
+  const { deckName, suffix } = args as { deckName: string; suffix: string };
+  return `${deckName}${suffix}`;
+};
+
 function renderWithClient(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
@@ -316,6 +322,7 @@ it("imports an MPC Autofill order without changing image IDs and exports it thro
       stored = deckSchema.parse((args as { deck: Deck }).deck);
       return stored;
     }
+    if (cmd === "export_file_name") return exportFileName(args);
     if (cmd === "plugin:dialog|save") return "/chosen/burn.xml";
     if (cmd === "save_mpc_xml") return saveMpcXml(args);
     if (cmd === "resolve_cards")
@@ -2337,6 +2344,7 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
     .mockReturnValueOnce("/chosen/burn.svg");
   const saveTemplate = vi.fn();
   mockIPC((cmd, args) => {
+    if (cmd === "export_file_name") return exportFileName(args);
     if (cmd === "plugin:dialog|save") return saveDialog(args);
     if (cmd === "save_cut_template") return saveTemplate(args);
   });

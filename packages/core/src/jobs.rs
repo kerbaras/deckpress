@@ -45,18 +45,24 @@ pub struct Jobs {
 /// 255-byte limit of common filesystems, whatever the script.
 const MAX_STEM_BYTES: usize = 150;
 
-pub fn file_name(deck: &Deck, settings: &PrintSettings, format: ExportFormat) -> String {
-    let stem: String = deck
-        .name
+/// Default file name for anything exported from a deck: a filesystem-safe,
+/// byte-capped stem of the deck name followed by `suffix` (e.g. `.xml`).
+pub fn export_file_name(deck_name: &str, suffix: &str) -> String {
+    let stem: String = deck_name
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
         .collect();
     let stem = truncate_utf8(stem.trim_matches('-'), MAX_STEM_BYTES).trim_end_matches('-');
     let stem = if stem.is_empty() { "deck" } else { stem };
-    match format {
-        ExportFormat::Pdf => format!("{stem}-{}dpi.pdf", settings.dpi),
-        ExportFormat::Png => format!("{stem}-{}dpi-png.zip", settings.dpi),
-    }
+    format!("{stem}{suffix}")
+}
+
+pub fn file_name(deck: &Deck, settings: &PrintSettings, format: ExportFormat) -> String {
+    let suffix = match format {
+        ExportFormat::Pdf => format!("-{}dpi.pdf", settings.dpi),
+        ExportFormat::Png => format!("-{}dpi-png.zip", settings.dpi),
+    };
+    export_file_name(&deck.name, &suffix)
 }
 
 /// The Node API wrote finished exports to `jobs/<id>.pdf`. Move them to

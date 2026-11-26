@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use deckpress_core::images::{Images, UploadInput};
-use deckpress_core::jobs::{file_name, Jobs};
+use deckpress_core::jobs::{export_file_name, file_name, Jobs};
 use deckpress_core::models::{Backs, Deck, ExportFormat, JobStatus, PrintJob, PrintSettings};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::manifest::ModelManager;
@@ -189,5 +189,29 @@ async fn png_jobs_name_the_faces_skipped_for_missing_art() {
         job.message,
         "2 PNG files ready · 2 faces without art skipped: \
          Lightning Bolt back (sheet 1, slot 1); Lightning Bolt back (sheet 1, slot 2)"
+    );
+}
+
+#[test]
+fn every_deck_export_shares_the_capped_stem() {
+    let long = "𝔞".repeat(200);
+    for suffix in [".deckpress.json", "-cut-template.svg", ".xml"] {
+        assert_eq!(
+            export_file_name("Mono/Red: Burn!", suffix),
+            format!("Mono-Red--Burn{suffix}")
+        );
+        assert_eq!(export_file_name("?!", suffix), format!("deck{suffix}"));
+        let name = export_file_name(&long, suffix);
+        assert!(name.len() <= 200, "{} bytes", name.len());
+        assert_eq!(name.strip_suffix(suffix).unwrap(), "𝔞".repeat(37));
+    }
+    let deck = Deck {
+        name: long.clone(),
+        entries: vec![],
+        ..common::deck(1)
+    };
+    assert_eq!(
+        file_name(&deck, &PrintSettings::default(), ExportFormat::Pdf),
+        export_file_name(&long, "-800dpi.pdf")
     );
 }
