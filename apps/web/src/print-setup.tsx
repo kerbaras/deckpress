@@ -116,7 +116,7 @@ export function PrintSetup({
   });
   const [page, setPage] = useState(0);
   const [trim, setTrim] = useState(false);
-  const [presetMessage, setPresetMessage] = useState("");
+  const [presetSaveId, setPresetSaveId] = useState(0);
   const [previewSettings, setPreviewSettings] = useState(settings);
   useEffect(() => {
     const timer = setTimeout(() => setPreviewSettings(settings), 250);
@@ -381,18 +381,20 @@ export function PrintSetup({
                     "deckpress.print-preset",
                     JSON.stringify(settings),
                   );
-                  setPresetMessage("Preset saved on this browser");
+                  setPresetSaveId((id) => id + 1);
                 })
               }
             >
               <Save size={14} />
               Save preset
             </button>
-            {presetMessage && (
-              <span className="hint" role="status">
-                {presetMessage}
-              </span>
-            )}
+            <StatusRegion
+              className={presetSaveId ? "hint" : "sr-only"}
+              label="Print preset save status"
+              announcementId={presetSaveId}
+            >
+              {presetSaveId ? "Preset saved on this browser" : ""}
+            </StatusRegion>
           </div>
           <section className="panel settings-panel">
             <h3>Layout mode</h3>

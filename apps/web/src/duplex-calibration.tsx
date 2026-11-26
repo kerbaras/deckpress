@@ -78,17 +78,23 @@ export function DuplexCalibration({
   });
   const client = useQueryClient();
   const task = useTask();
-  const [selectedId, select] = useState("");
-  const [name, setName] = useState("");
+  const [preferredId, setPreferredId] = useState("");
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [status, setStatus] = useState({ text: "", id: 0 });
   const profiles = query.data ?? [];
-  const selected = profiles.find((profile) => profile.id === selectedId);
   const flip = backs === "short-edge" ? "short" : "long";
   const corrections = {
     backOffsetXmm: settings.backOffsetXmm,
     backOffsetYmm: settings.backOffsetYmm,
     backRotationDeg: settings.backRotationDeg,
   };
+  const matches = (profile: PrinterProfileInput) =>
+    fields.every(({ key }) => profile[key] === corrections[key]);
+  const preferred = profiles.find((profile) => profile.id === preferredId);
+  const selected =
+    preferred && matches(preferred) ? preferred : profiles.find(matches);
+  const profileToEdit = selected ?? preferred;
+  const name = nameDraft ?? profileToEdit?.name ?? "";
   const announce = (text: string) =>
     setStatus(({ id }) => ({ text, id: text ? id + 1 : id }));
   const saveProfile = (id: string | null) =>
@@ -100,8 +106,8 @@ export function DuplexCalibration({
         profile,
         ...previous.filter((item) => item.id !== profile.id),
       ]);
-      select(profile.id);
-      setName(profile.name);
+      setPreferredId(profile.id);
+      setNameDraft(null);
       announce(
         id === null ? "Printer profile saved." : "Printer profile updated.",
       );
@@ -124,7 +130,10 @@ export function DuplexCalibration({
           key={field.key}
           field={field}
           value={corrections[field.key]}
-          onChange={(value) => onChange({ [field.key]: value })}
+          onChange={(value) => {
+            if (selected) setPreferredId(selected.id);
+            onChange({ [field.key]: value });
+          }}
         />
       ))}
       <label className="setting-row">
@@ -136,19 +145,20 @@ export function DuplexCalibration({
             const profile = profiles.find(
               (item) => item.id === event.target.value,
             );
-            select(profile?.id ?? "");
-            setName(profile?.name ?? "");
+            if (!profile) return;
+            setPreferredId(profile.id);
+            setNameDraft(null);
             announce("");
-            if (profile) {
-              onChange({
-                backOffsetXmm: profile.backOffsetXmm,
-                backOffsetYmm: profile.backOffsetYmm,
-                backRotationDeg: profile.backRotationDeg,
-              });
-            }
+            onChange({
+              backOffsetXmm: profile.backOffsetXmm,
+              backOffsetYmm: profile.backOffsetYmm,
+              backRotationDeg: profile.backRotationDeg,
+            });
           }}
         >
-          <option value="">Custom correction</option>
+          <option value="" disabled>
+            Custom correction
+          </option>
           {profiles.map((profile) => (
             <option key={profile.id} value={profile.id}>
               {profile.name}
@@ -162,7 +172,7 @@ export function DuplexCalibration({
           value={name}
           placeholder="e.g. Home printer · heavy stock"
           maxLength={100}
-          onChange={(event) => setName(event.target.value)}
+          onChange={(event) => setNameDraft(event.target.value)}
         />
       </label>
       <div className="toolbar">
@@ -173,12 +183,12 @@ export function DuplexCalibration({
         >
           Save new profile
         </button>
-        {selected && (
+        {profileToEdit && (
           <>
             <button
               type="button"
               disabled={!canSave}
-              onClick={() => saveProfile(selected.id)}
+              onClick={() => saveProfile(profileToEdit.id)}
             >
               Update profile
             </button>
@@ -190,19 +200,19 @@ export function DuplexCalibration({
                   announce("");
                   if (
                     !(await confirmAction(
-                      `Delete “${selected.name}”?`,
+                      `Delete “${profileToEdit.name}”?`,
                       "Delete profile",
                     ))
                   )
                     return;
-                  await api.deletePrinterProfile(selected.id);
+                  await api.deletePrinterProfile(profileToEdit.id);
                   client.setQueryData<typeof profiles>(
                     profileKey,
                     (previous = []) =>
-                      previous.filter((item) => item.id !== selected.id),
+                      previous.filter((item) => item.id !== profileToEdit.id),
                   );
-                  select("");
-                  setName("");
+                  setPreferredId("");
+                  setNameDraft(null);
                   announce("Printer profile deleted. Current correction kept.");
                 })
               }

@@ -150,6 +150,62 @@ it("applies, creates, updates and deletes profiles and exports the current corre
   ]);
 });
 
+it("restores a matching profile on remount and shows Custom for an edit", async () => {
+  const profile = {
+    id: "642f6d09-ae39-469b-980f-4ad95b52f3af",
+    name: "Office laser",
+    backOffsetXmm: 1.25,
+    backOffsetYmm: -0.5,
+    backRotationDeg: -0.3,
+  };
+  mockIPC((command) => {
+    if (command === "list_printer_profiles") return [profile];
+  });
+  let persistedSettings = printSettingsSchema.parse({});
+  function Harness() {
+    const [settings, setSettings] = useState(persistedSettings);
+    return (
+      <DuplexCalibration
+        settings={settings}
+        backs={settings.backs}
+        onChange={(patch) => {
+          persistedSettings = { ...settings, ...patch };
+          setSettings(persistedSettings);
+        }}
+      />
+    );
+  }
+  const mount = () =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Harness />
+      </QueryClientProvider>,
+    );
+  const user = userEvent.setup();
+  const before = mount();
+  await screen.findByRole("option", { name: profile.name });
+  const picker = () =>
+    screen.getByRole("combobox", { name: "Printer profile" });
+  expect(picker()).toHaveValue("");
+  await user.selectOptions(picker(), profile.id);
+  before.unmount();
+
+  mount();
+  await screen.findByRole("option", { name: profile.name });
+  expect(picker()).toHaveValue(profile.id);
+  expect(screen.getByRole("textbox", { name: "Profile name" })).toHaveValue(
+    profile.name,
+  );
+  const rotation = screen.getByRole("spinbutton", { name: /Back rotation/ });
+  fireEvent.change(rotation, { target: { value: "0.24" } });
+  expect(picker()).toHaveDisplayValue("Custom correction");
+  expect(screen.getByRole("button", { name: "Update profile" })).toBeEnabled();
+  fireEvent.blur(rotation);
+  await user.selectOptions(picker(), profile.id);
+  expect(picker()).toHaveValue(profile.id);
+  expect(rotation).toHaveValue(-0.3);
+});
+
 it("announces a failed calibration export only as an alert", async () => {
   mockIPC((command) => {
     if (command === "list_printer_profiles") return [];
