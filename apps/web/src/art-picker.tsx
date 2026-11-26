@@ -212,6 +212,11 @@ function ArtSession({
   const savedArt = face === 0 ? frontArt : backArt;
   const saved = savedArt(entry);
   const [candidate, setCandidate] = useState<Art | null>(saved);
+  const [previousSaved, setPreviousSaved] = useState(saved);
+  if (saved !== previousSaved) {
+    setPreviousSaved(saved);
+    if (candidate?.id === previousSaved?.id) setCandidate(saved);
+  }
   const changed = candidate?.id !== saved?.id;
   useEffect(() => {
     onPreviewChange?.(changed);

@@ -137,7 +137,11 @@ export function Library({
                     await api.restoreDeck(contents);
                   await Promise.all([
                     refresh(),
-                    client.invalidateQueries({ queryKey: ["deck"] }),
+                    updatedUploads > 0 &&
+                      client.invalidateQueries({
+                        queryKey: ["deck"],
+                        refetchType: "all",
+                      }),
                   ]);
                   openImported(deck.id, undefined, updatedUploads);
                 });

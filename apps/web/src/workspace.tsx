@@ -169,6 +169,7 @@ function DeckWorkspace({
   const client = useQueryClient();
   const [deck, setDeck] = useState(initial);
   const [saved, setSaved] = useState(initial);
+  const [previousServerDeck, setPreviousServerDeck] = useState(initial);
   const [view, setView] = useState<"edit" | "art" | "print">("edit");
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
@@ -186,6 +187,13 @@ function DeckWorkspace({
   const saving = useRef(false);
   const [saveMode, setSaveMode] = useState<"toolbar" | "editor" | null>(null);
   const isSaving = saveMode !== null;
+  if (initial !== previousServerDeck) {
+    setPreviousServerDeck(initial);
+    if (deck === saved && !isSaving) {
+      setDeck(initial);
+      setSaved(initial);
+    }
+  }
   useEffect(() => {
     if (focusHeading) heading.current?.focus();
   }, [focusHeading]);

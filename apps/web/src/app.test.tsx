@@ -126,10 +126,12 @@ const exportFileName = (args: unknown) => {
   return `${deckName}${suffix}`;
 };
 
-function renderWithClient(ui: ReactNode) {
-  const client = new QueryClient({
+function renderWithClient(
+  ui: ReactNode,
+  client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
-  });
+  }),
+) {
   return render(
     <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
   );
@@ -2500,6 +2502,92 @@ it("backs up fresh upload bleed even if the Library list still has the old value
   await waitFor(() => expect(saveText).toHaveBeenCalledOnce());
   expect(read).toHaveBeenCalledWith(id);
   expect(JSON.parse(saveText.mock.calls[0]?.[0].contents)).toEqual(stored);
+});
+
+it("shows restored source bleed on the first reopen of a cached deck", async () => {
+  const user = userEvent.setup();
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+  });
+  const uploaded = artSchema.parse({
+    ...community,
+    id: "upload:1",
+    imageUrl: `upload://${id}`,
+    provider: "upload",
+    bleedMm: 3.048,
+  });
+  const withBleed = (bleedMm: number) => ({
+    ...deck,
+    entries: [{ ...entry, selectedArt: { ...uploaded, bleedMm } }],
+  });
+  let stored = withBleed(3.048);
+  const updated = withBleed(3.175);
+  const restored = {
+    ...updated,
+    id: "221c934a-dc11-4c97-88ff-ff467375a521",
+    name: "Restored Burn",
+  };
+  vi.spyOn(api, "decks").mockImplementation(async () => [stored]);
+  vi.spyOn(api, "deck").mockImplementation(async (deckId) =>
+    deckId === id ? stored : restored,
+  );
+  vi.spyOn(api, "restoreDeck").mockImplementation(async () => {
+    stored = updated;
+    return { deck: restored, updatedUploads: 1 };
+  });
+  vi.spyOn(api, "art").mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: false,
+    total: 0,
+  });
+  vi.spyOn(api, "uploads").mockResolvedValue([]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  renderWithClient(<App />, client);
+  const openArt = async () => {
+    await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Choose art for Lightning Bolt",
+      }),
+    );
+    return within(screen.getByRole("region", { name: "Preview art" }));
+  };
+  expect((await openArt()).getByText("3.048 mm")).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  expect(client.getQueryData(["deck", id])).toEqual(stored);
+
+  const contents = JSON.stringify(updated);
+  const file = new File([contents], "burn.deckpress.json");
+  Object.defineProperty(file, "text", { value: async () => contents });
+  await user.upload(
+    await screen.findByLabelText("Restore a deck from a JSON backup"),
+    file,
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Restored Burn" }),
+  ).toBeVisible();
+  expect(client.getQueryData(["deck", id])).toEqual(updated);
+  await user.click(screen.getByRole("button", { name: "Back to decks" }));
+  const preview = await openArt();
+  expect(preview.getByText("3.175 mm")).toBeVisible();
+  expect(preview.queryByText("3.048 mm")).not.toBeInTheDocument();
+
+  stored = withBleed(3.048);
+  await act(() => client.refetchQueries({ queryKey: ["deck", id] }));
+  expect(await preview.findByText("3.048 mm")).toBeVisible();
+  expect(screen.getByRole("status", { name: "Saved" })).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Deck settings" }));
+  const name = screen.getByRole("textbox", { name: "Deck name" });
+  await user.type(name, " draft");
+  stored = updated;
+  await act(() => client.refetchQueries({ queryKey: ["deck", id] }));
+  expect(name).toHaveValue("Burn draft");
+  expect(screen.getByRole("status", { name: "Unsaved changes" })).toBeVisible();
 });
 
 it.each([0, 1, 2])(
