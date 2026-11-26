@@ -462,6 +462,10 @@ pre {
   font-size: var(--type-control);
   line-height: var(--leading-control);
 }
+.toolbar-title[tabindex="-1"]:focus {
+  outline: calc(var(--focus-width) + 1px) solid var(--focus);
+  outline-offset: var(--focus-offset);
+}
 .toolbar-lead > .icon-button + .toolbar-title {
   margin-left: 2px;
 }

@@ -128,6 +128,7 @@ function DeckWorkspace({
   const [metadata, setMetadata] = useState(false);
   const task = useTask();
   const heading = useRef<HTMLHeadingElement>(null);
+  const saveButton = useRef<HTMLButtonElement>(null);
   const saving = useRef(false);
   const [isSaving, setIsSaving] = useState(false);
   useEffect(() => {
@@ -155,12 +156,21 @@ function DeckWorkspace({
     }
   };
   const dirty = deck !== saved;
+  const saveChanges = () =>
+    void task.run(async () => {
+      await commit(deck);
+      if (
+        document.activeElement === saveButton.current ||
+        document.activeElement === document.body
+      )
+        heading.current?.focus();
+    });
   useEffect(() => {
     if (!dirty) return;
     const shortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
-        if (!task.busy) void task.run(() => commit(deck));
+        saveChanges();
       }
     };
     window.addEventListener("keydown", shortcut);
@@ -224,21 +234,13 @@ function DeckWorkspace({
           )}
         </span>
         <button
+          ref={saveButton}
           type="button"
           className={dirty ? "primary" : "quiet"}
           disabled={task.busy || !dirty}
           aria-keyshortcuts="Control+S Meta+S"
           title="Save changes (Ctrl+S)"
-          onClick={({ currentTarget }) =>
-            void task.run(async () => {
-              await commit(deck);
-              if (
-                document.activeElement === currentTarget ||
-                document.activeElement === document.body
-              )
-                heading.current?.focus();
-            })
-          }
+          onClick={saveChanges}
         >
           <Save size={15} />
           Save changes

@@ -227,6 +227,44 @@ it("suggests related tokens and saves them in the tokens zone only when added", 
   );
 });
 
+it.each(["Save changes", "body"])(
+  "focuses the deck heading when Ctrl+S saves from %s",
+  async (start) => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "decks").mockResolvedValue([deck]);
+    vi.spyOn(api, "deck").mockResolvedValue(deck);
+    const save = vi
+      .spyOn(api, "saveDeck")
+      .mockImplementation(async (next) => next);
+    renderWithClient(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Edit card quantities" }),
+    );
+    const print = screen.getByRole("checkbox", {
+      name: "Print Lightning Bolt",
+    });
+    await user.click(print);
+    const button = screen.getByRole("button", { name: "Save changes" });
+    expect(button).toBeEnabled();
+    if (start === "body") print.blur();
+    else button.focus();
+    expect(document.activeElement).toBe(
+      start === "body" ? document.body : button,
+    );
+
+    await user.keyboard("{Control>}s{/Control}");
+
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ entries: [{ ...entry, excluded: true }] }),
+    );
+    expect(button).toBeDisabled();
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", { name: "Burn", level: 1 }),
+    );
+  },
+);
+
 it("keeps focus in the editor when saving with Ctrl+S", async () => {
   const user = userEvent.setup();
   vi.spyOn(api, "decks").mockResolvedValue([deck]);
