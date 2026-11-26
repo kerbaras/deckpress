@@ -44,6 +44,7 @@ import {
   ErrorNotice,
   ExternalLink,
   Loading,
+  LoadingAnnouncement,
   prettyDate,
   STATUS_COALESCE_MS,
   StatusRegion,
@@ -269,6 +270,16 @@ export function App() {
     return () => window.removeEventListener("keydown", shortcut);
   });
   const [, deckId, printJobId] = deckRoute(route) ?? [];
+  const libraryOpen =
+    !deckId &&
+    ![
+      "jobs",
+      "settings",
+      "settings/models",
+      "sources",
+      "discover",
+      "builder",
+    ].includes(route);
   const printJob = jobs.data?.find(
     (job) => job.id === printJobId && job.deckId === deckId,
   );
@@ -325,6 +336,12 @@ export function App() {
       <StatusRegion label="Art editions loading">
         {editionsLoading ? "Finding editions…" : ""}
       </StatusRegion>
+      <LoadingAnnouncement
+        active={libraryOpen && decks.isPending}
+        label="Library loading"
+      >
+        Opening your library…
+      </LoadingAnnouncement>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>
           <SidebarToggle

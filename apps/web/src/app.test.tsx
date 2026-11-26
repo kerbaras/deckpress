@@ -137,6 +137,42 @@ function renderWithClient(
   );
 }
 
+it("announces library opening in the status mounted by the app shell", async () => {
+  const sidebarPreference = window.localStorage.getItem("deckpress.sidebar");
+  vi.useFakeTimers();
+  try {
+    window.history.replaceState(null, "", "/");
+    const decks =
+      Promise.withResolvers<Awaited<ReturnType<typeof api.decks>>>();
+    vi.spyOn(api, "decks").mockReturnValue(decks.promise);
+    renderWithClient(<App />);
+    const getStatus = () =>
+      screen.getByRole("status", { name: "Library loading" });
+    const status = getStatus();
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.getByText("Opening your library…")).toBeVisible();
+
+    await act(() => vi.advanceTimersByTimeAsync(40));
+    const message = within(status).getByRole("group");
+    expect(message).toHaveTextContent("Opening your library…");
+    fireEvent.keyDown(document.body, { key: "b", ctrlKey: true });
+    expect(within(status).getByRole("group")).toBe(message);
+
+    await act(async () => {
+      decks.resolve([deck]);
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(getStatus()).toBe(status);
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.getByText(deck.name, { selector: "h2" })).toBeVisible();
+  } finally {
+    if (sidebarPreference === null)
+      window.localStorage.removeItem("deckpress.sidebar");
+    else window.localStorage.setItem("deckpress.sidebar", sidebarPreference);
+    vi.useRealTimers();
+  }
+});
+
 it.each([22, 43, 250])(
   "keeps one Discover loading announcement across a sidebar toggle during a %i ms search",
   async (duration) => {

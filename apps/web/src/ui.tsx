@@ -81,6 +81,29 @@ export function Loading({
   waitForPaint?: boolean;
   children?: string;
 }) {
+  return (
+    <>
+      <LoadingAnnouncement {...{ active, announcementId, label, waitForPaint }}>
+        {children}
+      </LoadingAnnouncement>
+      {active && <LoadingIndicator>{children}</LoadingIndicator>}
+    </>
+  );
+}
+
+export function LoadingAnnouncement({
+  active,
+  announcementId,
+  label,
+  waitForPaint = true,
+  children,
+}: {
+  active: boolean;
+  announcementId?: string | undefined;
+  label?: string | undefined;
+  waitForPaint?: boolean;
+  children: string;
+}) {
   const [ready, setReady] = useState(!active);
   useEffect(() => {
     if (!waitForPaint) {
@@ -97,12 +120,9 @@ export function Loading({
     };
   }, [waitForPaint]);
   return (
-    <>
-      <StatusRegion label={label} announcementId={announcementId}>
-        {active && ready ? children : ""}
-      </StatusRegion>
-      {active && <LoadingIndicator>{children}</LoadingIndicator>}
-    </>
+    <StatusRegion label={label} announcementId={announcementId}>
+      {active && ready ? children : ""}
+    </StatusRegion>
   );
 }
 

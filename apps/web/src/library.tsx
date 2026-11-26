@@ -26,7 +26,7 @@ import {
   ArtThumbnail,
   countCards,
   ErrorNotice,
-  Loading,
+  LoadingIndicator,
   ManaPips,
   Modal,
   prettyDate,
@@ -228,7 +228,7 @@ export function Library({
           </div>
         )}
         {query.isPending ? (
-          <Loading>Opening your library…</Loading>
+          <LoadingIndicator>Opening your library…</LoadingIndicator>
         ) : decks.length === 0 && !query.isError ? (
           <FirstRun
             onCreate={() => setCreate(true)}
