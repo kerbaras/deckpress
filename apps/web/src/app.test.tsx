@@ -868,6 +868,66 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   );
 });
 
+it("saves a cut template by keyboard and only shows export in Free layout", async () => {
+  const user = userEvent.setup();
+  const saveDialog = vi
+    .fn()
+    .mockReturnValueOnce(null)
+    .mockReturnValueOnce("/chosen/burn.svg");
+  const saveTemplate = vi.fn();
+  mockIPC((cmd, args) => {
+    if (cmd === "plugin:dialog|save") return saveDialog(args);
+    if (cmd === "save_cut_template") return saveTemplate(args);
+  });
+  function PrintHarness() {
+    const [value, setValue] = useState(deck);
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  const button = screen.getByRole("button", {
+    name: "Export cut template (SVG)",
+  });
+  await user.tab();
+  expect(button).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(saveDialog).toHaveBeenCalledWith({
+    options: expect.objectContaining({
+      defaultPath: "Burn-cut-template.svg",
+      filters: [{ name: "SVG cut template", extensions: ["svg"] }],
+    }),
+  });
+  expect(saveTemplate).not.toHaveBeenCalled();
+  await user.click(button);
+  await waitFor(() =>
+    expect(saveTemplate).toHaveBeenCalledWith({
+      destination: "/chosen/burn.svg",
+      settings: deck.printSettings,
+    }),
+  );
+  const mode = screen.getByRole("combobox", { name: "Layout mode" });
+  await user.selectOptions(mode, "scm");
+  const template = screen.getByRole("combobox", {
+    name: "Silhouette Cameo template",
+  });
+  await user.selectOptions(template, "a4:borderless");
+  expect(template).toHaveValue("a4:borderless");
+  expect(
+    screen.queryByRole("button", { name: "Export cut template (SVG)" }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByText("Use the SCM .studio3 cut template.")).toBeVisible();
+  await user.selectOptions(mode, "free");
+  expect(
+    screen.getByRole("button", { name: "Export cut template (SVG)" }),
+  ).toBeVisible();
+});
+
 it("shows the selected trim and warns when bleed exceeds half the gap", async () => {
   const user = userEvent.setup();
   function PrintHarness() {

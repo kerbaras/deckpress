@@ -11,7 +11,7 @@ import {
   UnfoldHorizontal,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, previewSrc } from "./api.ts";
+import { api, downloadCutTemplate, previewSrc } from "./api.ts";
 import {
   type Art,
   backArt,
@@ -99,6 +99,7 @@ export function PrintSetup({
     queryFn: ({ signal }) => api.settings(signal),
   });
   const task = useTask();
+  const cutTemplateTask = useTask();
   const [page, setPage] = useState(0);
   const [back, setBack] = useState(false);
   const [trim, setTrim] = useState(false);
@@ -209,6 +210,19 @@ export function PrintSetup({
           {calibrationPages > 0 &&
             ` (includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`}
         </span>
+        {isScm ? (
+          <span className="muted">Use the SCM .studio3 cut template.</span>
+        ) : (
+          <button
+            type="button"
+            disabled={!layout || cutTemplateTask.busy}
+            onClick={() =>
+              void cutTemplateTask.run(() => downloadCutTemplate(deck))
+            }
+          >
+            Export cut template (SVG)
+          </button>
+        )}
         <button
           type="button"
           className="primary"
@@ -220,6 +234,7 @@ export function PrintSetup({
         </button>
       </div>
       <ErrorNotice error={task.error ?? layoutError} />
+      <ErrorNotice error={cutTemplateTask.error} />
       <div className="print-layout">
         <div className="print-controls">
           <div className="panel presets">

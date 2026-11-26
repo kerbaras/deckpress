@@ -43,4 +43,5 @@ default = []
 cuda = ["ort/cuda"]
 
 [dev-dependencies]
+quick-xml = "0.42"
 tempfile = "3"

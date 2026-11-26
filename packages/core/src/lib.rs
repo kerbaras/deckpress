@@ -4,6 +4,7 @@
 //! Tauri; the app maps its commands onto these types.
 
 pub mod builder;
+pub mod cut_svg;
 pub mod decksearch;
 pub mod error;
 pub mod images;
