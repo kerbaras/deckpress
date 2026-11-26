@@ -237,3 +237,55 @@ it("keeps the import status region rendered before it has anything to say", asyn
     style.remove();
   }
 });
+
+it("keeps a focused Workspace file control in view on resize", async () => {
+  const user = userEvent.setup();
+  render(
+    <>
+      <button type="button">Outside the import panel</button>
+      <ImportPanel existing={0} onApply={vi.fn()} />
+    </>,
+  );
+  await user.click(screen.getByRole("button", { name: "File" }));
+  const picker = screen.getByLabelText(/Choose a decklist/);
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(picker, "scrollIntoView", { value: scrollIntoView });
+  picker.focus();
+
+  window.dispatchEvent(new Event("resize"));
+  expect(scrollIntoView).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
+  expect(picker).toHaveFocus();
+
+  screen.getByRole("button", { name: "Outside the import panel" }).focus();
+  window.dispatchEvent(new Event("resize"));
+  expect(scrollIntoView).toHaveBeenCalledTimes(1);
+});
+
+it("shows the loaded filename independently of the reusable picker", async () => {
+  const user = userEvent.setup();
+  render(<ImportPanel existing={0} onApply={vi.fn()} />);
+  await user.click(screen.getByRole("button", { name: "File" }));
+  const picker = screen.getByLabelText(/Choose a decklist/);
+  const decklist = screen.getByLabelText("Decklist");
+  const file = new File(["4 Shock"], "burn.txt");
+
+  await user.upload(picker, file);
+  expect(await screen.findByText("Loaded file: burn.txt")).toBeVisible();
+  expect(picker).toHaveAccessibleDescription("Loaded file: burn.txt");
+  expect(picker).toHaveValue("");
+  expect(decklist).toHaveValue("4 Shock");
+
+  await user.clear(decklist);
+  expect(screen.queryByText("Loaded file: burn.txt")).not.toBeInTheDocument();
+
+  await user.upload(picker, file);
+  expect(await screen.findByText("Loaded file: burn.txt")).toBeVisible();
+  expect(decklist).toHaveValue("4 Shock");
+
+  await user.upload(picker, new File(["x".repeat(200_001)], "large.txt"));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Decklist exceeds 200 KB",
+  );
+  expect(screen.queryByText(/Loaded file:/)).not.toBeInTheDocument();
+  expect(decklist).toHaveValue("4 Shock");
+});
