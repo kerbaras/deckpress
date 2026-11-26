@@ -25,7 +25,13 @@ export interface ParsedDecklist {
 }
 
 function zoneFrom(value: string): ImportLine["zone"] | undefined {
-  switch (value.trim().toLowerCase()) {
+  const alias = value
+    .trim()
+    .replace(/^\/\/\s*/, "")
+    .replace(/:$/, "")
+    .replace(/[\s-]+/g, "")
+    .toLowerCase();
+  switch (alias) {
     case "deck":
     case "main":
     case "mainboard":
@@ -140,11 +146,7 @@ export function parseDecklist(input: string): ParsedDecklist {
     text.split(/\r?\n/).forEach((raw, index) => {
       const line = raw.trim();
       if (!line) return;
-      const heading = line
-        .replace(/^\/\/\s*/, "")
-        .replace(/:$/, "")
-        .replace(/[\s-]+/g, "");
-      const header = zoneFrom(heading);
+      const header = zoneFrom(line);
       if (header) {
         zone = header;
         return;

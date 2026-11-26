@@ -153,10 +153,11 @@ describe("decklist import", () => {
     const formatted = parseDecklist("Deck\n// Side-Board 2:\n1 Shock");
     expect(formatted.entries).toEqual(text.entries);
     const csv = parseDecklist(
-      "Name,Quantity,Board\nShock,1,Sideboard2\nNegate,1,Sideboard",
+      "Name,Quantity,Board\nShock,1,Sideboard2\nOpt,1,Side-Board 2:\nNegate,1,Sideboard",
     );
     expect(csv.entries).toMatchObject([
       { name: "Shock", zone: "main" },
+      { name: "Opt", zone: "main" },
       { name: "Negate", zone: "side" },
     ]);
   });
@@ -174,27 +175,40 @@ describe("decklist import", () => {
     ["considering", "maybe"],
     ["token", "tokens"],
     ["tokens", "tokens"],
-  ])(
-    "recognizes the text heading %s and its formatted variants",
-    (alias, zone) => {
-      const preceding = zone === "main" ? "Sideboard" : "Deck";
-      const variants = new Set([
-        alias.replaceAll(" ", ""),
-        alias.replaceAll(" ", "").toUpperCase(),
-        alias.replace(/\b\w/g, (letter) => letter.toUpperCase()),
-        alias.replaceAll(" ", "-"),
-        `${alias.replaceAll(" ", "")}:`,
-        `// ${alias.toUpperCase().replaceAll(" ", " - ")}:`,
-      ]);
-      for (const heading of variants) {
-        const parsed = parseDecklist(`${preceding}\n${heading}\n1 Negate`);
-        expect(parsed.entries, heading).toMatchObject([
-          { name: "Negate", zone },
-        ]);
-        expect(parsed.issues, heading).toEqual([]);
+  ])("recognizes formatted %s aliases in text and CSV", (alias, zone) => {
+    const preceding = zone === "main" ? "Sideboard" : "Deck";
+    const spellings = ["", " ", "-", " - ", "  ", "\t"].flatMap((separator) => {
+      const spelling = alias.replaceAll(" ", separator);
+      return [
+        spelling,
+        spelling.toUpperCase(),
+        spelling.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      ];
+    });
+    const variants = new Set(
+      spellings.flatMap((spelling) =>
+        ["", "// ", "//"].flatMap((prefix) =>
+          ["", ":"].flatMap((suffix) => {
+            const heading = `${prefix}${spelling}${suffix}`;
+            return [heading, `  ${heading}  `];
+          }),
+        ),
+      ),
+    );
+    for (const heading of variants) {
+      const parsed = parseDecklist(`${preceding}\n${heading}\n1 Negate`);
+      expect(parsed.entries, heading).toMatchObject([{ name: "Negate", zone }]);
+      expect(parsed.issues, heading).toEqual([]);
+      for (const column of ["Board", "Zone"]) {
+        const csv = parseDecklist(
+          `Name,Quantity,${column}\nNegate,1,"${heading}"`,
+        );
+        expect(csv.format).toBe("CSV");
+        expect(csv.entries, `${column}: ${heading}`).toEqual(parsed.entries);
+        expect(csv.issues, `${column}: ${heading}`).toEqual([]);
       }
-    },
-  );
+    }
+  });
 
   it("round-trips a card through text and CSV containing the same board header", () => {
     const header = "// Board: testing Pool";
