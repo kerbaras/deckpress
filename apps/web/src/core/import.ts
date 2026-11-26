@@ -17,6 +17,7 @@ export interface ImportIssue {
   input: string;
   message: string;
   severity?: "warning";
+  category?: "csv";
 }
 export interface ParsedDecklist {
   entries: ImportLine[];
@@ -115,6 +116,9 @@ export function parseDecklist(input: string): ParsedDecklist {
   if (input.length > 200_000) throw new Error("Decklist exceeds 200 KB");
   const source = input.replace(/^\uFEFF/, "");
   const text = source.trim();
+  const csvHeaderDelimiter = /^(?:.*[;,])?(?:name|card name)([;,])/i.exec(
+    text.split(/\r?\n/, 1)[0] ?? "",
+  )?.[1];
   const result: ParsedDecklist = {
     entries: [],
     lines: [],
@@ -131,6 +135,7 @@ export function parseDecklist(input: string): ParsedDecklist {
         line,
         input: source,
         message: "Expected a card name and a quantity between 1 and 250",
+        ...(result.format === "CSV" ? { category: "csv" } : {}),
       });
   };
   if (text.startsWith("<")) {
@@ -171,17 +176,20 @@ export function parseDecklist(input: string): ParsedDecklist {
         card.Name,
       );
     });
-  } else if (
-    /^(.*[;,])?(name|card name)[;,]/i.test(text.split(/\r?\n/)[0] ?? "") ||
-    /^(name|card name),/i.test(text)
-  ) {
+  } else if (csvHeaderDelimiter) {
     result.format = "CSV";
-    const csv = Papa.parse<Record<string, string>>(text, {
+    const config: Papa.ParseConfig<Record<string, string>> = {
       header: true,
       comments: csvComment,
       skipEmptyLines: "greedy",
       transformHeader: (header) => header.toLowerCase().replace(/[^a-z]/g, ""),
-    });
+    };
+    const detected = Papa.parse(text, config);
+    const csv = detected.errors.some(
+      (error) => error.code === "UndetectableDelimiter",
+    )
+      ? Papa.parse(text, { ...config, delimiter: csvHeaderDelimiter })
+      : detected;
     const firstLine =
       1 +
       lineBreakCount(
@@ -197,11 +205,18 @@ export function parseDecklist(input: string): ParsedDecklist {
     for (const error of csv.errors) {
       const lines = error.type === "Quotes" ? recordLines : dataLines;
       const line = error.row === undefined ? undefined : lines[error.row];
+      if (
+        error.type === "FieldMismatch" &&
+        line !== undefined &&
+        headingLines.has(line)
+      )
+        continue;
       if (line !== undefined) invalidLines.add(line);
       result.issues.push({
         line: line ?? headerLine,
         input: "CSV row",
         message: error.message,
+        category: "csv",
       });
     }
     csv.data.forEach((row, index) => {
@@ -297,6 +312,7 @@ export function parseDecklist(input: string): ParsedDecklist {
         line,
         input: entry.name,
         message: "Combined quantity exceeds 250",
+        ...(result.format === "CSV" ? { category: "csv" } : {}),
       });
     else
       merged.set(key, {

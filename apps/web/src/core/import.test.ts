@@ -345,6 +345,18 @@ describe("decklist import", () => {
     expect(result.issues).toEqual([]);
   });
 
+  it.each([",", ";"])(
+    "silently skips heading-only CSV with %j",
+    (delimiter) => {
+      const result = parseDecklist(
+        `${["Name", "Quantity", "Board"].join(delimiter)}\r\nCompanion\r\nCom–panions：`,
+      );
+      expect(result.format).toBe("CSV");
+      expect(result.entries).toEqual([]);
+      expect(result.issues).toEqual([]);
+    },
+  );
+
   it.each([
     ["LF comma-separated", "\n", ","],
     ["CRLF semicolon-separated", "\r\n", ";"],
@@ -373,13 +385,20 @@ describe("decklist import", () => {
           line: 9,
           input: "CSV row",
           message: "Too many fields: expected 4 fields but parsed 5",
+          category: "csv",
         },
         {
           line: 8,
           input: "Opt",
           message: "Expected a card name and a quantity between 1 and 250",
+          category: "csv",
         },
-        { line: 10, input: "Island", message: "Combined quantity exceeds 250" },
+        {
+          line: 10,
+          input: "Island",
+          message: "Combined quantity exceeds 250",
+          category: "csv",
+        },
       ]);
     },
   );
@@ -398,7 +417,12 @@ describe("decklist import", () => {
       );
       expect(result.lines).toEqual([]);
       expect(result.issues).toEqual([
-        { line: 4, input: "CSV row", message: "Quoted field unterminated" },
+        {
+          line: 4,
+          input: "CSV row",
+          message: "Quoted field unterminated",
+          category: "csv",
+        },
       ]);
     },
   );

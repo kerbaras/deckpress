@@ -49,7 +49,7 @@ it.each(["companions", "COMPANION", "Com–panions："])(
       ],
     });
     expect(result.issues.map(({ line }) => line)).toEqual([
-      6, 7, 8, 9, 10, 11, 12,
+      7, 8, 9, 10, 11, 12,
     ]);
   },
 );
@@ -110,6 +110,96 @@ function mockResolver(beforeResolve?: Promise<void>) {
     return { entries, issues };
   });
 }
+
+it("reviews a CRLF file with CSV errors, unresolved cards, and warnings separately", async () => {
+  const user = userEvent.setup();
+  const onApply = vi.fn().mockResolvedValue(undefined);
+  const resolve = vi.spyOn(api, "import");
+  mockResolver();
+  render(<ImportPanel existing={0} onApply={onApply} />);
+  await user.click(screen.getByRole("button", { name: "File" }));
+  const text = [
+    "Name,Quantity,Board,Notes",
+    "",
+    "// Board: QA Custom Board",
+    'Opt,1,Side–Board,"A note',
+    "continued",
+    'and finished"',
+    "Companion",
+    "companions",
+    "Com–panions：",
+    "Negate,1,QA Custom Board,",
+    "Lightning Bolt,1,MAIN／BOARD,",
+    "Lurrus of the Dream-Den,1,Companions,",
+    "Spirited Companion,1,Sideboard,",
+    "Island,1,,,extra",
+    "Forest",
+    "Lightnig Bolt,1,,",
+    'Plains,1,,"Unterminated',
+    "note",
+  ].join("\r\n");
+  const file = new File([text], "fixture.csv");
+  file.text = async () => text;
+  await user.upload(screen.getByLabelText(/Choose a decklist/), file);
+  expect(await screen.findByText("Loaded file: fixture.csv")).toBeVisible();
+
+  const status = screen.getByRole("status");
+  const announcements: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records)
+      for (const node of record.addedNodes)
+        if (node.textContent?.startsWith("5 cards resolved."))
+          announcements.push(node.textContent);
+  });
+  observer.observe(status, { childList: true });
+  await user.click(screen.getByRole("button", { name: "Resolve on Scryfall" }));
+  expect(resolve).toHaveBeenCalledWith({ text });
+  expect(
+    await screen.findByRole("heading", { name: "5 cards resolved" }),
+  ).toHaveFocus();
+  const csvErrors = screen.getByRole("list", { name: "CSV errors" });
+  expect(
+    within(csvErrors)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent),
+  ).toEqual([
+    "Line 14CSV rowToo many fields: expected 4 fields but parsed 5",
+    "Line 15CSV rowToo few fields: expected 4 fields but parsed 1",
+    "Line 17CSV rowQuoted field unterminated",
+  ]);
+  const unresolved = screen.getByRole("list", { name: "Unresolved lines" });
+  expect(within(unresolved).getByRole("listitem")).toHaveTextContent(
+    "Line 161 Lightnig Bolt",
+  );
+  const warnings = screen.getByRole("list", { name: "Imported with warnings" });
+  expect(
+    within(warnings)
+      .getAllByRole("listitem")
+      .map((row) => row.textContent),
+  ).toEqual([
+    "Line 10QA Custom BoardUnrecognized board; imported to Mainboard",
+    "Line 12CompanionsUnrecognized board; imported to Mainboard",
+  ]);
+  expect(announcements).toEqual([
+    "5 cards resolved. 1 line needs review. 3 CSV errors. 2 warnings.",
+  ]);
+  observer.disconnect();
+
+  await user.click(screen.getByRole("button", { name: "Add 5 cards to deck" }));
+  expect(status).toHaveTextContent("Saved 5 cards to this deck.");
+  expect(
+    onApply.mock.calls[0]?.[0].entries.map((entry: DeckEntry) => [
+      entry.card.name,
+      entry.zone,
+    ]),
+  ).toEqual([
+    ["Opt", "side"],
+    ["Negate", "main"],
+    ["Lightning Bolt", "main"],
+    ["Lurrus of the Dream-Den", "main"],
+    ["Spirited Companion", "side"],
+  ]);
+});
 
 it("offers the paste fallback and a retry when a deck URL is refused", async () => {
   const user = userEvent.setup();

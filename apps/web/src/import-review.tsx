@@ -104,18 +104,27 @@ export function importLanguageSummary({
     .join(" ");
 }
 
+function reviewIssues(issues: ImportResult["issues"]) {
+  return {
+    unresolved: issues.filter(
+      (issue) => issue.severity !== "warning" && issue.category !== "csv",
+    ),
+    warnings: issues.filter((issue) => issue.severity === "warning"),
+    csvErrors: issues.filter((issue) => issue.category === "csv"),
+  };
+}
+
 /** Live-region text announcing a resolve result. */
 export function resolveSummary(result: ImportResult) {
-  const warnings = result.issues.filter(
-    (issue) => issue.severity === "warning",
-  ).length;
-  const issues = result.issues.length - warnings;
+  const { unresolved, warnings, csvErrors } = reviewIssues(result.issues);
+  const issues = unresolved.length;
   const review = issues
     ? `${issues} ${issues === 1 ? "line needs" : "lines need"} review.`
     : "No lines need review.";
   return [
     `${formatCount(countCards(result.entries), "card")} resolved. ${review}`,
-    warnings ? `${warnings} ${warnings === 1 ? "warning" : "warnings"}.` : "",
+    csvErrors.length ? `${formatCount(csvErrors.length, "CSV error")}.` : "",
+    warnings.length ? `${formatCount(warnings.length, "warning")}.` : "",
     importLanguageSummary(result),
   ]
     .filter(Boolean)
@@ -155,12 +164,7 @@ export function ImportReview({
 }) {
   const total = countCards(result.entries);
   const boards = boardCounts(result.entries);
-  const unresolved = result.issues.filter(
-    (issue) => issue.severity !== "warning",
-  );
-  const warnings = result.issues.filter(
-    (issue) => issue.severity === "warning",
-  );
+  const { unresolved, warnings, csvErrors } = reviewIssues(result.issues);
   const fallbacks = result.entries.flatMap((entry) => {
     const art = frontArt(entry);
     if (!entry.requestedLanguages?.length || !isEnglishFallback(entry, art))
@@ -235,6 +239,12 @@ export function ImportReview({
             label="Imported with warnings"
             showLines={showLines}
           />
+        </div>
+      )}
+      {csvErrors.length > 0 && (
+        <div className="import-issues">
+          <strong>CSV errors</strong>
+          <ReviewIssueList issues={csvErrors} label="CSV errors" showLines />
         </div>
       )}
       {saved === null && existing > 0 && total > 0 && (
