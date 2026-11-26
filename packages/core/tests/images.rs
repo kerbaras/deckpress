@@ -337,7 +337,11 @@ async fn bleed_edits_and_restores_prune_only_superseded_upload_thumbnails() {
     let bytes_b = images.upload_thumbnail(url, b).await.unwrap();
     let path_b = files(url).into_iter().find(|path| *path != path_a).unwrap();
     let legacy_a = root.join(path_a.file_name().unwrap());
+    let legacy_b = root.join(path_b.file_name().unwrap());
     std::fs::copy(&path_a, &legacy_a).unwrap();
+    std::fs::copy(&path_b, &legacy_b).unwrap();
+    let unrelated = root.join("unrelated.png");
+    std::fs::write(&unrelated, &png).unwrap();
     for bleed in [a, b] {
         images
             .upload_thumbnail(&other.image_url, bleed)
@@ -356,9 +360,21 @@ async fn bleed_edits_and_restores_prune_only_superseded_upload_thumbnails() {
         std::fs::write(path, &png).unwrap();
     }
 
+    drop(images);
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    assert!(!legacy_a.exists());
+    assert!(!legacy_b.exists());
+    assert_eq!(std::fs::read(&unrelated).unwrap(), png);
+    assert_eq!(std::fs::read(&path_a).unwrap(), bytes_a);
+
+    // A second open must not scan the flat layout again.
+    std::fs::copy(&path_a, &legacy_a).unwrap();
+    drop(images);
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    assert_eq!(std::fs::read(&legacy_a).unwrap(), bytes_a);
+
     images.update_upload_bleed(url, Some(b)).unwrap();
     assert_eq!(files(url), [path_b.clone()].into());
-    assert!(!legacy_a.exists());
     assert_eq!(std::fs::read(&path_b).unwrap(), bytes_b);
 
     assert_eq!(images.upload_thumbnail(url, a).await.unwrap(), bytes_a);

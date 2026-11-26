@@ -5,6 +5,7 @@
 //! - `uploads/<uuid>.png` normalized uploads (`upload://<uuid>` in decks)
 
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -61,6 +62,43 @@ fn upload_thumbnail_name(id: &str, bleed_mm: f64) -> String {
         "{PIPELINE_VERSION}:{UPLOAD_THUMBNAIL_EDGE}:{id}:{bleed_mm}"
     ));
     format!("{key}.png")
+}
+
+fn prune_thumbnail_files(dir: &Path, should_remove: impl Fn(&Path) -> bool) -> bool {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return true,
+        Err(error) => {
+            log::warn!("Could not read thumbnail cache {}: {error}", dir.display());
+            return false;
+        }
+    };
+    let mut complete = true;
+    for entry in entries {
+        let path = match entry {
+            Ok(entry) => entry.path(),
+            Err(error) => {
+                log::warn!(
+                    "Could not read thumbnail cache entry in {}: {error}",
+                    dir.display()
+                );
+                complete = false;
+                continue;
+            }
+        };
+        if path.extension().is_some_and(|ext| ext == "png") && should_remove(&path) {
+            if let Err(error) = std::fs::remove_file(&path) {
+                if error.kind() != ErrorKind::NotFound {
+                    log::warn!(
+                        "Could not remove cached thumbnail {}: {error}",
+                        path.display()
+                    );
+                    complete = false;
+                }
+            }
+        }
+    }
+    complete
 }
 
 pub fn validate_image_url(input: &str) -> AppResult<Url> {
@@ -159,12 +197,14 @@ impl Images {
             .redirect(redirect::Policy::none())
             .timeout(Duration::from_secs(45))
             .build()?;
-        Ok(Self {
+        let images = Self {
             root: root.into(),
             store,
             client,
             pending: Mutex::new(HashMap::new()),
-        })
+        };
+        images.prune_legacy_upload_thumbnails();
+        Ok(images)
     }
 
     pub fn root(&self) -> &Path {
@@ -374,7 +414,7 @@ impl Images {
         self.set_upload_bleed(&id, &mut upload, bleed_mm)?;
         self.store.put("upload", &id, &upload)?;
         if previous != upload.art.bleed_mm {
-            self.prune_upload_thumbnails(&id, previous, upload.art.bleed_mm);
+            self.prune_upload_thumbnails(&id, upload.art.bleed_mm);
         }
         Ok(upload.art)
     }
@@ -424,17 +464,16 @@ impl Images {
         for (id, bleed) in bleeds {
             if let Some(mut upload) = self.store.get::<Upload>("upload", &id)? {
                 if upload.art.bleed_mm != bleed {
-                    let previous = upload.art.bleed_mm;
                     self.set_upload_bleed(&id, &mut upload, Some(bleed))?;
-                    changed_bleeds.push((id.clone(), previous, upload.art.bleed_mm));
+                    changed_bleeds.push((id.clone(), upload.art.bleed_mm));
                     uploads.insert(id, upload);
                 }
             }
         }
         let updated_uploads = uploads.len();
         let deck = self.store.create_deck_with_uploads(input, uploads)?;
-        for (id, previous, current) in changed_bleeds {
-            self.prune_upload_thumbnails(&id, previous, current);
+        for (id, current) in changed_bleeds {
+            self.prune_upload_thumbnails(&id, current);
         }
         Ok(RestoreResult {
             deck,
@@ -460,21 +499,44 @@ impl Images {
         self.root.join("preview").join("upload-thumbnails")
     }
 
-    fn prune_upload_thumbnails(&self, id: &str, previous: f64, current: f64) {
+    fn prune_legacy_upload_thumbnails(&self) {
         let root = self.upload_thumbnail_root();
-        let current = upload_thumbnail_name(id, current);
-        if let Ok(entries) = std::fs::read_dir(root.join(id)) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "png")
-                    && entry.file_name() != current.as_str()
-                {
-                    let _ = std::fs::remove_file(path);
+        let marker = root.join("flat-cache-pruned-v1");
+        match marker.try_exists() {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(error) => {
+                log::warn!(
+                    "Could not check thumbnail cleanup marker {}: {error}",
+                    marker.display()
+                );
+                return;
+            }
+        }
+        if prune_thumbnail_files(&root, |path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|stem| {
+                    stem.len() == 64 && stem.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                })
+        }) {
+            if let Err(error) = std::fs::File::create_new(&marker) {
+                if !matches!(error.kind(), ErrorKind::AlreadyExists | ErrorKind::NotFound) {
+                    log::warn!(
+                        "Could not write thumbnail cleanup marker {}: {error}",
+                        marker.display()
+                    );
                 }
             }
         }
-        // Flat cache entries from older versions have no upload ID in their names.
-        let _ = std::fs::remove_file(root.join(upload_thumbnail_name(id, previous)));
+    }
+
+    fn prune_upload_thumbnails(&self, id: &str, current: f64) {
+        let current = upload_thumbnail_name(id, current);
+        prune_thumbnail_files(&self.upload_thumbnail_root().join(id), |path| {
+            path.file_name()
+                .is_some_and(|name| name != current.as_str())
+        });
     }
 
     /// Returns the cropped thumbnail for an upload at the requested bleed.
@@ -484,17 +546,12 @@ impl Images {
         if bleed_mm == 0.0 {
             return Ok(tokio::fs::read(self.upload_path(&id)).await?);
         }
-        let root = self.upload_thumbnail_root();
-        let dir = root.join(&id);
-        let name = upload_thumbnail_name(&id, bleed_mm);
-        let path = dir.join(&name);
+        let dir = self.upload_thumbnail_root().join(&id);
+        let path = dir.join(upload_thumbnail_name(&id, bleed_mm));
         match tokio::fs::read(&path).await {
             Ok(bytes) => return Ok(bytes),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
-        }
-        if let Ok(bytes) = tokio::fs::read(root.join(name)).await {
-            return Ok(bytes);
         }
         let bytes = tokio::fs::read(self.upload_path(&id)).await?;
         tokio::task::spawn_blocking(move || {
