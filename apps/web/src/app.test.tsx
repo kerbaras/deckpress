@@ -1751,8 +1751,16 @@ it("updates local matches without implying they are the paginated Scryfall total
   expect(
     await screen.findByText(
       "2 matches in loaded results · 2 of 8 Scryfall prints loaded",
+      { selector: "span.hint" },
     ),
   ).toBeVisible();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("status", { name: "Art match count" }),
+    ).toHaveTextContent(
+      "2 matches in loaded results · 2 of 8 Scryfall prints loaded",
+    ),
+  );
   await user.type(
     screen.getByRole("searchbox", {
       name: "Search set, artist, creator or tag",
@@ -1762,6 +1770,7 @@ it("updates local matches without implying they are the paginated Scryfall total
   expect(
     screen.getByText(
       "1 match in loaded results · 2 of 8 Scryfall prints loaded",
+      { selector: "span.hint" },
     ),
   ).toBeVisible();
   await user.click(
@@ -1770,6 +1779,7 @@ it("updates local matches without implying they are the paginated Scryfall total
   expect(
     await screen.findByText(
       "2 matches in loaded results · 3 of 8 Scryfall prints loaded",
+      { selector: "span.hint" },
     ),
   ).toBeVisible();
   expect(
@@ -1780,6 +1790,65 @@ it("updates local matches without implying they are the paginated Scryfall total
     screen.getByText("0 matches in loaded results", { selector: "span.hint" }),
   ).toBeVisible();
 });
+
+it.each([
+  [3, "1 of 3 MPC results loaded"],
+  [0, "1 MPC result loaded"],
+])(
+  "announces pagination once when the filter's match count stays zero (MPC total %i)",
+  async (total, firstProgress) => {
+    const user = userEvent.setup();
+    mockPickerArt().mockImplementation(async (provider, _, __, ___, page) => ({
+      items:
+        provider === "mpc"
+          ? [{ ...alternate, id: `mpc:${page}`, provider }]
+          : [],
+      page,
+      hasMore: provider === "mpc" && page === 1,
+      total: provider === "mpc" ? total : 0,
+    }));
+    renderWithClient(
+      <ArtPicker
+        deck={deck}
+        entry={entry}
+        onSelect={vi.fn()}
+        onApply={vi.fn()}
+      />,
+    );
+    await user.type(
+      screen.getByRole("searchbox", {
+        name: "Search set, artist, creator or tag",
+      }),
+      "no matching artwork",
+    );
+    const status = screen.getByRole("status", { name: "Art match count" });
+    await within(status).findByText(
+      `0 matches in loaded results · ${firstProgress}`,
+    );
+    const announcements: string[] = [];
+    const observer = new MutationObserver(() =>
+      announcements.push(status.textContent ?? ""),
+    );
+    observer.observe(status, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    try {
+      await user.click(
+        screen.getByRole("button", { name: "Load more MPC art" }),
+      );
+      const secondSummary = `0 matches in loaded results · ${total ? "2 of 3" : "2"} MPC results loaded`;
+      expect(
+        await screen.findByText(secondSummary, { selector: "span.hint" }),
+      ).toBeVisible();
+      await within(status).findByText(secondSummary);
+      expect(announcements).toEqual([secondSummary]);
+    } finally {
+      observer.disconnect();
+    }
+  },
+);
 
 it("debounces match announcements and does not repeat an unchanged count", async () => {
   mockPickerArt([original, alternate]);
