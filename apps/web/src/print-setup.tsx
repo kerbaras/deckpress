@@ -126,6 +126,10 @@ export function PrintSetup({
     onChange({ ...deck, printSettings: { ...settings, ...patch } });
     setPage(0);
   };
+  const applyPreset = (settings: PrintSettings) => {
+    onChange({ ...deck, printSettings: settings });
+    setPage(0);
+  };
   let layout: ReturnType<typeof createLayout> | null = null;
   let layoutError: unknown = null;
   try {
@@ -341,10 +345,12 @@ export function PrintSetup({
                         "deckpress.print-preset",
                       );
                       if (!stored) throw new Error("Save a print preset first");
-                      change(printSettingsSchema.parse(JSON.parse(stored)));
+                      applyPreset(
+                        printSettingsSchema.parse(JSON.parse(stored)),
+                      );
                     });
                   else
-                    change(
+                    applyPreset(
                       printSettingsSchema.parse(
                         value === "proof"
                           ? { dpi: 300 }

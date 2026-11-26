@@ -2815,6 +2815,32 @@ it("mounts the print preset status before saving", async () => {
   expect(status.firstElementChild).not.toBe(firstMessage);
 });
 
+it("loading an older preset does not retain the previous selection's profile id", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation((key) =>
+    key === "deckpress.print-preset" ? '{"backOffsetXmm":2}' : null,
+  );
+  const change = vi.fn();
+  renderWithClient(
+    <PrintSetup
+      deck={{
+        ...deck,
+        printSettings: { ...deck.printSettings, printerProfileId: id },
+      }}
+      onChange={change}
+      onSave={vi.fn()}
+      onJobs={vi.fn()}
+    />,
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Print preset" }),
+    "saved",
+  );
+  const loaded = change.mock.lastCall?.[0].printSettings;
+  expect(loaded.backOffsetXmm).toBe(2);
+  expect(loaded.printerProfileId).toBeUndefined();
+});
+
 it("shows the selected trim and warns when bleed exceeds half the gap", async () => {
   const user = userEvent.setup();
   function PrintHarness() {

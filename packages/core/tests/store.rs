@@ -86,6 +86,30 @@ fn printer_profiles_round_trip_across_sqlite_connections() {
 }
 
 #[test]
+fn deck_settings_keep_an_optional_profile_id_and_corrections_across_restarts() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("deckpress.sqlite");
+    let mut settings: PrintSettings =
+        serde_json::from_value(serde_json::json!({"backOffsetXmm": 1.25})).unwrap();
+    assert!(settings.printer_profile_id.is_none());
+    assert_eq!(settings.back_offset_xmm, 1.25);
+    settings.printer_profile_id = Some("642f6d09-ae39-469b-980f-4ad95b52f3af".into());
+    let deck = Store::open(&path)
+        .unwrap()
+        .create_deck(Deck {
+            print_settings: settings.clone(),
+            ..common::new_deck("Profile settings")
+        })
+        .unwrap();
+    let saved = Store::open(&path)
+        .unwrap()
+        .get::<Deck>("deck", &deck.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.print_settings, settings);
+}
+
+#[test]
 fn creates_lists_and_updates_decks_with_revisions() {
     let store = Store::in_memory().unwrap();
     let deck = store.create_deck(common::new_deck("  Test  ")).unwrap();
