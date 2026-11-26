@@ -6,6 +6,9 @@
 
 - Lay out cards for Silhouette Card Maker cutting templates. Pick a built-in template or import one, and use the alignment guides to prepare the sheet. (#45, #61)
 - See token suggestions for your deck and import or export MPC Autofill XML. (#49)
+- Start your first deck by importing a list, using the guided builder, starting with a blank deck, or trying a sample. (#58)
+- Export a cut-template SVG for free layouts. (#64)
+- Calibrate duplex alignment with back-side offsets and rotation, and save corrections as reusable printer profiles. (#72)
 
 ### Fixed
 
@@ -13,6 +16,9 @@
 - Detect bleed already present in uploaded card images so it is not added twice. (#48)
 - Keep the correct back artwork for double-faced cards. (#49)
 - Show actionable errors for unsupported import URLs and partial card lists. (#47)
+- Return focus to the URL field when an import retry fails. (#69)
+- Include calibration pages in the PDF page count shown in Print Setup. (#59)
+- Improve focus visibility, control contrast, and readability in the compact title bar and SCM picker. (#55)
 - Verify the quality upscaling model before using it and allow failed downloads to be retried. (#27)
 
 ### Build and tests
