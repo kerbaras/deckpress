@@ -527,6 +527,8 @@ pub struct ArtPage {
 pub struct Upload {
     pub oracle_id: String,
     pub art: Art,
+    #[serde(default)]
+    pub bleed_auto: bool,
 }
 
 pub fn now_iso() -> String {

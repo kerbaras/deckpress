@@ -158,17 +158,12 @@ pub async fn compare_upscalers(
 
 #[tauri::command]
 pub fn list_decks(state: State<'_, AppState>) -> AppResult<Vec<Deck>> {
-    let mut decks = state.store.list::<Deck>("deck")?;
-    decks.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    Ok(decks)
+    state.store.decks()
 }
 
 #[tauri::command]
 pub fn get_deck(state: State<'_, AppState>, id: String) -> AppResult<Deck> {
-    state
-        .store
-        .get::<Deck>("deck", &id)?
-        .ok_or_else(|| AppError::not_found("Deck not found"))
+    state.store.deck(&id)
 }
 
 #[tauri::command]
@@ -318,6 +313,21 @@ pub fn list_uploads(state: State<'_, AppState>, oracle_id: String) -> AppResult<
     state.images.uploads_for(&oracle_id)
 }
 
+#[tauri::command]
+pub fn upload_bleed(state: State<'_, AppState>, image_url: String) -> AppResult<Option<f64>> {
+    state.images.upload_bleed(&image_url)
+}
+
+#[tauri::command]
+pub async fn update_upload_bleed(
+    state: State<'_, AppState>,
+    image_url: String,
+    bleed_mm: Option<f64>,
+) -> AppResult<Art> {
+    let images = Arc::clone(&state.images);
+    tokio::task::spawn_blocking(move || images.update_upload_bleed(&image_url, bleed_mm)).await?
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadMeta {
@@ -378,10 +388,7 @@ pub fn create_job(
     settings: PrintSettings,
     format: Option<ExportFormat>,
 ) -> AppResult<PrintJob> {
-    let deck = state
-        .store
-        .get::<Deck>("deck", &deck_id)?
-        .ok_or_else(|| AppError::not_found("Deck not found"))?;
+    let deck = state.store.deck(&deck_id)?;
     state
         .jobs
         .create(deck, settings, format.unwrap_or_default())

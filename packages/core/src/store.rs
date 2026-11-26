@@ -10,8 +10,10 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
+use crate::images::upload_id;
 use crate::models::{
     new_id, now_iso, Deck, DeckEntry, NewDeck, PrintSettings, PrinterProfile, PrinterProfileInput,
+    Provider, Upload,
 };
 use crate::validate::{validate_duplex_adjustment, validate_entries};
 
@@ -221,7 +223,47 @@ impl Store {
         self.remove(PRINTER_PROFILE, id)
     }
 
-    pub fn create_deck(&self, input: NewDeck) -> AppResult<Deck> {
+    fn refresh_uploads(&self, entries: &mut [DeckEntry]) -> AppResult<()> {
+        for entry in entries {
+            for art in entry
+                .card
+                .faces
+                .iter_mut()
+                .chain(entry.selected_art.iter_mut())
+                .chain(entry.selected_back.iter_mut())
+            {
+                if art.provider == Provider::Upload {
+                    if let Some(Ok(id)) = upload_id(&art.image_url) {
+                        if let Some(upload) = self.get::<Upload>("upload", &id)? {
+                            art.bleed_mm = upload.art.bleed_mm;
+                            art.dpi = upload.art.dpi;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn deck(&self, id: &str) -> AppResult<Deck> {
+        let mut deck: Deck = self
+            .get("deck", id)?
+            .ok_or_else(|| AppError::not_found("Deck not found"))?;
+        self.refresh_uploads(&mut deck.entries)?;
+        Ok(deck)
+    }
+
+    pub fn decks(&self) -> AppResult<Vec<Deck>> {
+        let mut decks: Vec<Deck> = self.list("deck")?;
+        for deck in &mut decks {
+            self.refresh_uploads(&mut deck.entries)?;
+        }
+        decks.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        Ok(decks)
+    }
+
+    pub fn create_deck(&self, mut input: NewDeck) -> AppResult<Deck> {
+        self.refresh_uploads(&mut input.entries)?;
         let name = input.name.trim();
         check_deck(
             name,
@@ -248,7 +290,8 @@ impl Store {
         Ok(deck)
     }
 
-    pub fn update_deck(&self, input: Deck) -> AppResult<Deck> {
+    pub fn update_deck(&self, mut input: Deck) -> AppResult<Deck> {
+        self.refresh_uploads(&mut input.entries)?;
         let name = input.name.trim().to_string();
         check_deck(
             &name,

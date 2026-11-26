@@ -2365,6 +2365,74 @@ it.each([
   },
 );
 
+it("edits a saved upload with the keyboard and refreshes its trimmed preview", async () => {
+  const user = userEvent.setup();
+  const uploaded = artSchema.parse({
+    ...community,
+    id: "upload:1",
+    imageUrl: "upload://a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+    provider: "upload",
+    bleedMm: 0,
+  });
+  const savedEntry = { ...entry, selectedArt: uploaded };
+  const updated = { ...uploaded, bleedMm: 3.175, dpi: 300 };
+  const onApply = vi.fn();
+  const onUploadEdited = vi.fn();
+  vi.spyOn(api, "art").mockResolvedValue({
+    items: [],
+    page: 1,
+    hasMore: false,
+    total: 0,
+  });
+  vi.spyOn(api, "uploads").mockResolvedValue([uploaded]);
+  vi.spyOn(api, "preferences").mockResolvedValue({
+    preferences: {},
+    usage: {},
+  });
+  const get = vi.spyOn(api, "uploadBleed").mockResolvedValue(0);
+  const update = vi.spyOn(api, "updateUploadBleed").mockResolvedValue(updated);
+  renderWithClient(
+    <ArtPicker
+      deck={{ ...deck, entries: [savedEntry] }}
+      entry={savedEntry}
+      onSelect={vi.fn()}
+      onApply={onApply}
+      onUploadEdited={onUploadEdited}
+    />,
+  );
+  const preview = within(screen.getByRole("region", { name: "Preview art" }));
+  const previewName = `Preview: ${uploaded.name}`;
+  const initialSrc = preview
+    .getByRole("img", { name: previewName })
+    .getAttribute("src");
+  const edit = preview.getByRole("button", { name: "Edit source bleed" });
+  edit.focus();
+  await user.keyboard("{Enter}");
+  expect(get).toHaveBeenCalledWith(uploaded.imageUrl);
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Edit source bleed" }),
+  );
+  const selector = dialog.getByRole("combobox", {
+    name: "Existing bleed per side",
+  });
+  expect(selector).toHaveValue("0");
+  await user.selectOptions(selector, "3.175");
+  const save = dialog.getByRole("button", { name: "Save bleed" });
+  save.focus();
+  await user.keyboard("{Enter}");
+  expect(update).toHaveBeenCalledWith(uploaded.imageUrl, 3.175);
+  await waitFor(() => expect(onUploadEdited).toHaveBeenCalledWith(updated));
+  const newSrc = preview
+    .getByRole("img", { name: previewName })
+    .getAttribute("src");
+  expect(newSrc).not.toBe(initialSrc);
+  expect(newSrc).toContain("upload-trim");
+  expect(newSrc).toContain("3.175");
+  expect(preview.getByText("3.175 mm")).toBeVisible();
+  expect(preview.getByText("Saved")).toBeVisible();
+  expect(onApply).not.toHaveBeenCalled();
+});
+
 it("saves an ordered list of print languages and strict policy in app settings", async () => {
   const user = userEvent.setup();
   const save = vi

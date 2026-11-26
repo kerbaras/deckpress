@@ -172,19 +172,21 @@ export function SearchField({
 
 export function CardImage({
   url,
+  src = imageSrc(url),
   name,
   className = "",
   eager = false,
 }: {
   url: string;
+  src?: string | undefined;
   name: string;
   className?: string;
   eager?: boolean;
 }) {
   return (
     <ImageContent
-      key={url}
-      url={url}
+      key={src}
+      src={src}
       name={name}
       className={className}
       eager={eager}
@@ -193,12 +195,12 @@ export function CardImage({
 }
 
 function ImageContent({
-  url,
+  src,
   name,
   className,
   eager,
 }: {
-  url: string;
+  src: string;
   name: string;
   className: string;
   eager: boolean;
@@ -214,7 +216,7 @@ function ImageContent({
         </span>
       ) : (
         <img
-          src={imageSrc(url)}
+          src={src}
           alt={name}
           loading={eager ? "eager" : "lazy"}
           decoding="async"

@@ -19,7 +19,7 @@ use url::Url;
 use crate::error::{AppError, AppResult};
 use crate::models::{new_id, now_iso, Art, Provider, Upload};
 use crate::providers::USER_AGENT;
-use crate::raster::{detect_upload_bleed, UPLOAD_CARD_MM};
+use crate::raster::{detect_upload_bleed, encode_png, strip_bleed, to_rgb, UPLOAD_CARD_MM};
 use crate::store::Store;
 use crate::upscaler::CancelToken;
 
@@ -332,6 +332,54 @@ impl Images {
             .collect())
     }
 
+    fn saved_upload(&self, url: &str) -> AppResult<(String, Upload)> {
+        let id =
+            upload_id(url).ok_or_else(|| AppError::not_found("Uploaded image not found"))??;
+        let upload = self
+            .store
+            .get("upload", &id)?
+            .ok_or_else(|| AppError::not_found("Uploaded image not found"))?;
+        Ok((id, upload))
+    }
+
+    /// The declared bleed override, or None for auto-detection.
+    pub fn upload_bleed(&self, url: &str) -> AppResult<Option<f64>> {
+        let (_, upload) = self.saved_upload(url)?;
+        Ok((!upload.bleed_auto).then_some(upload.art.bleed_mm))
+    }
+
+    /// Updates the declaration without replacing the original image or its ID.
+    pub fn update_upload_bleed(&self, url: &str, bleed_mm: Option<f64>) -> AppResult<Art> {
+        validate_upload_bleed(bleed_mm)?;
+        let (id, mut upload) = self.saved_upload(url)?;
+        let image = decode(&std::fs::read(self.upload_path(&id))?)?;
+        let (bleed, dpi) = upload_resolution(image.width(), image.height(), bleed_mm);
+        upload.art.bleed_mm = bleed;
+        upload.art.dpi = dpi;
+        upload.bleed_auto = bleed_mm.is_none();
+        self.store.put("upload", &id, &upload)?;
+        Ok(upload.art)
+    }
+
+    /// Renders a trim snapshot of an upload using the same crop as print export.
+    pub async fn trimmed_upload(&self, url: &str, bleed_mm: f64) -> AppResult<Vec<u8>> {
+        validate_upload_bleed(Some(bleed_mm))?;
+        let (id, upload) = self.saved_upload(url)?;
+        let bytes = tokio::fs::read(self.upload_path(&id)).await?;
+        tokio::task::spawn_blocking(move || {
+            if bleed_mm == 0.0 {
+                return Ok(bytes);
+            }
+            let art = Art {
+                bleed_mm,
+                ..upload.art
+            };
+            let rgb = to_rgb(decode(&bytes)?, image::Rgb([255; 3]));
+            encode_png(&strip_bleed(&rgb, &art, &Default::default()))
+        })
+        .await?
+    }
+
     pub fn upload(&self, bytes: &[u8], input: UploadInput) -> AppResult<Art> {
         if bytes.len() > MAX_UPLOAD {
             return Err(AppError::user("Uploads are limited to 16 MB"));
@@ -342,27 +390,14 @@ impl Images {
         if input.name.trim().is_empty() || input.name.chars().count() > 300 {
             return Err(AppError::user("Give the upload a name"));
         }
-        if input
-            .bleed_mm
-            .is_some_and(|bleed| !(0.0..=10.0).contains(&bleed))
-        {
-            return Err(AppError::user("Bleed must be between 0 and 10 mm"));
-        }
+        validate_upload_bleed(input.bleed_mm)?;
         let image = decode(bytes)?;
-        let (width, height) = (image.width(), image.height());
-        let bleed_mm = input
-            .bleed_mm
-            .unwrap_or_else(|| detect_upload_bleed(width, height));
+        let (bleed_mm, dpi) = upload_resolution(image.width(), image.height(), input.bleed_mm);
         let id = new_id();
         let path = self.upload_path(&id);
         std::fs::create_dir_all(path.parent().expect("upload dir has a parent"))?;
         image.to_rgba8().save_with_format(&path, ImageFormat::Png)?;
         let image_url = format!("{UPLOAD_SCHEME}{id}");
-        let dpi = f64::min(
-            f64::from(width) / ((UPLOAD_CARD_MM.0 + 2.0 * bleed_mm) / 25.4),
-            f64::from(height) / ((UPLOAD_CARD_MM.1 + 2.0 * bleed_mm) / 25.4),
-        )
-        .round();
         let art = Art {
             id: format!("upload:{id}"),
             provider: Provider::Upload,
@@ -381,7 +416,7 @@ impl Images {
             collector_number: String::new(),
             language: "en".into(),
             bleed_mm,
-            dpi: dpi.clamp(1.0, 10_000.0),
+            dpi,
             released_at: now_iso(),
             tags: vec!["custom".into()],
             back_image_url: String::new(),
@@ -393,10 +428,29 @@ impl Images {
             &Upload {
                 oracle_id: input.oracle_id,
                 art: art.clone(),
+                bleed_auto: input.bleed_mm.is_none(),
             },
         )?;
         Ok(art)
     }
+}
+
+fn validate_upload_bleed(bleed_mm: Option<f64>) -> AppResult<()> {
+    if bleed_mm.is_some_and(|bleed| !(0.0..=10.0).contains(&bleed)) {
+        return Err(AppError::user("Bleed must be between 0 and 10 mm"));
+    }
+    Ok(())
+}
+
+fn upload_resolution(width: u32, height: u32, declared_bleed: Option<f64>) -> (f64, f64) {
+    let bleed = declared_bleed.unwrap_or_else(|| detect_upload_bleed(width, height));
+    let dpi = f64::min(
+        f64::from(width) / ((UPLOAD_CARD_MM.0 + 2.0 * bleed) / 25.4),
+        f64::from(height) / ((UPLOAD_CARD_MM.1 + 2.0 * bleed) / 25.4),
+    )
+    .round()
+    .clamp(1.0, 10_000.0);
+    (bleed, dpi)
 }
 
 #[derive(Debug, Clone)]

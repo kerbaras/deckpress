@@ -24,6 +24,7 @@ import {
 } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import {
+  type Art,
   type Deck,
   type DeckEntry,
   deckSchema,
@@ -124,6 +125,24 @@ const views = [
   { id: "art", name: "Art studio", icon: Image },
   { id: "print", name: "Print setup", icon: Printer },
 ] as const;
+
+function withEditedUpload(deck: Deck, upload: Art): Deck {
+  const refresh = (art: Art | null) =>
+    art?.provider === "upload" && art.id === upload.id
+      ? { ...art, bleedMm: upload.bleedMm, dpi: upload.dpi }
+      : art;
+  const entries = deck.entries.map((entry) => {
+    const selectedArt = refresh(entry.selectedArt);
+    const selectedBack = refresh(entry.selectedBack);
+    return selectedArt === entry.selectedArt &&
+      selectedBack === entry.selectedBack
+      ? entry
+      : { ...entry, selectedArt, selectedBack };
+  });
+  return entries.every((entry, index) => entry === deck.entries[index])
+    ? deck
+    : { ...deck, entries };
+}
 
 function DeckWorkspace({
   initial,
@@ -360,6 +379,14 @@ function DeckWorkspace({
           onSelect={setSelectedId}
           onApply={commit}
           onPreviewChange={onPreviewChange}
+          onUploadEdited={(art) => {
+            const nextDeck = withEditedUpload(deck, art);
+            setDeck(nextDeck);
+            setSaved(deck === saved ? nextDeck : withEditedUpload(saved, art));
+            client.setQueriesData<Deck>({ queryKey: ["deck"] }, (current) =>
+              current ? withEditedUpload(current, art) : current,
+            );
+          }}
         />
       )}
       {view === "print" && (

@@ -65,6 +65,8 @@ pub fn run() {
             commands::save_preference,
             commands::list_uploads,
             commands::upload_art,
+            commands::upload_bleed,
+            commands::update_upload_bleed,
             commands::list_jobs,
             commands::create_job,
             commands::cancel_job,

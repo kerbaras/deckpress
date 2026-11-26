@@ -8,7 +8,7 @@ use deckpress_core::images::{
     mime_for, upload_id, validate_image_url, Images, UploadInput, UPLOAD_SCHEME,
 };
 use deckpress_core::layout::{create_layout, face_pixels, mm_to_pixels, mm_to_pt};
-use deckpress_core::models::{BleedMode, PrintSettings, Provider};
+use deckpress_core::models::{BleedMode, NewDeck, PrintSettings, Provider};
 use deckpress_core::pdf::{build_pdf, PdfServices};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::CancelToken;
@@ -147,6 +147,128 @@ fn upload_input(bleed_mm: Option<f64>) -> UploadInput {
         artist: String::new(),
         bleed_mm,
     }
+}
+
+#[tokio::test]
+async fn changing_saved_upload_bleed_retrims_preview_export_and_restored_deck() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("deckpress.sqlite");
+    let store = Arc::new(Store::open(&db).unwrap());
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    let source = RgbImage::from_fn(822, 1122, |x, y| {
+        if (38..784).contains(&x) && (38..1084).contains(&y) {
+            Rgb([24, 140, 224])
+        } else {
+            Rgb([248, 0, 222])
+        }
+    });
+    let mut png = Vec::new();
+    source
+        .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+        .unwrap();
+    let art = images.upload(&png, upload_input(Some(0.0))).unwrap();
+    let url = &art.image_url;
+    let mut entry = common::entry(common::scryfall_art(), 1);
+    entry.selected_art = Some(art.clone());
+    entry.selected_back = Some(art.clone());
+    let deck = store
+        .create_deck(NewDeck {
+            entries: vec![entry],
+            ..common::new_deck("Upload backup")
+        })
+        .unwrap();
+    assert_eq!(images.upload_bleed(url).unwrap(), Some(0.0));
+    let settings = PrintSettings {
+        dpi: 300,
+        bleed_mm: 0.0,
+        upscale: false,
+        calibration_page: false,
+        ..PrintSettings::default()
+    };
+    let raster_dir = dir.path().join("rasters");
+    let export = |store: &Store| {
+        build_pdf(
+            &store.deck(&deck.id).unwrap(),
+            &settings,
+            &PdfServices {
+                upscaler: None,
+                raster_dir: &raster_dir,
+            },
+            &CancelToken::default(),
+            &mut |_, _, _| {},
+            &mut |requested| {
+                assert_eq!(requested, url);
+                Ok(png.clone())
+            },
+        )
+        .unwrap()
+    };
+    let before = export(&store);
+    let initial = images.trimmed_upload(url, art.bleed_mm).await.unwrap();
+    assert_eq!(image::load_from_memory(&initial).unwrap().to_rgb8(), source);
+    assert!(images.update_upload_bleed(url, Some(10.1)).is_err());
+    assert!(images
+        .update_upload_bleed("https://cards.scryfall.io/a.png", None)
+        .is_err());
+    let edited = images.update_upload_bleed(url, Some(3.175)).unwrap();
+    assert_eq!(edited.id, art.id);
+    assert_eq!(&edited.image_url, url);
+    assert_eq!(edited.bleed_mm, 3.175);
+    assert_eq!(edited.dpi, 301.0);
+    let trimmed = images.trimmed_upload(url, edited.bleed_mm).await.unwrap();
+    let trimmed = image::load_from_memory(&trimmed).unwrap().to_rgb8();
+    assert_eq!(trimmed.dimensions(), (746, 1046));
+    assert!(trimmed.pixels().all(|pixel| *pixel == Rgb([24, 140, 224])));
+    assert_eq!(images.read(url).await.unwrap(), initial);
+    assert_eq!(images.uploads_for("o").unwrap(), vec![edited.clone()]);
+    drop(images);
+    drop(store);
+
+    let store = Arc::new(Store::open(&db).unwrap());
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    assert_eq!(images.upload_bleed(url).unwrap(), Some(3.175));
+    let refreshed = store.deck(&deck.id).unwrap();
+    assert_eq!(refreshed.entries[0].front_art(), &edited);
+    assert_eq!(refreshed.entries[0].back_art().as_ref(), Some(&edited));
+    let backup = serde_json::to_string(&refreshed).unwrap();
+    assert!(backup.contains("\"bleedMm\":3.175"));
+    let restored = store
+        .create_deck(serde_json::from_str(&backup).unwrap())
+        .unwrap();
+    assert_eq!(restored.entries[0].front_art(), &edited);
+    assert_eq!(
+        store.update_deck(deck.clone()).unwrap().entries[0].front_art(),
+        &edited
+    );
+    let after = export(&store);
+    let cached = std::fs::read_dir(&raster_dir)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(cached.len(), 2);
+    let embedded = cached
+        .iter()
+        .map(|file| std::fs::read(file.path()).unwrap())
+        .find(|jpeg| {
+            after.bytes.windows(jpeg.len()).any(|window| window == jpeg)
+                && !before
+                    .bytes
+                    .windows(jpeg.len())
+                    .any(|window| window == jpeg)
+        })
+        .unwrap();
+    let embedded = image::load_from_memory(&embedded).unwrap().to_rgb8();
+    let (w, h) = embedded.dimensions();
+    for (x, y) in [(0, h / 2), (w - 1, h / 2), (w / 2, 0), (w / 2, h - 1)] {
+        let [r, g, b] = embedded.get_pixel(x, y).0;
+        assert!(
+            r < 60 && g > 100 && b > 180,
+            "wrong trim color: {r}, {g}, {b}"
+        );
+    }
+    let detected = images.update_upload_bleed(url, None).unwrap();
+    assert!(detected.bleed_mm > 0.0);
+    assert_eq!(images.upload_bleed(url).unwrap(), None);
 }
 
 #[test]
