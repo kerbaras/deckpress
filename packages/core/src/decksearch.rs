@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use url::Url;
 
+use crate::count_noun;
 use crate::error::{AppError, AppResult};
 use crate::models::{ImportLine, ResolvedCards, Zone};
 use crate::providers::{Providers, USER_AGENT};
@@ -120,7 +121,7 @@ pub struct MetaSample {
     pub source: DeckSource,
     /// Decks that were sampled.
     pub decks: u32,
-    /// What the decks were searched by, e.g. `Atraxa, Praetors' Voice decks`.
+    /// What the sample contains, e.g. `Commander Atraxa deck`.
     pub label: String,
     /// Front-face name, lower-cased → (display name, decks containing it).
     #[serde(skip)]
@@ -711,10 +712,7 @@ impl DeckSearch {
         colors: &[String],
         limit: usize,
     ) -> AppResult<MetaSample> {
-        let mut sample = MetaSample::new(
-            DeckSource::Archidekt,
-            format!("{} {} decks", format, text.trim()),
-        );
+        let mut sample = MetaSample::new(DeckSource::Archidekt, "");
         let mut page = 1;
         while (sample.decks as usize) < limit && page <= 3 {
             let result = self
@@ -754,6 +752,8 @@ impl DeckSearch {
             }
             page += 1;
         }
+        let noun = count_noun(sample.decks as usize, "deck", "decks");
+        sample.label = format!("{format} {} {noun}", text.trim());
         Ok(sample)
     }
 }

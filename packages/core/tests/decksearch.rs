@@ -1,11 +1,16 @@
+use std::sync::Arc;
+
 use deckpress_core::decksearch::{
     archidekt_format, archidekt_format_id, archidekt_search_url, check_import_limits,
     parse_archidekt_deck, parse_archidekt_search, pick_card_name, plain_description,
-    valid_archidekt_id, DeckSearchPage, DeckSource, SearchField, MAX_DESCRIPTION,
+    valid_archidekt_id, DeckSearch, DeckSearchPage, DeckSource, SearchField, MAX_DESCRIPTION,
 };
 use deckpress_core::models::{ImportLine, Zone};
+use deckpress_core::providers::Providers;
+use deckpress_core::store::Store;
 use deckpress_core::validate::{MAX_ENTRIES, MAX_QUANTITY};
-use serde_json::Value;
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 fn search_fixture() -> Value {
     serde_json::from_str(include_str!("../fixtures/archidekt_search.json")).unwrap()
@@ -13,6 +18,56 @@ fn search_fixture() -> Value {
 
 fn deck_fixture() -> Value {
     serde_json::from_str(include_str!("../fixtures/archidekt_deck.json")).unwrap()
+}
+
+fn cache_archidekt(store: &Store, url: &str, value: &Value) {
+    let key = hex::encode(Sha256::digest(format!("decksearch:{url}")));
+    store.put("cache", &key, value).unwrap();
+}
+
+#[tokio::test]
+async fn meta_sample_label_uses_the_number_of_decks_found() {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::new(Arc::clone(&store)).unwrap());
+    let search = DeckSearch::new(Arc::clone(&store), providers).unwrap();
+    let url = archidekt_search_url("Atraxa", SearchField::Name, Some(3), 1);
+    let mut results = search_fixture();
+    results["next"] = Value::Null;
+    let mut deck = deck_fixture();
+    deck["cards"] = Value::Array(
+        (0..15)
+            .map(|index| {
+                json!({
+                    "card": { "oracleCard": { "name": format!("Mainboard card {index}") } },
+                    "quantity": 4
+                })
+            })
+            .collect(),
+    );
+    for result in results["results"].as_array().unwrap().iter().take(2) {
+        let id = result["id"].as_u64().unwrap();
+        deck["id"] = id.into();
+        cache_archidekt(
+            &store,
+            &format!("https://archidekt.com/api/decks/{id}/"),
+            &deck,
+        );
+    }
+
+    for (count, label) in [
+        (2, "Commander Atraxa decks"),
+        (1, "Commander Atraxa deck"),
+        (0, "Commander Atraxa decks"),
+    ] {
+        results["results"].as_array_mut().unwrap().truncate(count);
+        cache_archidekt(&store, &url, &results);
+        let sample = search
+            .meta_sample(" Atraxa ", SearchField::Name, "Commander", &[], 10)
+            .await
+            .unwrap();
+        assert_eq!(sample.decks as usize, count);
+        assert_eq!(sample.label, label);
+    }
 }
 
 #[test]

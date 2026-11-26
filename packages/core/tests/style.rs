@@ -75,6 +75,21 @@ fn upload(images: &Images, name: &str, pixel: [u8; 3]) -> Art {
 }
 
 #[test]
+fn release_era_uses_the_year_gap_to_choose_the_explanation() {
+    let reference = art("r", "Unknown", "ref", "2020", &[]);
+    for (year, expected) in [
+        ("2020", "Same year"),
+        ("2019", "Released within 1 year"),
+        ("2022", "Released within 2 years"),
+    ] {
+        let candidate = art("c", "Unknown", "candidate", year, &[]);
+        assert!(score(&reference, &candidate)
+            .reasons
+            .contains(&expected.into()));
+    }
+}
+
+#[test]
 fn same_artist_and_labels_outrank_strangers() {
     let reference = art(
         "r",

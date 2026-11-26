@@ -348,6 +348,34 @@ fn popularity_uses_edhrec_rank_on_a_log_scale() {
 }
 
 #[test]
+fn play_rate_reason_distinguishes_a_single_sampled_deck_from_one_of_many() {
+    let pool = fixture_pool();
+    let theme = theme_rules("counters").unwrap();
+    let style = style_rules("midrange").unwrap();
+    let mut ctx = atraxa_context(theme, style);
+    let sol_ring = find(&pool, "Sol Ring");
+    let mut sample = MetaSample::new(DeckSource::Archidekt, "Commander Atraxa deck");
+    ctx.meta = Some(sample.clone());
+    assert!(!score(sol_ring, &ctx)
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("Archidekt")));
+
+    assert!(sample.add_deck(&sample_deck("a", &["Sol Ring"])));
+    ctx.meta = Some(sample.clone());
+    assert!(score(sol_ring, &ctx)
+        .reasons
+        .contains(&"In the most-viewed Archidekt Commander Atraxa deck".into()));
+
+    assert!(sample.add_deck(&sample_deck("b", &["Doubling Season"])));
+    sample.label = "Commander Atraxa decks".into();
+    ctx.meta = Some(sample);
+    assert!(score(sol_ring, &ctx)
+        .reasons
+        .contains(&"In 1 of the 2 most-viewed Archidekt Commander Atraxa decks".into()));
+}
+
+#[test]
 fn meta_pool_queries_batch_exact_names_within_the_base_query() {
     assert_eq!(meta_pool_threshold(10), 3);
     assert_eq!(meta_pool_threshold(1), 1);
@@ -454,6 +482,42 @@ fn summary_flags_missing_commander_and_copy_limits() {
         vec!["Lightning Bolt has 5 copies; the limit is 4."]
     );
     assert_eq!(standard.max_copies, 4);
+}
+
+#[test]
+fn summary_uses_the_right_card_and_land_forms() {
+    let pool = fixture_pool();
+    let rules = format_rules("standard").unwrap();
+    let style = style_rules("aggro").unwrap();
+    let bolt = find(&pool, "Lightning Bolt");
+    let mountain = find(&pool, "Mountain");
+
+    for (extra, expected) in [
+        (0, None),
+        (1, Some("1 card over the 60-card target.")),
+        (2, Some("2 cards over the 60-card target.")),
+    ] {
+        let entries = [
+            entry(bolt, 4, Zone::Main),
+            entry(mountain, 56 + extra, Zone::Main),
+        ];
+        assert_eq!(
+            summarize(rules, style, &[], &entries).issues,
+            expected.into_iter().collect::<Vec<_>>()
+        );
+    }
+
+    for (lands, expected) in [(0, "0 lands"), (1, "1 land"), (2, "2 lands")] {
+        let mut entries = vec![entry(bolt, 60 - lands, Zone::Main)];
+        if lands > 0 {
+            entries.push(entry(mountain, lands, Zone::Main));
+        }
+        let summary = summarize(rules, style, &[], &entries);
+        assert!(summary.issues.contains(&format!(
+            "Only {expected}; Aggro decks usually run about {}.",
+            summary.land_target
+        )));
+    }
 }
 
 #[test]

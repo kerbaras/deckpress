@@ -27,8 +27,16 @@ pub use error::{AppError, AppResult};
 
 /// Formats an English count with its singular or plural noun.
 pub fn format_count(count: usize, singular: &str, plural: &str) -> String {
-    let noun = if count == 1 { singular } else { plural };
+    let noun = count_noun(count, singular, plural);
     format!("{count} {noun}")
+}
+
+fn count_noun<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
+    if count == 1 {
+        singular
+    } else {
+        plural
+    }
 }
 
 /// Every long-lived service, wired together once at startup.

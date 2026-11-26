@@ -4,6 +4,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::format_count;
 use crate::models::Art;
 
 pub const ARTIST_WEIGHT: f32 = 0.45;
@@ -116,7 +117,10 @@ pub fn score(reference: &Art, candidate: &Art) -> Heuristic {
             reasons.push(if gap == 0 {
                 "Same year".into()
             } else {
-                format!("Released within {gap} years")
+                format!(
+                    "Released within {}",
+                    format_count(gap as usize, "year", "years")
+                )
             });
         }
     }

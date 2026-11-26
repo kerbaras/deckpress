@@ -18,6 +18,7 @@ use url::Url;
 
 use crate::decksearch::{archidekt_format_id, DeckSearch, MetaSample, SearchField};
 use crate::error::{AppError, AppResult};
+use crate::format_count;
 use crate::models::{new_id, Card, DeckEntry, ImportLine, Zone};
 use crate::providers::{normalize_scryfall, Providers};
 use crate::validate::validate_entries;
@@ -822,12 +823,16 @@ pub fn score(pool: &PoolCard, ctx: &Context<'_>) -> Suggestion {
             let decks = meta.frequency(&card.name);
             if decks > 0 {
                 total += META_WEIGHT * f64::from(decks) / f64::from(meta.decks);
-                reasons.push(format!(
-                    "In {decks} of the {} most-viewed {} {}",
-                    meta.decks,
-                    meta.source.label(),
-                    meta.label
-                ));
+                let source = meta.source.label();
+                let label = &meta.label;
+                reasons.push(if meta.decks == 1 {
+                    format!("In the most-viewed {source} {label}")
+                } else {
+                    format!(
+                        "In {decks} of the {} most-viewed {source} {label}",
+                        meta.decks
+                    )
+                });
             }
             decks
         })
@@ -1088,13 +1093,14 @@ pub fn summarize(
     issues.extend(over);
     if count > target {
         issues.push(format!(
-            "{} cards over the {target}-card target.",
-            count - target
+            "{} over the {target}-card target.",
+            format_count((count - target) as usize, "card", "cards")
         ));
     }
     if count == target && lands + 3 < land_goal {
         issues.push(format!(
-            "Only {lands} lands; {} decks usually run about {land_goal}.",
+            "Only {}; {} decks usually run about {land_goal}.",
+            format_count(lands as usize, "land", "lands"),
             style.name
         ));
     }
