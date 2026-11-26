@@ -18,12 +18,17 @@ import {
   createLayout,
   type Deck,
   duplexSlot,
+  effectivePrintSettings,
   fitSheetLabel,
   frontArt,
+  MAX_SCM_BLEED_MM,
   mmToPixels,
   type PrintSettings,
   printableEntries,
   printSettingsSchema,
+  type ScmTemplate,
+  scmCards,
+  scmPapers,
   sheetLabel,
 } from "./core/index.ts";
 import { ErrorNotice, useTask } from "./ui.tsx";
@@ -35,6 +40,7 @@ const paperNames = {
   a5: "A5",
   legal: "US Legal",
   tabloid: "Tabloid",
+  arch_b: "Arch B (12 × 18 in)",
   custom: "Custom",
 };
 
@@ -76,6 +82,8 @@ export function PrintSetup({
   onJobs: () => void;
 }) {
   const settings = deck.printSettings;
+  const isScm = settings.layoutMode === "scm";
+  const template = settings.scmTemplate;
   const system = useQuery({
     queryKey: ["settings"],
     queryFn: ({ signal }) => api.settings(signal),
@@ -101,6 +109,16 @@ export function PrintSetup({
   } catch (error) {
     layoutError = error;
   }
+  const effective = effectivePrintSettings(settings);
+  const trimWidth = isScm
+    ? Number(effective.cardWidthMm.toFixed(2))
+    : effective.cardWidthMm;
+  const trimHeight = isScm
+    ? Number(effective.cardHeightMm.toFixed(2))
+    : effective.cardHeightMm;
+  const sheetName = layout?.scm?.name ?? paperNames[settings.paper];
+  const changeTemplate = (patch: Partial<ScmTemplate>) =>
+    change({ scmTemplate: { ...template, ...patch } });
   const entries = printableEntries(deck, settings);
   const cards = entries.flatMap((entry) =>
     Array.from({ length: entry.quantity }, () => entry),
@@ -135,7 +153,7 @@ export function PrintSetup({
       selectedCards
         .flatMap((entry) => [
           frontArt(entry),
-          ...(settings.backs !== "none" && backArt(entry)
+          ...(effective.backs !== "none" && backArt(entry)
             ? [backArt(entry)]
             : []),
         ])
@@ -147,13 +165,9 @@ export function PrintSetup({
     (art) => art.dpi < settings.dpi * 0.95,
   ).length;
   const estimatedMB = arts.length * 0.45 * (settings.dpi / 600) ** 2;
-  const label = sheetLabel(
-    settings,
-    deck.name,
-    currentPage + 1,
-    totalSheets,
-    back,
-  );
+  const label = layout?.scm
+    ? `sheet: ${currentPage + 1}, template: ${layout.scm.name}`
+    : sheetLabel(settings, deck.name, currentPage + 1, totalSheets, back);
   const labelPlacement = layout && fitSheetLabel(layout, label);
   const start = () =>
     void task.run(async () => {
@@ -170,9 +184,8 @@ export function PrintSetup({
         </div>
         <div className="spacer" />
         <span className="mono muted">
-          Trim {settings.cardWidthMm} × {settings.cardHeightMm} mm ·{" "}
-          {selectedSheets} sheets ·{" "}
-          {selectedSheets * (settings.backs === "none" ? 1 : 2)} PDF pages
+          Trim {trimWidth} × {trimHeight} mm · {selectedSheets} sheets ·{" "}
+          {selectedSheets * (effective.backs === "none" ? 1 : 2)} PDF pages
         </span>
         <button
           type="button"
@@ -256,6 +269,99 @@ export function PrintSetup({
             )}
           </div>
           <section className="panel settings-panel">
+            <h3>Layout mode</h3>
+            <label className="setting-row">
+              Layout mode
+              <select
+                value={settings.layoutMode}
+                onChange={(event) =>
+                  change({
+                    layoutMode: event.target.value === "scm" ? "scm" : "free",
+                  })
+                }
+              >
+                <option value="free">Free layout</option>
+                <option value="scm">Silhouette Card Maker (SCM)</option>
+              </select>
+            </label>
+            {isScm && (
+              <>
+                <label className="setting-row">
+                  SCM paper
+                  <select
+                    value={template.paper}
+                    onChange={(event) => {
+                      const paper = event.target.value;
+                      const cards = scmCards(paper);
+                      changeTemplate({
+                        paper,
+                        card: cards.includes(template.card)
+                          ? template.card
+                          : (cards[0] ?? template.card),
+                      });
+                    }}
+                  >
+                    {scmPapers.map((paper) => (
+                      <option key={paper} value={paper}>
+                        {paperNames[paper as keyof typeof paperNames]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="setting-row">
+                  SCM card
+                  <select
+                    value={template.card}
+                    onChange={(event) =>
+                      changeTemplate({ card: event.target.value })
+                    }
+                  >
+                    {scmCards(template.paper).map((card) => (
+                      <option key={card} value={card}>
+                        {card.replaceAll("_", " ")}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="setting-row">
+                  SCM variant
+                  <select
+                    value={template.variant}
+                    onChange={(event) =>
+                      changeTemplate({
+                        variant:
+                          event.target.value === "borderless"
+                            ? "borderless"
+                            : "default",
+                      })
+                    }
+                  >
+                    <option value="default">Default</option>
+                    <option value="borderless">Borderless</option>
+                  </select>
+                </label>
+                <label className="setting-row">
+                  SCM registration marks
+                  <select
+                    value={template.marks}
+                    onChange={(event) =>
+                      changeTemplate({
+                        marks: event.target.value === "4" ? 4 : 3,
+                      })
+                    }
+                  >
+                    <option value="3">3 marks</option>
+                    <option value="4">4 marks</option>
+                  </select>
+                </label>
+                <p className="hint">
+                  Use the matching .studio3 template: {layout?.scm?.name}. SCM
+                  replaces crop marks and uses long-edge duplex.
+                </p>
+              </>
+            )}
+          </section>
+          <section className="panel settings-panel" hidden={isScm}>
             <h3>Sheet</h3>
             <label className="setting-row">
               Paper size
@@ -319,7 +425,7 @@ export function PrintSetup({
               3 × 3 on A4 and Letter.
             </p>
           </section>
-          <section className="panel settings-panel">
+          <section className="panel settings-panel" hidden={isScm}>
             <h3>Cards & layout</h3>
             <label className="setting-row card-size-setting">
               Card size
@@ -393,10 +499,21 @@ export function PrintSetup({
             <NumberSetting
               label="Bleed per side"
               min={0}
-              max={5}
-              value={settings.bleedMm}
-              set={(value) => change({ bleedMm: value })}
+              max={isScm ? MAX_SCM_BLEED_MM : 5}
+              step={isScm ? 0.001 : 0.1}
+              value={effective.bleedMm}
+              set={(value) =>
+                change({
+                  bleedMm: isScm ? Math.min(value, MAX_SCM_BLEED_MM) : value,
+                })
+              }
             />
+            {isScm && (
+              <p className="notice warning" role="status">
+                SCM limits bleed to 0.625 mm per side to keep it within the
+                template spacing.
+              </p>
+            )}
             <BleedModeControl
               value={settings.bleedMode}
               onChange={(bleedMode) => change({ bleedMode })}
@@ -417,7 +534,7 @@ export function PrintSetup({
               Existing MPC bleed is cropped first. Your chosen bleed is then
               added outside the card's trim line.
             </p>
-            {settings.bleedMm > settings.gapMm / 2 && (
+            {!isScm && settings.bleedMm > settings.gapMm / 2 && (
               <p className="hint warning-text">
                 Bleed exceeds half the gap. It can overlap neighbouring cards in
                 a cutter template that measures gaps between trim edges.
@@ -425,7 +542,7 @@ export function PrintSetup({
               </p>
             )}
           </section>
-          <section className="panel settings-panel">
+          <section className="panel settings-panel" hidden={isScm}>
             <h3>Cut guides</h3>
             <label className="setting-row">
               Style
@@ -596,7 +713,7 @@ export function PrintSetup({
             <label className="setting-row">
               Back pages
               <select
-                value={settings.backs}
+                value={effective.backs}
                 onChange={(event) => {
                   change({
                     backs: event.target.value as PrintSettings["backs"],
@@ -606,11 +723,13 @@ export function PrintSetup({
               >
                 <option value="none">Fronts only</option>
                 <option value="long-edge">Duplex · flip long edge</option>
-                <option value="short-edge">Duplex · flip short edge</option>
+                {!isScm && (
+                  <option value="short-edge">Duplex · flip short edge</option>
+                )}
                 <option value="separate">All fronts, then all backs</option>
               </select>
             </label>
-            {settings.backs !== "none" && (
+            {effective.backs !== "none" && (
               <>
                 <NumberSetting
                   label="Back horizontal offset"
@@ -712,7 +831,7 @@ export function PrintSetup({
                 <button
                   type="button"
                   aria-pressed={back}
-                  disabled={settings.backs === "none"}
+                  disabled={effective.backs === "none"}
                   onClick={() => setBack(true)}
                 >
                   Backs
@@ -731,7 +850,7 @@ export function PrintSetup({
                   }}
                   viewBox={`0 0 ${layout.width} ${layout.height}`}
                   role="img"
-                  aria-label={`Print preview, ${paperNames[settings.paper]}, ${layout.columns} columns by ${layout.rows} rows`}
+                  aria-label={`Print preview, ${sheetName}, ${layout.columns} columns by ${layout.rows} rows`}
                 >
                   <title>
                     Sheet {currentPage + 1} {back ? "backs" : "fronts"}, exact
@@ -748,7 +867,14 @@ export function PrintSetup({
                     const slot = back ? duplexSlot(raw, layout, settings) : raw;
                     const art = back ? backArt(entry) : frontArt(entry);
                     return (
-                      <g key={`${entry.id}:${slot.x}:${slot.y}`}>
+                      <g
+                        key={`${entry.id}:${slot.x}:${slot.y}`}
+                        transform={
+                          back && layout.scm?.orientation === "landscape"
+                            ? `rotate(180 ${slot.x + slot.width / 2} ${slot.y + slot.height / 2})`
+                            : undefined
+                        }
+                      >
                         <rect
                           {...{
                             x: slot.x,
@@ -840,11 +966,18 @@ export function PrintSetup({
                       />
                     </g>
                   ))}
+                  {layout.scm?.marks.map((mark) => (
+                    <rect
+                      key={`${mark.x}:${mark.y}:${mark.width}`}
+                      {...mark}
+                      fill="#000000"
+                    />
+                  ))}
                   {labelPlacement && (
                     <text
                       x={labelPlacement.x}
                       y={labelPlacement.baseline}
-                      fill={settings.guideColor}
+                      fill={layout.scm ? "#000000" : settings.guideColor}
                       fontSize={labelPlacement.fontSizePt}
                       fontFamily="ui-monospace, monospace"
                       textLength={labelPlacement.width}
@@ -869,9 +1002,8 @@ export function PrintSetup({
             </div>
             <div className="proof-meta">
               <span className="mono">
-                {paperNames[settings.paper]} · {layout?.columns ?? 0} ×{" "}
-                {layout?.rows ?? 0} · {settings.cardWidthMm} ×{" "}
-                {settings.cardHeightMm} mm
+                {sheetName} · {layout?.columns ?? 0} × {layout?.rows ?? 0} ·{" "}
+                {trimWidth} × {trimHeight} mm
               </span>
               <label className="check-label">
                 <input
@@ -899,8 +1031,8 @@ export function PrintSetup({
                 <div>
                   <dt>Raster per card, without bleed</dt>
                   <dd className="mono">
-                    {mmToPixels(settings.cardWidthMm, settings.dpi)} ×{" "}
-                    {mmToPixels(settings.cardHeightMm, settings.dpi)} px
+                    {mmToPixels(effective.cardWidthMm, settings.dpi)} ×{" "}
+                    {mmToPixels(effective.cardHeightMm, settings.dpi)} px
                   </dd>
                 </div>
                 <div>
@@ -1026,10 +1158,11 @@ function PreviewImage({
   width: number;
   height: number;
 }) {
+  const effective = effectivePrintSettings(settings);
   const url = previewSrc(art, {
-    cardWidthMm: settings.cardWidthMm,
-    cardHeightMm: settings.cardHeightMm,
-    bleedMm: settings.bleedMm,
+    cardWidthMm: effective.cardWidthMm,
+    cardHeightMm: effective.cardHeightMm,
+    bleedMm: effective.bleedMm,
     bleedMode: settings.bleedMode,
     bleedColor: settings.bleedColor,
   });

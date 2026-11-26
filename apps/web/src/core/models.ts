@@ -66,11 +66,27 @@ export const papers = {
   a5: [148, 210],
   legal: [215.9, 355.6],
   tabloid: [279.4, 431.8],
+  arch_b: [304.8, 457.2],
 } as const;
 
+const scmTemplateSchema = z.object({
+  paper: z.string(),
+  card: z.string(),
+  variant: z.enum(["default", "borderless"]),
+  marks: z.union([z.literal(3), z.literal(4)]),
+});
+export type ScmTemplate = z.infer<typeof scmTemplateSchema>;
+
 export const printSettingsSchema = z.object({
+  layoutMode: z.enum(["free", "scm"]).default("free"),
+  scmTemplate: scmTemplateSchema.default({
+    paper: "a4",
+    card: "standard",
+    variant: "default",
+    marks: 3,
+  }),
   paper: z
-    .enum(["a4", "letter", "a3", "a5", "legal", "tabloid", "custom"])
+    .enum(["a4", "letter", "a3", "a5", "legal", "tabloid", "arch_b", "custom"])
     .default("a4"),
   customWidthMm: z.number().min(40).max(1000).default(210),
   customHeightMm: z.number().min(40).max(1000).default(297),

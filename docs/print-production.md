@@ -126,7 +126,17 @@ none of these are implemented yet and the app does not claim they are.
 Deckpress prints these reminders on the calibration page and in the Print jobs
 view.
 
-## Silhouette Card Maker trim fixture
+## Silhouette Card Maker mode
+
+In Print Setup, choose **Silhouette Card Maker (SCM)** and select the paper,
+card, variant, and registration mark count for your matching `.studio3`
+template. The sheet label includes the template name and version. SCM mode
+replaces crop marks with registration marks, caps bleed at **0.625 mm per
+side**, and uses long-edge alignment for backs. Switching modes does not
+overwrite your bleed or duplex settings. Arch B (12 × 18 in) is a paper
+preset in both modes.
+
+### Silhouette Card Maker trim fixture
 
 `packages/core/assets/scm/trim-rects.json` covers all 114 default paper/card
 templates at SCM commit `0da09b7`. It excludes borderless variants. Rectangles
@@ -150,8 +160,7 @@ python3 -m venv ../scm-fixture-venv
 ../scm-fixture-venv/bin/python scripts/generate-scm-fixture.py ../scm
 ```
 
-The Rust and TypeScript tests compare `exactMm` within 0.01 mm. Deckpress can
-represent every SCM grid, including ARCH B via custom paper. Its automatic
-grid fits an extra column on seven templates because it treats the inset as
-a uniform margin and does not exclude the registration corners. The Rust test
-names those cases and checks their trim geometry with explicit rows and columns.
+The Rust and TypeScript SCM-mode tests compare `scmMm` within 0.02 mm without
+specifying rows or columns. The free-mode tests still compare `exactMm` within
+0.01 mm using the fixture grids. Free auto-fit does not exclude the registration
+corners, so the Rust test still expects an extra column on seven templates.

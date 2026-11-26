@@ -694,6 +694,64 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
   expect(screen.queryByText(/Bleed exceeds half the gap/)).toBeNull();
 });
 
+it("clamps SCM bleed visibly and previews the selected registration template", async () => {
+  const user = userEvent.setup();
+  function PrintHarness() {
+    const [value, setValue] = useState<Deck>({
+      ...deck,
+      printSettings: {
+        ...deck.printSettings,
+        bleedMm: 1.4,
+        backs: "short-edge",
+      },
+    });
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async () => value}
+        onJobs={() => {}}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "Layout mode" }),
+    "scm",
+  );
+  const bleed = screen.getByRole("spinbutton", { name: /^Bleed per side/ });
+  expect(bleed).toHaveValue(0.625);
+  const backs = screen.getByRole("combobox", { name: "Back pages" });
+  expect(backs).toHaveValue("long-edge");
+  const mode = screen.getByRole("combobox", { name: "Layout mode" });
+  await user.selectOptions(mode, "free");
+  expect(bleed).toHaveValue(1.4);
+  expect(backs).toHaveValue("short-edge");
+  await user.selectOptions(mode, "scm");
+  await user.clear(bleed);
+  await user.type(bleed, "2");
+  expect(bleed).toHaveValue(0.625);
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "SCM limits bleed to 0.625 mm",
+  );
+  expect(
+    screen.queryByRole("combobox", { name: "Style" }),
+  ).not.toBeInTheDocument();
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "SCM registration marks" }),
+    "4",
+  );
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "SCM paper" }),
+    "arch_b",
+  );
+  const preview = screen.getByRole("img", {
+    name: /Print preview, arch_b-standard-v/,
+  });
+  expect(preview.querySelectorAll('rect[fill="#000000"]')).toHaveLength(8);
+  expect(preview).toHaveTextContent("template: arch_b-standard-v");
+});
+
 it("keeps a failed library request visible and lets the user retry", async () => {
   const user = userEvent.setup();
   vi.spyOn(api, "decks")

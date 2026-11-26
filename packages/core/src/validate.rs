@@ -32,6 +32,9 @@ fn hex_color(name: &str, value: &str) -> AppResult<()> {
 
 impl PrintSettings {
     pub fn validate(&self) -> AppResult<()> {
+        if self.layout_mode == crate::models::LayoutMode::Scm {
+            crate::scm::validate_template(self)?;
+        }
         range("Custom paper width", self.custom_width_mm, 40.0, 1000.0)?;
         range("Custom paper height", self.custom_height_mm, 40.0, 1000.0)?;
         range("Card width", self.card_width_mm, 25.0, 200.0)?;

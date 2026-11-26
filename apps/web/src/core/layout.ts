@@ -1,4 +1,5 @@
 import { type PrintSettings, papers, printSettingsSchema } from "./models.ts";
+import { createScmLayout, type ScmSheet, scmDuplexSlot } from "./scm.ts";
 
 export const mmToPt = (mm: number) => (mm * 72) / 25.4;
 export const mmToPixels = (mm: number, dpi: number) =>
@@ -32,6 +33,7 @@ export interface PrintLayout {
   slots: Slot[];
   guides: Guide[];
   registration: Registration[];
+  scm?: ScmSheet;
   /** Baseline of the sheet label in the bottom margin, if there is room. */
   labelBaseline: number | null;
 }
@@ -42,11 +44,15 @@ const LABEL_GLYPH_ADVANCE_EM = 0.6;
 
 export function fitSheetLabel(layout: PrintLayout, text: string) {
   const baseline = layout.labelBaseline;
-  const x = layout.slots[0]?.x;
-  if (baseline === null || x === undefined) return null;
+  const left = layout.scm ? mmToPt(4) : layout.slots[0]?.x;
+  if (baseline === null || left === undefined) return null;
   const advance = text.length * LABEL_GLYPH_ADVANCE_EM;
-  const width = Math.min(advance * LABEL_SIZE_PT, layout.width - x - mmToPt(4));
+  const width = Math.min(
+    advance * LABEL_SIZE_PT,
+    layout.width - left - mmToPt(4),
+  );
   if (width <= 0) return null;
+  const x = layout.scm ? (layout.width - width) / 2 : left;
   return { x, baseline, fontSizePt: width / advance, width };
 }
 
@@ -76,6 +82,7 @@ export function sheetLabel(
 
 export function createLayout(input: PrintSettings): PrintLayout {
   const options = printSettingsSchema.parse(input);
+  if (options.layoutMode === "scm") return createScmLayout(options);
   const paper =
     options.paper === "custom"
       ? [options.customWidthMm, options.customHeightMm]
@@ -247,6 +254,7 @@ export function duplexSlot(
   layout: PrintLayout,
   settings: PrintSettings,
 ): Slot {
+  if (layout.scm) return scmDuplexSlot(slot, layout, settings);
   const mirrorX =
     (settings.backs !== "short-edge") === layout.height >= layout.width;
   const dx = mmToPt(settings.backOffsetXmm);
