@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Compass, Eye, Import } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -148,9 +148,10 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
     return () => window.clearTimeout(timer);
   }, [text]);
   const query: DeckQuery = { text: debounced, field, format, source };
+  const queryKey = ["decksearch", query, page];
   const ready = debounced.length >= MIN_QUERY;
   const results = useQuery({
-    queryKey: ["decksearch", query, page],
+    queryKey,
     queryFn: ({ signal }) => api.searchDecks(query, page, signal),
     enabled: ready,
     staleTime: 5 * 60 * 1000,
@@ -221,6 +222,13 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
           error={results.error}
           retry={() => void results.refetch()}
         />
+        <Loading
+          active={ready && results.isPending}
+          announcementId={hashKey(queryKey)}
+          label="Discover search loading"
+        >
+          {`Searching ${sourceNames[source]}…`}
+        </Loading>
         {!ready ? (
           <div className="empty-state discover-intro">
             <Compass size={44} />
@@ -235,8 +243,6 @@ export function DeckSearch({ open }: { open: (id: string) => void }) {
               authors' work. Deckpress caches responses for 24 hours.
             </p>
           </div>
-        ) : results.isPending ? (
-          <Loading>Searching {sourceNames[source]}…</Loading>
         ) : results.data ? (
           <>
             {results.data.matchedCard && (
@@ -390,7 +396,7 @@ function DeckPreview({
   return (
     <Modal title={summary.name} onClose={onClose} busy={task.busy}>
       <div className="discover-preview">
-        <StatusRegion label="Deck import language status" coalesce>
+        <StatusRegion label="Deck import language status">
           {resolved
             ? [
                 `${resolved.issues.length} ${resolved.issues.length === 1 ? "line needs" : "lines need"} review.`,
@@ -417,9 +423,8 @@ function DeckPreview({
         ) : (
           <ErrorNotice error={task.error} />
         )}
-        {detail.isPending ? (
-          <Loading>Loading decklist…</Loading>
-        ) : detail.data ? (
+        <Loading active={detail.isPending}>Loading decklist…</Loading>
+        {detail.data && (
           <>
             {detail.data.description && (
               <p className="discover-description">{detail.data.description}</p>
@@ -515,7 +520,7 @@ function DeckPreview({
               )}
             </div>
           </>
-        ) : null}
+        )}
       </div>
     </Modal>
   );

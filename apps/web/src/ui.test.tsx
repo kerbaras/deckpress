@@ -8,7 +8,8 @@ it("adds a keyed loading message to an already mounted region", () => {
     const { rerender } = render(<Loading />);
     const status = screen.getByRole("status");
     expect(status).toBeEmptyDOMElement();
-    const settle = () => act(() => vi.advanceTimersByTime(50));
+    expect(screen.getByText(/^Loading…$/)).toBeVisible();
+    const settle = () => act(() => vi.advanceTimersByTime(16));
     settle();
     const first = screen.getByRole("group");
     expect(first).toHaveTextContent(/^Loading…$/);
@@ -21,6 +22,10 @@ it("adds a keyed loading message to an already mounted region", () => {
     const next = screen.getByRole("group");
     expect(next).not.toBe(first);
     expect(next).toHaveTextContent(/^Searching…$/);
+    rerender(<Loading active={false}>Searching…</Loading>);
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.queryByText(/^Searching…$/)).not.toBeInTheDocument();
   } finally {
     vi.useRealTimers();
   }

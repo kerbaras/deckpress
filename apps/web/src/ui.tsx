@@ -68,14 +68,34 @@ export function ErrorNotice({
   );
 }
 
-export function Loading({ children = "Loading…" }: { children?: ReactNode }) {
+export function Loading({
+  active = true,
+  announcementId,
+  label,
+  children = "Loading…",
+}: {
+  active?: boolean;
+  announcementId?: string;
+  label?: string;
+  children?: string;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setMounted(true), 16);
+    return () => clearTimeout(timer);
+  }, []);
   return (
-    <div className="loading">
-      <LoaderCircle size={19} className="spin" aria-hidden="true" />
-      <StatusRegion as="span" className="" coalesce>
-        {children}
+    <>
+      <StatusRegion label={label} announcementId={announcementId}>
+        {active && mounted ? children : ""}
       </StatusRegion>
-    </div>
+      {active && (
+        <div className="loading" aria-hidden="true">
+          <LoaderCircle size={19} className="spin" />
+          <span>{children}</span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -92,7 +112,7 @@ export function StatusRegion({
   as?: "p" | "span";
   children: ReactNode;
   className?: string;
-  label?: string;
+  label?: string | undefined;
   announcementId?: string | number | undefined;
   coalesce?: boolean;
 }) {

@@ -137,6 +137,69 @@ function renderWithClient(
   );
 }
 
+it.each([22, 43, 250])(
+  "keeps one Discover loading announcement across a sidebar toggle during a %i ms search",
+  async (duration) => {
+    const sidebarPreference = window.localStorage.getItem("deckpress.sidebar");
+    vi.useFakeTimers();
+    try {
+      window.history.replaceState(null, "", "/#/discover");
+      const search =
+        Promise.withResolvers<Awaited<ReturnType<typeof api.searchDecks>>>();
+      vi.spyOn(api, "searchDecks").mockReturnValue(search.promise);
+      const advance = (ms: number) =>
+        act(() => vi.advanceTimersByTimeAsync(ms));
+      const getStatus = () =>
+        screen.getByRole("status", { name: "Discover search loading" });
+      renderWithClient(<App />);
+      const status = getStatus();
+      expect(status).toBeEmptyDOMElement();
+      const input = screen.getByRole("searchbox", {
+        name: "Search public decks by deck name",
+      });
+      fireEvent.change(input, { target: { value: "Burn" } });
+      await advance(450);
+      const message = "Searching Archidekt…";
+      expect(
+        screen.getAllByText(message).find((node) => node.closest(".loading")),
+      ).toBeVisible();
+      expect(getStatus()).toBe(status);
+      const announcement = within(status).getByRole("group");
+      expect(announcement).toHaveTextContent(message);
+      const app = status.closest(".app-shell");
+      const sidebar = app?.getAttribute("data-sidebar");
+      await advance(Math.floor(duration / 2));
+      fireEvent.keyDown(input, { key: "b", ctrlKey: true });
+      expect(app?.getAttribute("data-sidebar")).not.toBe(sidebar);
+      await advance(Math.ceil(duration / 2));
+      expect(getStatus()).toBe(status);
+      expect(within(status).getByRole("group")).toBe(announcement);
+      await act(async () => {
+        search.resolve({
+          items: [],
+          page: 1,
+          hasMore: false,
+          total: 0,
+          matchedCard: null,
+          cardMatches: [],
+        });
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(
+        screen.getByRole("heading", { name: "No decks found" }),
+      ).toBeVisible();
+      expect(getStatus()).toBe(status);
+      expect(status).toBeEmptyDOMElement();
+      expect(screen.queryByText(message)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+      if (sidebarPreference === null)
+        window.localStorage.removeItem("deckpress.sidebar");
+      else window.localStorage.setItem("deckpress.sidebar", sidebarPreference);
+    }
+  },
+);
+
 beforeEach(() => {
   window.history.replaceState(null, "", "/");
   vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(
