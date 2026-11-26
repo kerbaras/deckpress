@@ -90,6 +90,8 @@ pub struct DeckEntry {
     pub card: Card,
     pub quantity: u32,
     pub zone: Zone,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
     #[serde(default)]
     pub selected_art: Option<Art>,
     #[serde(default)]
@@ -435,6 +437,8 @@ pub struct ImportLine {
     pub quantity: u32,
     pub name: String,
     pub zone: Zone,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
     #[serde(default)]
     pub set: String,
     #[serde(default)]

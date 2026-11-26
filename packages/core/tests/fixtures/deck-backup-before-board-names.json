@@ -1,0 +1,35 @@
+{
+  "id": "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+  "name": "Legacy backup",
+  "format": "Modern",
+  "entries": [
+    {
+      "id": "df5a71bb-a22a-4912-94a6-bb0c2b2a682a",
+      "card": {
+        "id": "1dd28ae8-635a-4a09-a4ce-44932e461a6e",
+        "oracleId": "a6a0c60b-559b-4767-ac5f-69c2cbea072a",
+        "name": "Opt",
+        "typeLine": "Instant",
+        "manaCost": "{U}",
+        "manaValue": 1,
+        "colors": ["U"],
+        "faces": [
+          {
+            "id": "scryfall:1dd28ae8-635a-4a09-a4ce-44932e461a6e:0",
+            "provider": "scryfall",
+            "name": "Opt",
+            "imageUrl": "https://cards.scryfall.io/png/front/1/d/1dd28ae8-635a-4a09-a4ce-44932e461a6e.png",
+            "thumbnailUrl": "https://cards.scryfall.io/small/front/1/d/1dd28ae8-635a-4a09-a4ce-44932e461a6e.jpg",
+            "source": "Legacy printing"
+          }
+        ]
+      },
+      "quantity": 2,
+      "zone": "maybe"
+    }
+  ],
+  "printSettings": {},
+  "revision": 0,
+  "createdAt": "2026-09-23T00:00:00.000Z",
+  "updatedAt": "2026-09-23T00:00:00.000Z"
+}

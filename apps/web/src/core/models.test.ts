@@ -79,6 +79,34 @@ it("defaults new print settings to mirrored bleed and keeps stored modes", () =>
   );
 });
 
+it("keeps named boards separate on append and when retaining art on replace", () => {
+  const previous = {
+    ...entry,
+    zone: "maybe",
+    board: "Considering",
+  } satisfies DeckEntry;
+  const incoming = {
+    ...previous,
+    id: "a0b6babc-e1ea-419f-b99b-9df8dbf12e3b",
+    board: "Maybeboard",
+    selectedArt: null,
+  };
+  expect(mergeImport([previous], [incoming], false)).toEqual([
+    previous,
+    incoming,
+  ]);
+  const changedPrinting = {
+    ...incoming,
+    card: { ...incoming.card, id: incoming.id },
+  };
+  expect(mergeImport([previous], [changedPrinting], true)).toEqual([
+    changedPrinting,
+  ]);
+  expect(
+    mergeImport([previous], [{ ...incoming, board: previous.board }], true),
+  ).toEqual([previous]);
+});
+
 it("does not inherit non-preferred art when a localized print is imported", () => {
   const old = { ...entry, selectedArt: { ...art, language: "en" } };
   const incoming = {

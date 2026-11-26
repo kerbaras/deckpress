@@ -87,6 +87,9 @@ pub fn validate_entries(entries: &[DeckEntry]) -> AppResult<()> {
         if entry.card.faces.is_empty() || entry.card.faces.len() > 2 {
             return Err(AppError::user("Cards must have one or two faces"));
         }
+        if entry.board.as_deref() == Some("") {
+            return Err(AppError::user("A board name cannot be empty"));
+        }
         total = total.saturating_add(entry.quantity);
     }
     if total > MAX_CARDS {

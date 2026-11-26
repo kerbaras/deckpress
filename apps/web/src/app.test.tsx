@@ -14,6 +14,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
+import legacyBackup from "../../../packages/core/tests/fixtures/deck-backup-before-board-names.json";
 import printPageCounts from "../../../packages/core/tests/fixtures/print-page-counts.json";
 import { api, type StyleReport } from "./api.ts";
 import { App } from "./app.tsx";
@@ -457,6 +458,86 @@ it("shows the pending save status until the save fails or succeeds", async () =>
   successfulSave.resolve({ ...deck, entries: [{ ...entry, quantity: 5 }] });
   await expectStatus("Saved");
 });
+
+it.each([false, true])(
+  "restores a deck JSON backup (named boards: %s)",
+  async (named) => {
+    const user = userEvent.setup();
+    const restoredId = "221c934a-dc11-4c97-88ff-ff467375a521";
+    const original = deckSchema.parse(legacyBackup);
+    if (named) {
+      original.entries.push({
+        ...entry,
+        zone: "maybe",
+        board: "Considering",
+      });
+    }
+    let restored: Deck | undefined;
+    const saveText = vi.fn();
+    mockIPC((cmd, args) => {
+      if (cmd === "list_decks")
+        return restored ? [original, restored] : [original];
+      if (cmd === "get_deck")
+        return (args as { id: string }).id === restoredId ? restored : original;
+      if (cmd === "plugin:dialog|save") return "/chosen/deck.deckpress.json";
+      if (cmd === "save_text") return saveText(args);
+      if (cmd === "create_deck") {
+        restored = deckSchema.parse({
+          ...(args as { deck: Deck }).deck,
+          id: restoredId,
+        });
+        return restored;
+      }
+      return [];
+    });
+    renderWithClient(<App />);
+    let contents = JSON.stringify(legacyBackup);
+    if (named) {
+      await user.click(
+        await screen.findByRole("button", { name: "Open Legacy backup" }),
+      );
+      await user.click(
+        await screen.findByRole("button", { name: "Back up deck as JSON" }),
+      );
+      await waitFor(() => expect(saveText).toHaveBeenCalledOnce());
+      [{ contents }] = saveText.mock.calls[0] as [{ contents: string }];
+      expect(JSON.parse(contents).entries).toEqual(original.entries);
+      await user.click(screen.getByRole("button", { name: "Decks" }));
+    }
+    const file = new File([contents], "deck.deckpress.json", {
+      type: "application/json",
+    });
+    Object.defineProperty(file, "text", { value: async () => contents });
+    await user.upload(
+      await screen.findByLabelText("Restore a deck from a JSON backup"),
+      file,
+    );
+    await waitFor(() =>
+      expect(window.location.hash).toBe(`#/decks/${restoredId}`),
+    );
+    expect(restored?.entries).toEqual(original.entries);
+    await user.click(
+      await screen.findByRole("button", { name: "Edit card quantities" }),
+    );
+    await user.click(screen.getByRole("button", { name: /Maybeboard\s*2/ }));
+    expect(screen.getByRole("button", { name: /^Opt/ })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /^Lightning Bolt/ }),
+    ).not.toBeInTheDocument();
+    if (named) {
+      await user.click(screen.getByRole("button", { name: /Considering\s*4/ }));
+      expect(
+        screen.getByRole("button", { name: /^Lightning Bolt/ }),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: /^Opt/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("combobox", { name: "Board for Lightning Bolt" }),
+      ).toHaveDisplayValue("Considering");
+    }
+  },
+);
 
 it("imports an MPC Autofill order without changing image IDs and exports it through the save dialog", async () => {
   const art = { ...community, id: "mpc:front_id" };

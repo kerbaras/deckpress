@@ -1,7 +1,7 @@
 mod common;
 
 use deckpress_core::error::AppError;
-use deckpress_core::models::{Deck, PrintSettings, PrinterProfileInput, Provider};
+use deckpress_core::models::{Deck, NewDeck, PrintSettings, PrinterProfileInput, Provider, Zone};
 use deckpress_core::store::{Appearance, Store};
 
 #[test]
@@ -106,6 +106,50 @@ fn creates_lists_and_updates_decks_with_revisions() {
         ..deck
     });
     assert!(matches!(stale, Err(AppError::Conflict(_))));
+}
+
+#[test]
+fn restores_old_and_named_board_backups_and_persists_them_in_sqlite() {
+    let backup = include_str!("fixtures/deck-backup-before-board-names.json");
+    let legacy: Deck = serde_json::from_str(backup).unwrap();
+    assert_eq!(legacy.entries[0].zone, Zone::Maybe);
+    assert_eq!(legacy.entries[0].board, None);
+    assert_eq!(legacy.entries[0].quantity, 2);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("decks.sqlite");
+    let store = Store::open(&path).unwrap();
+    let old = store
+        .create_deck(serde_json::from_str(backup).unwrap())
+        .unwrap();
+    assert_eq!(old.entries, legacy.entries);
+
+    let mut input: NewDeck = serde_json::from_str(backup).unwrap();
+    let mut considering = input.entries[0].clone();
+    considering.id = "considering".into();
+    considering.board = Some("Considering".into());
+    considering.quantity = 1;
+    input.entries.push(considering);
+    let saved = store.create_deck(input).unwrap();
+    let json = serde_json::to_value(&saved).unwrap();
+    assert!(json["entries"][0].get("board").is_none());
+    assert_eq!(json["entries"][1]["board"], "Considering");
+    let restored = store
+        .create_deck(serde_json::from_value(json).unwrap())
+        .unwrap();
+    assert_ne!(restored.id, saved.id);
+    let updated = store
+        .update_deck(Deck {
+            notes: "Restored".into(),
+            ..restored
+        })
+        .unwrap();
+    drop(store);
+
+    let reopened = Store::open(&path).unwrap();
+    let loaded: Deck = reopened.get("deck", &updated.id).unwrap().unwrap();
+    assert_eq!(loaded.entries, saved.entries);
+    let older: Deck = reopened.get("deck", &old.id).unwrap().unwrap();
+    assert_eq!(older.entries, legacy.entries);
 }
 
 #[test]

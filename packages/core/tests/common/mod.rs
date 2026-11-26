@@ -49,6 +49,7 @@ pub fn entry(face: Art, quantity: u32) -> DeckEntry {
         },
         quantity,
         zone: Zone::Main,
+        board: None,
         selected_art: None,
         selected_back: None,
         excluded: false,

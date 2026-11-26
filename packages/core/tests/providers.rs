@@ -324,6 +324,7 @@ fn lines() -> Vec<ImportLine> {
         collector_number: collector_number.into(),
         quantity: 1,
         zone: Zone::Main,
+        board: None,
     })
     .collect()
 }
@@ -437,6 +438,29 @@ async fn check_spanish_import(providers: &Providers) {
 }
 
 #[tokio::test]
+async fn resolves_named_boards_without_changing_their_zones() {
+    let mut input = lines();
+    input[0].zone = Zone::Maybe;
+    input[0].board = Some("Maybeboard".into());
+    input[2].zone = Zone::Maybe;
+    input[2].board = Some("Considering".into());
+    let resolved = recorded_providers().resolve(input).await.unwrap();
+    assert!(resolved.issues.is_empty());
+    assert_eq!(
+        resolved
+            .entries
+            .iter()
+            .map(|entry| (entry.zone, entry.board.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            (Zone::Maybe, Some("Maybeboard")),
+            (Zone::Main, None),
+            (Zone::Maybe, Some("Considering"))
+        ]
+    );
+}
+
+#[tokio::test]
 async fn spanish_policy_and_art_search_use_recorded_scryfall_prints() {
     let providers = recorded_providers();
     assert_eq!(
@@ -493,6 +517,7 @@ async fn strict_name_only_skips_distinguish_unknown_cards_from_unusable_scans() 
                     collector_number: String::new(),
                     quantity: 1,
                     zone: Zone::Main,
+                    board: None,
                 })
                 .collect(),
         )
@@ -557,6 +582,7 @@ async fn unusable_exact_scan_is_skipped_in_strict_mode_and_falls_back_to_exact_e
             collector_number: "149".into(),
             quantity: 1,
             zone: Zone::Main,
+            board: None,
         }];
 
         providers

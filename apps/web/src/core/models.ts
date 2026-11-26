@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const zones = ["main", "commander", "side", "maybe", "tokens"] as const;
 export const zoneSchema = z.enum(zones);
+export const boardSchema = z.string().min(1).optional();
 export const formats = [
   "Commander",
   "Modern",
@@ -53,6 +54,7 @@ export const entrySchema = z.object({
   card: cardSchema,
   quantity: z.number().int().min(1).max(250),
   zone: zoneSchema,
+  board: boardSchema,
   selectedArt: artSchema.nullable().default(null),
   selectedBack: artSchema.nullable().default(null),
   excluded: z.boolean().default(false),
@@ -232,9 +234,14 @@ export function mergeImport(
   replace: boolean,
 ): DeckEntry[] {
   const key = (entry: DeckEntry) =>
-    `${entry.card.oracleId}:${entry.zone}:${entry.card.id}`;
+    JSON.stringify([
+      entry.card.oracleId,
+      entry.zone,
+      entry.board,
+      entry.card.id,
+    ]);
   const importKey = (entry: DeckEntry) =>
-    `${key(entry)}:${entry.requestedLanguages?.join(",") ?? ""}`;
+    JSON.stringify([key(entry), entry.requestedLanguages ?? []]);
   const result: DeckEntry[] = replace ? [] : [...previous];
   const used = new Set<string>();
   for (const entry of incoming) {
@@ -265,6 +272,7 @@ export function mergeImport(
           !used.has(item.id) &&
           item.card.oracleId === entry.card.oracleId &&
           item.zone === entry.zone &&
+          item.board === entry.board &&
           !incoming.some(
             (other) => other !== entry && key(other) === key(item),
           ),
