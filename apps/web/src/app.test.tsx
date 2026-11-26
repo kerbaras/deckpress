@@ -223,6 +223,7 @@ it.each([
       bytes: 0,
       pages,
       calibrationPage: false,
+      format: "pdf",
     };
     mockIPC((cmd) => (cmd === "list_jobs" ? [job] : []));
     window.history.replaceState(null, "", "#/jobs");
