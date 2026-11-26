@@ -90,6 +90,11 @@ fn load_session_cancellable(
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_intra_threads(threads)?
                 .with_execution_providers([candidate.dispatch])?;
+            if log::log_enabled!(log::Level::Trace) {
+                builder = builder
+                    .with_log_level(ort::logging::LogLevel::Info)?
+                    .with_logger(Arc::new(|_, _, _, _, message| log::trace!("{message}")))?;
+            }
             let canceler = builder.canceler();
             let _hook = cancel.on_cancel(move || {
                 if let Err(error) = canceler.cancel() {
@@ -97,7 +102,9 @@ fn load_session_cancellable(
                 }
             })?;
             log::debug!("Loading ONNX session for {id}");
-            Ok(builder.commit_from_file(path)?)
+            Ok(builder.commit_from_file(path).inspect_err(|error| {
+                log::trace!("ONNX session creation failed: {:?}", error.code());
+            })?)
         })();
         if cancel.is_cancelled() {
             log::debug!("Cancelled ONNX session load for {id}");

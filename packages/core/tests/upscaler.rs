@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::models::{PrintSettings, Provider};
@@ -236,26 +236,36 @@ fn cancelled_cold_load_leaves_the_model_unloaded_and_allows_retry() {
 }
 
 thread_local! {
-    static CANCEL_ON_LOAD: Cell<Option<CancelToken>> = const { Cell::new(None) };
+    static LOAD_GATE: Cell<Option<LoadGate>> = const { Cell::new(None) };
+    static NATIVE_LOAD_CANCELLED: Cell<bool> = const { Cell::new(false) };
 }
 
-struct CancelOnLoad;
+struct LoadGate {
+    started: mpsc::Sender<()>,
+    resume: mpsc::Receiver<()>,
+}
 
-impl log::Log for CancelOnLoad {
+struct ObserveLoad;
+
+impl log::Log for ObserveLoad {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
         metadata.target() == "deckpress_core::upscaler::ort_backend"
+            && metadata.level() == log::Level::Trace
     }
 
     fn log(&self, record: &log::Record<'_>) {
-        if self.enabled(record.metadata())
-            && record
-                .args()
-                .to_string()
-                .starts_with("Loading ONNX session")
-        {
-            if let Some(cancel) = CANCEL_ON_LOAD.take() {
-                cancel.cancel();
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        match record.args().to_string().as_str() {
+            "Initializing session." => {
+                if let Some(gate) = LOAD_GATE.take() {
+                    let _ = gate.started.send(());
+                    let _ = gate.resume.recv_timeout(Duration::from_secs(3));
+                }
             }
+            "ONNX session creation failed: ModelLoadCanceled" => NATIVE_LOAD_CANCELLED.set(true),
+            _ => {}
         }
     }
 
@@ -263,18 +273,36 @@ impl log::Log for CancelOnLoad {
 }
 
 #[test]
-fn cancelling_when_onnx_session_creation_starts_returns_cancelled() {
-    log::set_logger(&CancelOnLoad).unwrap();
-    log::set_max_level(log::LevelFilter::Debug);
+fn cancelling_in_flight_onnx_session_creation_returns_promptly() {
+    log::set_logger(&ObserveLoad).unwrap();
+    log::set_max_level(log::LevelFilter::Trace);
     let temp = tempfile::tempdir().unwrap();
     let manager = ModelManager::new(bundled_resources(), temp.path()).unwrap();
     let cancel = CancelToken::default();
-    CANCEL_ON_LOAD.set(Some(cancel.clone()));
+    let (started, initializing) = mpsc::channel();
+    let (resume, resume_load) = mpsc::channel();
+    let (finished, result) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let (manager, cancel) = (&manager, &cancel);
+        scope.spawn(move || {
+            LOAD_GATE.set(Some(LoadGate {
+                started,
+                resume: resume_load,
+            }));
+            let result = manager.upscaler_cancellable(&default_model_id(), cancel);
+            let _ = finished.send((result, NATIVE_LOAD_CANCELLED.get()));
+        });
+        initializing.recv_timeout(Duration::from_secs(10)).unwrap();
+        let start = Instant::now();
+        cancel.cancel();
+        resume.send(()).unwrap();
+        assert!(matches!(
+            result.recv_timeout(Duration::from_secs(1)),
+            Ok((Err(AppError::Cancelled), true))
+        ));
+        assert!(start.elapsed() < Duration::from_secs(1));
+    });
 
-    let result = manager.upscaler_cancellable(&default_model_id(), &cancel);
-
-    assert!(cancel.is_cancelled());
-    assert!(matches!(result, Err(AppError::Cancelled)));
     assert!(manager.loaded_info().is_none());
 }
 
