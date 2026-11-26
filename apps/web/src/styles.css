@@ -248,6 +248,7 @@ input[type="color"] {
   cursor: pointer;
 }
 :focus-visible,
+.blocker-focus:focus,
 label.button:has(> input.sr-only:focus-visible) {
   outline: var(--focus-width) solid var(--focus);
   outline-offset: var(--focus-offset);
@@ -2214,7 +2215,7 @@ dd {
 }
 .print-summary {
   background: var(--panel);
-  border: 1px solid var(--line-subtle);
+  border: 1px solid var(--line-control);
   border-radius: var(--panel-radius);
   padding: var(--space-3);
   margin-bottom: var(--space-3);

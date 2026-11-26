@@ -11,7 +11,13 @@ import {
   Save,
   UnfoldHorizontal,
 } from "lucide-react";
-import { type MouseEvent, useEffect, useId, useState } from "react";
+import {
+  type MouseEvent,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useState,
+} from "react";
 import { api, downloadCutTemplate, previewSrc } from "./api.ts";
 import {
   type Art,
@@ -96,6 +102,24 @@ export const bleedModes: {
   },
 ];
 
+const freeLayoutControls = new Set([
+  "paper",
+  "customWidthMm",
+  "customHeightMm",
+  "orientation",
+  "marginMm",
+  "cardWidthMm",
+  "cardHeightMm",
+  "gapMm",
+  "columns",
+  "rows",
+  "guides",
+  "guideWidthPt",
+  "guideColor",
+  "guideLengthMm",
+  "guideOffsetMm",
+]);
+
 export function PrintSetup({
   deck,
   onChange,
@@ -125,23 +149,38 @@ export function PrintSetup({
   const [presetMessage, setPresetMessage] = useState("");
   const [previewSettings, setPreviewSettings] = useState(settings);
   const controlPrefix = useId();
+  const [jump, setJump] = useState<{ key: string } | null>(null);
+  const revealed = jump?.key;
   const controlId = (key: string) => `${controlPrefix}-${key}`;
   const jumpTo = (key: string) => ({
     href: `#${controlId(key)}`,
     onClick: (event: MouseEvent<HTMLAnchorElement>) => {
-      const target = document.getElementById(controlId(key));
-      if (!target) return;
       event.preventDefault();
-      for (
-        let parent = target.parentElement;
-        parent;
-        parent = parent.parentElement
-      )
-        if (parent instanceof HTMLDetailsElement) parent.open = true;
-      target.focus();
-      target.scrollIntoView?.({ block: "nearest" });
+      setJump({ key });
     },
   });
+  useLayoutEffect(() => {
+    if (!jump) return;
+    const target = document.getElementById(`${controlPrefix}-${jump.key}`);
+    if (!target) return;
+    for (
+      let parent = target.parentElement;
+      parent;
+      parent = parent.parentElement
+    )
+      if (parent instanceof HTMLDetailsElement) parent.open = true;
+    target.focus({ preventScroll: true });
+    if (target !== document.activeElement) return;
+    target.classList.add("blocker-focus");
+    target.addEventListener(
+      "blur",
+      () => target.classList.remove("blocker-focus"),
+      {
+        once: true,
+      },
+    );
+    target.scrollIntoView?.({ block: "nearest" });
+  }, [controlPrefix, jump]);
   useEffect(() => {
     const timer = setTimeout(() => setPreviewSettings(settings), 250);
     return () => clearTimeout(timer);
@@ -220,6 +259,16 @@ export function PrintSetup({
   const parsed = layoutError ? printSettingsSchema.safeParse(settings) : null;
   const invalidSetting =
     parsed && !parsed.success ? parsed.error.issues[0]?.path[0] : null;
+  const invalidControl = invalidSetting == null ? null : String(invalidSetting);
+  const invalidInOtherLayout =
+    invalidControl !== null &&
+    (isScm
+      ? freeLayoutControls.has(invalidControl)
+      : invalidControl === "scmTemplate");
+  const showCustomSheet =
+    settings.paper === "custom" ||
+    revealed === "customWidthMm" ||
+    revealed === "customHeightMm";
   const valid = !!layout && !noCards && !emptyRange && !blockedModel;
   const previewPage = Math.max(0, Math.min(page, pdfPages - 1));
   const calibration = previewPage < calibrationPages;
@@ -602,8 +651,13 @@ export function PrintSetup({
                 ))}
               </select>
             </label>
-            {settings.paper === "custom" && (
+            {showCustomSheet && (
               <>
+                {settings.paper !== "custom" && (
+                  <p className="hint">
+                    Saved Custom paper dimensions (not used by this paper size).
+                  </p>
+                )}
                 <NumberSetting
                   id={controlId("customWidthMm")}
                   label="Sheet width"
@@ -756,14 +810,19 @@ export function PrintSetup({
                 />
                 <label
                   className="setting-row"
-                  aria-disabled={settings.bleedMode !== "solid"}
+                  aria-disabled={
+                    settings.bleedMode !== "solid" && revealed !== "bleedColor"
+                  }
                 >
                   Solid colour
                   <input
                     id={controlId("bleedColor")}
                     type="color"
                     value={settings.bleedColor}
-                    disabled={settings.bleedMode !== "solid"}
+                    disabled={
+                      settings.bleedMode !== "solid" &&
+                      revealed !== "bleedColor"
+                    }
                     onChange={(event) =>
                       change({ bleedColor: event.target.value })
                     }
@@ -792,6 +851,7 @@ export function PrintSetup({
               <label className="setting-row">
                 Style
                 <select
+                  id={controlId("guides")}
                   value={settings.guides}
                   onChange={(event) =>
                     change({
@@ -804,58 +864,60 @@ export function PrintSetup({
                   <option value="none">None</option>
                 </select>
               </label>
-              {settings.guides !== "none" && (
-                <>
-                  <NumberSetting
-                    id={controlId("guideWidthPt")}
-                    label="Line thickness"
-                    value={settings.guideWidthPt}
-                    min={0.1}
-                    max={2}
-                    step={0.05}
-                    unit="pt"
-                    set={(value) => change({ guideWidthPt: value })}
+              {(settings.guides !== "none" || revealed === "guideWidthPt") && (
+                <NumberSetting
+                  id={controlId("guideWidthPt")}
+                  label="Line thickness"
+                  value={settings.guideWidthPt}
+                  min={0.1}
+                  max={2}
+                  step={0.05}
+                  unit="pt"
+                  set={(value) => change({ guideWidthPt: value })}
+                />
+              )}
+              {(settings.guides !== "none" || revealed === "guideColor") && (
+                <label className="setting-row">
+                  Guide color
+                  <input
+                    id={controlId("guideColor")}
+                    type="color"
+                    value={settings.guideColor}
+                    onChange={(event) =>
+                      change({ guideColor: event.target.value })
+                    }
                   />
-                  <label className="setting-row">
-                    Guide color
-                    <input
-                      id={controlId("guideColor")}
-                      type="color"
-                      value={settings.guideColor}
-                      onChange={(event) =>
-                        change({ guideColor: event.target.value })
-                      }
-                    />
-                  </label>
-                </>
+                </label>
+              )}
+              {(settings.guides === "crop" || revealed === "guideLengthMm") && (
+                <NumberSetting
+                  id={controlId("guideLengthMm")}
+                  label="Mark length"
+                  value={settings.guideLengthMm}
+                  min={0.5}
+                  max={10}
+                  set={(value) => change({ guideLengthMm: value })}
+                />
+              )}
+              {(settings.guides === "crop" || revealed === "guideOffsetMm") && (
+                <NumberSetting
+                  id={controlId("guideOffsetMm")}
+                  label="Mark offset"
+                  value={settings.guideOffsetMm}
+                  min={0}
+                  max={5}
+                  set={(value) => change({ guideOffsetMm: value })}
+                />
               )}
               {settings.guides === "crop" && (
-                <>
-                  <NumberSetting
-                    id={controlId("guideLengthMm")}
-                    label="Mark length"
-                    value={settings.guideLengthMm}
-                    min={0.5}
-                    max={10}
-                    set={(value) => change({ guideLengthMm: value })}
-                  />
-                  <NumberSetting
-                    id={controlId("guideOffsetMm")}
-                    label="Mark offset"
-                    value={settings.guideOffsetMm}
-                    min={0}
-                    max={5}
-                    set={(value) => change({ guideOffsetMm: value })}
-                  />
-                  <p className="hint">
-                    Marks in the sheet margin line up every cut. Each card also
-                    gets corner ticks in the bleed between neighbours
-                    {settings.bleedMm + settings.gapMm <= 0.5
-                      ? "; add bleed or a gap to make room for them"
-                      : ""}
-                    . Duplex sheets add registration targets on both faces.
-                  </p>
-                </>
+                <p className="hint">
+                  Marks in the sheet margin line up every cut. Each card also
+                  gets corner ticks in the bleed between neighbours
+                  {settings.bleedMm + settings.gapMm <= 0.5
+                    ? "; add bleed or a gap to make room for them"
+                    : ""}
+                  . Duplex sheets add registration targets on both faces.
+                </p>
               )}
               {settings.guides === "full" && (
                 <p className="hint warning-text">
@@ -975,6 +1037,7 @@ export function PrintSetup({
             <label className="setting-row">
               Back pages
               <select
+                id={controlId("backs")}
                 value={effective.backs}
                 onChange={(event) =>
                   change({
@@ -1159,9 +1222,17 @@ export function PrintSetup({
                   {layoutError !== null && (
                     <div>
                       <ErrorNotice error={layoutError} />
-                      {invalidSetting ? (
-                        <a {...jumpTo(String(invalidSetting))}>
-                          Go to invalid setting
+                      {invalidControl ? (
+                        <a
+                          {...jumpTo(
+                            invalidInOtherLayout
+                              ? "layoutMode"
+                              : invalidControl,
+                          )}
+                        >
+                          {invalidInOtherLayout
+                            ? `Switch to ${isScm ? "Free layout" : "SCM"} to fix the invalid setting`
+                            : "Go to invalid setting"}
                         </a>
                       ) : isScm ? (
                         <a
@@ -1223,7 +1294,7 @@ export function PrintSetup({
                         : system.isPending
                           ? "Checking local AI models…"
                           : selectedModel
-                            ? `${selectedModel.name} is not installed.`
+                            ? `${selectedModel.name} is not downloaded yet. Download it in Print setup or pick another model.`
                             : "The selected upscaler is unavailable."}{" "}
                       <a
                         {...jumpTo(

@@ -2752,6 +2752,7 @@ it.each([
   await user.keyboard("{Enter}");
   const control = screen.getByRole(fixture.role, { name: fixture.control });
   expect(control).toHaveFocus();
+  expect(control).toHaveClass("blocker-focus");
   if (fixture.action === "Include Lightning Bolt") {
     await user.keyboard(" ");
     expect(exportButton).toBeEnabled();
@@ -2759,6 +2760,104 @@ it.each([
       screen.getByRole("heading", { name: "Include & page range" }),
     ).toHaveFocus();
   }
+});
+
+it.each(["width", "height"] as const)(
+  "reveals invalid saved Custom paper %s without navigating or changing paper",
+  async (dimension) => {
+    const user = userEvent.setup();
+    const changes = vi.fn();
+    function PrintHarness() {
+      const [value, setValue] = useState(deck);
+      return (
+        <PrintSetup
+          deck={value}
+          onChange={(next) => {
+            changes(next);
+            setValue(next);
+          }}
+          onSave={async (next) => next}
+          onJobs={() => {}}
+        />
+      );
+    }
+    renderWithClient(<PrintHarness />);
+    const paper = screen.getByRole("combobox", { name: "Paper size" });
+    const label = new RegExp(`^Sheet ${dimension}`);
+    await user.selectOptions(paper, "custom");
+    const input = screen.getByRole("spinbutton", { name: label });
+    await user.clear(input);
+    await user.type(input, "20");
+    await user.selectOptions(paper, "a4");
+    expect(screen.queryByRole("spinbutton", { name: label })).toBeNull();
+    const href = window.location.href;
+    const before = changes.mock.calls.length;
+    await user.click(
+      screen.getByRole("link", { name: "Go to invalid setting" }),
+    );
+    expect(screen.getByRole("spinbutton", { name: label })).toHaveFocus();
+    expect(screen.getByRole("spinbutton", { name: label })).toHaveClass(
+      "blocker-focus",
+    );
+    expect(paper).toHaveValue("a4");
+    expect(window.location.href).toBe(href);
+    expect(changes).toHaveBeenCalledTimes(before);
+  },
+);
+
+it.each([
+  { patch: { guides: "none", guideWidthPt: 0 }, target: /^Line thickness/ },
+  { patch: { guides: "none", guideColor: "invalid" }, target: /^Guide color/ },
+  { patch: { guides: "full", guideLengthMm: 0 }, target: /^Mark length/ },
+  { patch: { guides: "full", guideOffsetMm: -1 }, target: /^Mark offset/ },
+  {
+    patch: { bleedMode: "mirror", bleedColor: "invalid" },
+    target: /^Solid colour/,
+  },
+] as const)(
+  "reveals a conditional advanced control: $target",
+  async ({ patch, target }) => {
+    const user = userEvent.setup();
+    const change = vi.fn();
+    renderWithClient(
+      <PrintSetup
+        deck={{ ...deck, printSettings: { ...deck.printSettings, ...patch } }}
+        onChange={change}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+      />,
+    );
+    await user.click(
+      screen.getByRole("link", { name: "Go to invalid setting" }),
+    );
+    const control = screen.getByLabelText(target);
+    expect(control).toBeVisible();
+    expect(control).toHaveFocus();
+    expect(control.closest("details")).toHaveAttribute("open");
+    expect(change).not.toHaveBeenCalled();
+  },
+);
+
+it("moves pointer-activated blocker focus to Print and clears its ring on blur", async () => {
+  const user = userEvent.setup();
+  renderWithClient(
+    <PrintSetup
+      deck={{ ...deck, entries: [{ ...entry, excluded: true }] }}
+      onChange={vi.fn()}
+      onSave={async (next) => next}
+      onJobs={() => {}}
+    />,
+  );
+  await user.click(
+    screen.getByRole("link", { name: "Include Lightning Bolt" }),
+  );
+  const checkbox = screen.getByRole("checkbox", {
+    name: "Print Lightning Bolt",
+  });
+  expect(checkbox).toHaveFocus();
+  expect(checkbox).toHaveClass("blocker-focus");
+  await user.tab();
+  expect(checkbox).not.toHaveClass("blocker-focus");
 });
 
 it.each(printPageCounts)(
