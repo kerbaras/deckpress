@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
@@ -18,7 +19,13 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
+import {
+  type Appearance,
+  api,
+  confirmAction,
+  fetchHealth,
+  type ModelStatus,
+} from "./api.ts";
 import type { PrintJob } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
@@ -41,6 +48,16 @@ import {
   useTask,
 } from "./ui.tsx";
 import { Workspace } from "./workspace.tsx";
+
+declare global {
+  interface Window {
+    deckpressInitialAppearance?: Appearance;
+    deckpressAppearance?: {
+      readonly preference: Appearance;
+      set(value: Appearance): void;
+    };
+  }
+}
 
 const routeFromHash = () =>
   window.location.hash.replace(/^#\/?/, "") || "decks";
@@ -605,6 +622,9 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
   useEffect(() => {
     if (focusModels) modelsHeading.current?.focus();
   }, [focusModels]);
+  const [appearance, setAppearance] = useState(
+    () => window.deckpressAppearance?.preference ?? "system",
+  );
   const query = useQuery({
     queryKey: ["settings"],
     queryFn: ({ signal }) => api.settings(signal),
@@ -635,6 +655,28 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
         </button>
       </PageToolbar>
       <div className="page-content settings-page">
+        <section className="panel settings-card">
+          <h2>Appearance</h2>
+          <label className="field">
+            Theme
+            <select
+              value={appearance}
+              disabled={task.busy}
+              onChange={(event) => {
+                const theme = event.currentTarget.value as Appearance;
+                void task.run(async () => {
+                  if (isTauri()) await api.saveAppearance(theme);
+                  setAppearance(theme);
+                  window.deckpressAppearance?.set(theme);
+                });
+              }}
+            >
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </section>
         <ErrorNotice
           error={query.error ?? task.error}
           retry={() => void query.refetch()}

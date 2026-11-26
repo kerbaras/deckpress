@@ -2,7 +2,24 @@ mod common;
 
 use deckpress_core::error::AppError;
 use deckpress_core::models::{Deck, PrintSettings, PrinterProfileInput, Provider};
-use deckpress_core::store::Store;
+use deckpress_core::store::{Appearance, Store};
+
+#[test]
+fn appearance_round_trips_across_sqlite_connections() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("deckpress.sqlite");
+    assert_eq!(Store::open(&path).unwrap().appearance().unwrap(), None);
+    for appearance in [Appearance::Dark, Appearance::Light, Appearance::System] {
+        Store::open(&path)
+            .unwrap()
+            .set_appearance(appearance)
+            .unwrap();
+        assert_eq!(
+            Store::open(&path).unwrap().appearance().unwrap(),
+            Some(appearance)
+        );
+    }
+}
 
 #[test]
 fn printer_profiles_round_trip_across_sqlite_connections() {

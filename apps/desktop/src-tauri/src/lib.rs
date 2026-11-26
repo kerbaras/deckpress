@@ -32,9 +32,13 @@ pub fn run() {
             let runtime = tauri::async_runtime::handle().inner().clone();
             let state = AppState::open(&data_dir(app), &resource_dir, runtime)?;
             log::info!("Deckpress data in {}", state.data_dir.display());
+            let appearance = state.store.appearance().unwrap_or_else(|error| {
+                log::warn!("Could not read the saved appearance: {error}");
+                None
+            });
             app.manage(state);
             app.manage(Comparisons::default());
-            window::setup(app)?;
+            window::setup(app, appearance)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -79,6 +83,8 @@ pub fn run() {
             commands::deck_detail,
             commands::import_external_deck,
             window::window_chrome,
+            window::save_appearance,
+            window::show_themed_window,
             commands::builder_options,
             commands::builder_sets,
             commands::builder_commanders,

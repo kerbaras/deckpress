@@ -1008,7 +1008,7 @@ export function PrintSetup({
                   <rect
                     width={layout.width}
                     height={layout.height}
-                    fill="white"
+                    fill="var(--invariant-proof-paper)"
                   />
                   {pagePrints.map(({ entry, art, fallback }, index) => {
                     const raw = layout.slots[index];
@@ -1054,12 +1054,12 @@ export function PrintSetup({
                               width={slot.trim.width - 16}
                               height={slot.trim.height - 16}
                               fill="none"
-                              stroke="#cca152"
+                              stroke="var(--invariant-proof-back-rule)"
                             />
                             <text
                               x={slot.trim.x + 22}
                               y={slot.trim.y + slot.trim.height / 2}
-                              fill="#e2b25a"
+                              fill="var(--invariant-art-gold)"
                               fontSize={15}
                               fontFamily="Helvetica"
                             >
@@ -1068,7 +1068,7 @@ export function PrintSetup({
                             <text
                               x={slot.trim.x + 22}
                               y={slot.trim.y + slot.trim.height / 2 + 17}
-                              fill="#b3b3b3"
+                              fill="var(--invariant-proof-back-text)"
                               fontSize={8}
                               fontFamily="Helvetica"
                             >
@@ -1080,7 +1080,7 @@ export function PrintSetup({
                           <rect
                             {...slot.trim}
                             fill="none"
-                            stroke="#00a3b0"
+                            stroke="var(--invariant-proof-trim)"
                             strokeWidth={0.6}
                             strokeDasharray="3 2"
                           />
@@ -1144,14 +1144,18 @@ export function PrintSetup({
                     <rect
                       key={`${mark.x}:${mark.y}:${mark.width}`}
                       {...mark}
-                      fill="#000000"
+                      fill="var(--invariant-proof-ink)"
                     />
                   ))}
                   {labelPlacement && (
                     <text
                       x={labelPlacement.x}
                       y={labelPlacement.baseline}
-                      fill={layout.scm ? "#000000" : settings.guideColor}
+                      fill={
+                        layout.scm
+                          ? "var(--invariant-proof-ink)"
+                          : settings.guideColor
+                      }
                       fontSize={labelPlacement.fontSizePt}
                       fontFamily="ui-monospace, monospace"
                       textLength={labelPlacement.width}
@@ -1285,7 +1289,7 @@ function CalibrationProof({
       viewBox={`0 0 ${layout.width} ${layout.height}`}
       role="img"
       aria-label={label}
-      fill="var(--preview-loading-text)"
+      fill="var(--invariant-preview-loading-text)"
     >
       {blank ? (
         <text x={mmToPt(3)} y={mmToPt(6)} fontSize={fittedSize(blankNote, 8.5)}>
@@ -1309,7 +1313,11 @@ function CalibrationProof({
               ? "Print at actual size (100%)."
               : "Print at 100% / actual size. Measure from line centre to line centre."}
           </text>
-          <g stroke="var(--preview-loading-text)" strokeWidth={0.5} fill="none">
+          <g
+            stroke="var(--invariant-preview-loading-text)"
+            strokeWidth={0.5}
+            fill="none"
+          >
             <path d={`M ${margin} ${ruleY} h ${mmToPt(rulerMm)}`} />
             {Array.from({ length: rulerMm / tickMm + 1 }, (_, index) => {
               const mm = index * tickMm;
@@ -1463,12 +1471,12 @@ function ProofImage({
         y={y}
         width={width}
         height={height}
-        fill="var(--preview-error-bg)"
+        fill="var(--invariant-preview-error-bg)"
       />
       <text
         x={x + 8}
         y={y + height / 2}
-        fill="var(--preview-error-text)"
+        fill="var(--invariant-preview-error-text)"
         fontSize={10}
       >
         Image failed to load
@@ -1489,11 +1497,17 @@ function ProofImage({
       />
       {!loaded && (
         <>
-          <rect x={x} y={y} width={width} height={height} fill="var(--paper)" />
+          <rect
+            x={x}
+            y={y}
+            width={width}
+            height={height}
+            fill="var(--invariant-proof-paper)"
+          />
           <text
             x={x + 8}
             y={y + height / 2}
-            fill="var(--preview-loading-text)"
+            fill="var(--invariant-preview-loading-text)"
             fontSize={9}
           >
             Preparing preview…
