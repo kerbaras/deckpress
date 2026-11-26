@@ -16,6 +16,9 @@ on:
       - 'package.json'
       - '.node-version'
       - '.github/workflows/model-downloads.yml'
+  # Weekly, so a deleted or replaced release asset is noticed between changes.
+  schedule:
+    - cron: '17 6 * * 1'
   workflow_dispatch:
 
 permissions:
