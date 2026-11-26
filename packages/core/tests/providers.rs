@@ -1,6 +1,10 @@
-use deckpress_core::models::Provider;
-use deckpress_core::providers::{moxfield_status_error, normalize_scryfall};
+use std::sync::Arc;
+
+use deckpress_core::models::{Provider, Zone};
+use deckpress_core::providers::{moxfield_status_error, normalize_scryfall, Providers};
+use deckpress_core::store::Store;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 fn sample() -> Value {
     serde_json::json!({
@@ -70,4 +74,65 @@ fn moxfield_refusals_point_at_the_exported_list() {
     assert!(refused.contains("paste the list here"), "{refused}");
     assert!(moxfield_status_error(404).to_string().contains("public"));
     assert!(moxfield_status_error(502).to_string().contains("HTTP 502"));
+}
+
+#[tokio::test]
+async fn suggests_printable_tokens_and_emblems_from_all_parts() {
+    fn cache(store: &Store, ids: &[&str], cards: Vec<Value>) {
+        let identifiers: Vec<_> = ids
+            .iter()
+            .map(|id| serde_json::json!({ "id": id }))
+            .collect();
+        let body = serde_json::json!({ "identifiers": identifiers });
+        let key = hex::encode(Sha256::digest(format!(
+            "https://api.scryfall.com/cards/collection{body}"
+        )));
+        store
+            .put("cache", &key, &serde_json::json!({ "data": cards }))
+            .unwrap();
+    }
+
+    let store = Arc::new(Store::in_memory().unwrap());
+    let mut producer = sample();
+    let producer_id = producer["id"].as_str().unwrap().to_owned();
+    let token_id = "15e69090-20b4-4dfb-8a8b-1214355bdf7c";
+    let emblem_id = "21d78b30-64e9-4ae4-9eef-d92cc207cef5";
+    producer["all_parts"] = serde_json::json!([
+        {"id":token_id,"component":"token","type_line":"Token Artifact — Treasure"},
+        {"id":token_id,"component":"token","type_line":"Token Artifact — Treasure"},
+        {"id":emblem_id,"component":"combo_piece","type_line":"Emblem — Chandra"},
+        {"id":"3cf110aa-8e4c-48da-a40a-4938790f52c7","component":"meld_result","type_line":"Creature"},
+        {"id":"431fbdb1-b64f-4654-a805-6ba399bd146f","component":"combo_piece","type_line":"Creature"}
+    ]);
+    cache(&store, &[&producer_id], vec![producer]);
+    let part = |id: &str, name: &str| {
+        let mut value = sample();
+        value["id"] = id.into();
+        value["oracle_id"] = id.into();
+        value["name"] = name.into();
+        value
+    };
+    cache(
+        &store,
+        &[token_id, emblem_id],
+        vec![
+            part(token_id, "Treasure"),
+            part(emblem_id, "Chandra Emblem"),
+        ],
+    );
+    let providers = Providers::new(store).unwrap();
+    let entries = providers
+        .related_tokens(vec![producer_id.clone(), producer_id])
+        .await
+        .unwrap();
+    assert_eq!(
+        entries
+            .iter()
+            .map(|entry| entry.card.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Chandra Emblem", "Treasure"]
+    );
+    assert!(entries
+        .iter()
+        .all(|entry| entry.zone == Zone::Tokens && entry.quantity == 1));
 }

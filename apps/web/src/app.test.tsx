@@ -141,6 +141,124 @@ beforeEach(() => {
   });
 });
 
+it("suggests related tokens and saves them in the tokens zone only when added", async () => {
+  const tokenId = "138aacf8-01a2-4e63-a43a-e42eb1abc32c";
+  const token: DeckEntry = {
+    ...entry,
+    id: tokenId,
+    card: { ...entry.card, id: tokenId, oracleId: tokenId, name: "Treasure" },
+    quantity: 1,
+    zone: "tokens",
+  };
+  const suggest = vi.fn().mockReturnValue([token]);
+  const saveDeck = vi.fn((next: Deck) => next);
+  mockIPC((cmd, args) => {
+    if (cmd === "list_decks") return [deck];
+    if (cmd === "get_deck") return deck;
+    if (cmd === "related_tokens") return suggest(args);
+    if (cmd === "save_deck") return saveDeck((args as { deck: Deck }).deck);
+    return [];
+  });
+  const user = userEvent.setup();
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  expect(suggest).not.toHaveBeenCalled();
+  await user.click(await screen.findByRole("button", { name: "Find tokens" }));
+  const add = await screen.findByRole("button", { name: "Add Treasure" });
+  expect(suggest).toHaveBeenCalledWith({ cardIds: [id] });
+  expect(saveDeck).not.toHaveBeenCalled();
+  await user.click(add);
+  expect(screen.queryByRole("button", { name: "Add Treasure" })).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Choose art for Treasure" }),
+  ).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(saveDeck).toHaveBeenCalledWith(
+    expect.objectContaining({ entries: [entry, token] }),
+  );
+});
+
+it("imports an MPC Autofill order without changing image IDs and exports it through the save dialog", async () => {
+  const art = { ...community, id: "mpc:front_id" };
+  const back = { ...community, id: "mpc:back_id" };
+  const order =
+    "<order><details><quantity>2</quantity></details><fronts><card><id>front_id</id><slots>1,0</slots></card></fronts><cardback>back_id</cardback></order>";
+  let stored = { ...deck, entries: [] as DeckEntry[] };
+  const saveMpcXml = vi.fn();
+  const mpcArtwork = vi.fn(() => [
+    { art, filename: "Front.png", query: "lightning bolt" },
+    { art: back, filename: "Back.png", query: "b:custom" },
+  ]);
+  mockIPC((cmd, args) => {
+    if (cmd === "list_decks") return [stored];
+    if (cmd === "get_deck") return stored;
+    if (cmd === "mpc_artwork") return mpcArtwork();
+    if (cmd === "save_deck") {
+      stored = deckSchema.parse((args as { deck: Deck }).deck);
+      return stored;
+    }
+    if (cmd === "plugin:dialog|save") return "/chosen/burn.xml";
+    if (cmd === "save_mpc_xml") return saveMpcXml(args);
+    if (cmd === "resolve_cards")
+      throw new Error("MPC must not resolve on Scryfall");
+    return [];
+  });
+  const user = userEvent.setup();
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  await user.click(await screen.findByLabelText("Decklist"));
+  await user.paste(order);
+  await user.click(
+    screen.getByRole("button", { name: "Read MPC Autofill order" }),
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Add 2 cards to deck" }),
+  );
+  expect(stored.entries).toEqual([
+    expect.objectContaining({
+      quantity: 2,
+      card: expect.objectContaining({ faces: [art, back] }),
+    }),
+  ]);
+  await user.click(
+    screen.getByRole("button", { name: "Export MPC Autofill XML" }),
+  );
+  await waitFor(() =>
+    expect(saveMpcXml).toHaveBeenCalledWith({
+      destination: "/chosen/burn.xml",
+      contents: expect.stringContaining("<cardback>back_id</cardback>"),
+    }),
+  );
+  expect(mpcArtwork).toHaveBeenCalledTimes(2);
+});
+
+it("asks for an MPC back instead of opening the save dialog for a front-only deck", async () => {
+  const frontOnly = {
+    ...deck,
+    entries: [{ ...entry, selectedArt: community }],
+  };
+  const saveDialog = vi.fn();
+  const saveMpcXml = vi.fn();
+  mockIPC((cmd, args) => {
+    if (cmd === "list_decks") return [frontOnly];
+    if (cmd === "get_deck") return frontOnly;
+    if (cmd === "plugin:dialog|save") return saveDialog(args);
+    if (cmd === "save_mpc_xml") return saveMpcXml(args);
+    return [];
+  });
+  const user = userEvent.setup();
+  renderWithClient(<App />);
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  await user.click(
+    screen.getByRole("button", { name: "Export MPC Autofill XML" }),
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Choose an MPC Autofill back",
+  );
+  expect(saveDialog).not.toHaveBeenCalled();
+  expect(saveMpcXml).not.toHaveBeenCalled();
+});
+
 it("shows the model download error and retries the same model", async () => {
   const user = userEvent.setup();
   const qualityModel = {

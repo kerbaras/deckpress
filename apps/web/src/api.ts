@@ -11,10 +11,15 @@ import {
   type DeckEntry,
   deckSchema,
   entrySchema,
+  exportMpcXml,
   healthResponseSchema,
   type ImportIssue,
   importLineSchema,
+  importMpcXml,
+  isMpcXml,
   jobSchema,
+  mpcArtworkSchema,
+  mpcXmlFormat,
   type PrintSettings,
   parseDecklist,
 } from "./core/index.ts";
@@ -297,6 +302,9 @@ export const externalDeckSchema = z.object({
 });
 export type ExternalDeck = z.infer<typeof externalDeckSchema>;
 
+const lookupMpcArtwork = (ids: string[]) =>
+  command("mpc_artwork", z.array(mpcArtworkSchema), { ids });
+
 export const api = {
   windowChrome: () =>
     command("window_chrome", windowChromeSchema).catch(
@@ -313,7 +321,9 @@ export const api = {
   ) => command("create_deck", deckSchema, { deck: value }),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
   deleteDeck: (id: string) => command("delete_deck", nothing, { id }),
-  /** Decklist parsing stays in the browser; Scryfall resolution runs in Rust. */
+  relatedTokens: (cardIds: string[]) =>
+    command("related_tokens", z.array(entrySchema), { cardIds }),
+  /** Decklist parsing stays in the browser; provider resolution runs in Rust. */
   import: async (
     value: { text: string } | { url: string },
   ): Promise<ImportResult> => {
@@ -327,6 +337,12 @@ export const api = {
             },
           )
         : value.text;
+    if (isMpcXml(text))
+      return {
+        entries: await importMpcXml(text, lookupMpcArtwork),
+        issues: [],
+        format: mpcXmlFormat,
+      };
     const parsed = parseDecklist(text);
     const resolved = await command("resolve_cards", resolvedSchema, {
       lines: parsed.entries,
@@ -484,5 +500,17 @@ export async function downloadJson(deck: Deck): Promise<boolean> {
     destination,
     contents: JSON.stringify(deck, null, 2),
   });
+  return true;
+}
+
+export async function downloadMpcXml(deck: Deck): Promise<boolean> {
+  const contents = await exportMpcXml(deck.entries, lookupMpcArtwork);
+  const destination = await save({
+    title: "Export MPC Autofill XML",
+    defaultPath: `${deck.name.replace(/[^\w-]+/g, "-")}.xml`,
+    filters: [{ name: mpcXmlFormat, extensions: ["xml"] }],
+  });
+  if (!destination) return false;
+  await command("save_mpc_xml", nothing, { destination, contents });
   return true;
 }

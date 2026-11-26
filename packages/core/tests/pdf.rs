@@ -1,7 +1,9 @@
 mod common;
 
-use deckpress_core::models::{Backs, LayoutMode, PrintSettings, ScmTemplate, ScmVariant};
+use deckpress_core::layout::duplex_slot;
+use deckpress_core::models::{Backs, LayoutMode, PrintSettings, ScmTemplate, ScmVariant, Zone};
 use deckpress_core::pdf::{build_pdf, print_plan, PdfServices};
+use deckpress_core::providers::normalize_scryfall;
 use deckpress_core::upscaler::CancelToken;
 
 #[test]
@@ -256,6 +258,116 @@ fn scm_portrait_pdf_reverses_back_columns_without_rotating_art() {
                 assert!(
                     (got - want).abs() < 0.001,
                     "page {page}, slot {index}: {got} != {want}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn prints_scryfall_dfc_back_in_the_mirrored_slot() {
+    let mut deck = common::deck(1);
+    let mut token = common::entry(common::scryfall_art(), 1);
+    token.zone = Zone::Tokens;
+    let front_url = "https://cards.scryfall.io/png/front/dfc.png";
+    let back_url = "https://cards.scryfall.io/png/back/dfc.png";
+    deck.entries[0].card = normalize_scryfall(&serde_json::json!({
+        "id": "22bd1585-826a-4029-8cf8-354d320f2924",
+        "name": "Delver of Secrets // Insectile Aberration",
+        "set": "isd",
+        "set_name": "Innistrad",
+        "collector_number": "51",
+        "card_faces": [
+            {"name": "Delver of Secrets", "image_uris": {"png": front_url}},
+            {"name": "Insectile Aberration", "image_uris": {"png": back_url}}
+        ]
+    }))
+    .unwrap();
+    deck.entries.push(token);
+    let dir = tempfile::tempdir().unwrap();
+    let services = PdfServices {
+        upscaler: None,
+        raster_dir: dir.path(),
+    };
+    for backs in [Backs::LongEdge, Backs::ShortEdge] {
+        let settings = PrintSettings {
+            backs,
+            back_offset_xmm: 1.0,
+            back_offset_ymm: -0.5,
+            calibration_page: false,
+            dpi: 150,
+            ..PrintSettings::default()
+        };
+        let mut requested = Vec::new();
+        let output = build_pdf(
+            &deck,
+            &settings,
+            &services,
+            &CancelToken::default(),
+            &mut |_, _, _| {},
+            &mut |url| {
+                requested.push(url.to_owned());
+                let color = match url {
+                    url if url == front_url => [34, 119, 204],
+                    url if url == back_url => [204, 85, 34],
+                    _ => [34, 166, 102],
+                };
+                Ok(common::png(372, 520, color))
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            requested,
+            [front_url, &deck.entries[1].front_art().image_url, back_url]
+        );
+        assert_eq!(output.pages, 2);
+        assert_eq!(output.unique_images, 3);
+
+        let plan = print_plan(&deck, &settings).unwrap();
+        let doc = lopdf::Document::load_mem(&output.bytes).unwrap();
+        let pages = doc.get_pages();
+        for (page, back) in [(1, false), (2, true)] {
+            let content = doc.get_and_decode_page_content(pages[&page]).unwrap();
+            let mut state = Vec::new();
+            let mut ctm = [1.0_f32, 1.0, 0.0, 0.0];
+            let mut images = Vec::new();
+            for op in &content.operations {
+                match op.operator.as_str() {
+                    "q" => state.push(ctm),
+                    "Q" => ctm = state.pop().unwrap(),
+                    "cm" => {
+                        let get = |i: usize| op.operands[i].as_float().unwrap();
+                        ctm = [
+                            ctm[0] * get(0),
+                            ctm[1] * get(3),
+                            ctm[0] * get(4) + ctm[2],
+                            ctm[1] * get(5) + ctm[3],
+                        ];
+                    }
+                    "Do" => images.push(ctm),
+                    _ => {}
+                }
+            }
+            assert_eq!(images.len(), if back { 1 } else { 2 });
+            let first = plan.layout.slots[0];
+            let expected = if back {
+                duplex_slot(&first, &plan.layout, &settings)
+            } else {
+                first
+            };
+            let [w, h, x, y] = images[0];
+            for (actual, expected) in [
+                (w, expected.rect.width),
+                (h, expected.rect.height),
+                (x, expected.rect.x),
+                (
+                    y,
+                    plan.layout.height - expected.rect.y - expected.rect.height,
+                ),
+            ] {
+                assert!(
+                    (f64::from(actual) - expected).abs() < 0.01,
+                    "{actual} != {expected}"
                 );
             }
         }

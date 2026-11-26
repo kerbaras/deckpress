@@ -13,8 +13,10 @@ use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, External
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::UploadInput;
 use deckpress_core::models::{
-    Art, ArtPage, ArtPreference, Deck, ImportLine, NewDeck, PrintJob, PrintSettings, ResolvedCards,
+    Art, ArtPage, ArtPreference, Deck, DeckEntry, ImportLine, NewDeck, PrintJob, PrintSettings,
+    ResolvedCards,
 };
+use deckpress_core::providers::MpcArtwork;
 use deckpress_core::style::{StyleReport, StyleRequest};
 use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
 use deckpress_core::upscaler::UpscalerInfo;
@@ -120,6 +122,22 @@ pub async fn resolve_cards(
         return Err(AppError::user("Decklists are limited to 1000 lines"));
     }
     state.providers.resolve(lines).await
+}
+
+#[tauri::command]
+pub async fn related_tokens(
+    state: State<'_, AppState>,
+    card_ids: Vec<String>,
+) -> AppResult<Vec<DeckEntry>> {
+    state.providers.related_tokens(card_ids).await
+}
+
+#[tauri::command]
+pub async fn mpc_artwork(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> AppResult<Vec<MpcArtwork>> {
+    state.providers.mpc_artwork(ids).await
 }
 
 #[tauri::command]
@@ -348,6 +366,20 @@ pub async fn save_text(destination: String, contents: String) -> AppResult<()> {
     let destination = PathBuf::from(destination);
     if destination.extension().and_then(|e| e.to_str()) != Some("json") {
         return Err(AppError::user("Save the backup as a .json file"));
+    }
+    Ok(tokio::fs::write(destination, contents).await?)
+}
+
+#[tauri::command]
+pub async fn save_mpc_xml(destination: String, contents: String) -> AppResult<()> {
+    let destination = PathBuf::from(destination);
+    if destination.extension().and_then(|e| e.to_str()) != Some("xml") {
+        return Err(AppError::user(
+            "Save the MPC Autofill order as an .xml file",
+        ));
+    }
+    if contents.len() > 512 * 1024 {
+        return Err(AppError::user("MPC Autofill order is too large to save"));
     }
     Ok(tokio::fs::write(destination, contents).await?)
 }

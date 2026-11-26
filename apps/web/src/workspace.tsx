@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Check,
   Download,
+  FileCode,
   Image,
   LayoutGrid,
   List,
@@ -12,7 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, confirmAction, downloadJson } from "./api.ts";
+import { api, confirmAction, downloadJson, downloadMpcXml } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import {
   type Deck,
@@ -21,11 +22,13 @@ import {
   formats,
   frontArt,
   mergeImport,
+  mpcXmlFormat,
   zones,
 } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
 import { PrintSetup } from "./print-setup.tsx";
 import { PageToolbar } from "./titlebar.tsx";
+import { TokenSuggestions } from "./token-suggestions.tsx";
 import {
   CardImage,
   countCards,
@@ -234,6 +237,16 @@ function DeckWorkspace({
         <button
           type="button"
           className="icon-button quiet"
+          aria-label="Export MPC Autofill XML"
+          title="Export MPC Autofill XML"
+          disabled={task.busy || !deck.entries.length}
+          onClick={() => void task.run(() => downloadMpcXml(deck))}
+        >
+          <FileCode size={16} />
+        </button>
+        <button
+          type="button"
+          className="icon-button quiet"
           aria-label="Deck settings"
           title="Deck settings"
           disabled={isSaving}
@@ -250,7 +263,10 @@ function DeckWorkspace({
             onApply={async (result, replace) => {
               await commit({
                 ...deck,
-                entries: mergeImport(deck.entries, result.entries, replace),
+                entries:
+                  result.format === mpcXmlFormat
+                    ? [...(replace ? [] : deck.entries), ...result.entries]
+                    : mergeImport(deck.entries, result.entries, replace),
               });
             }}
           />
@@ -414,6 +430,25 @@ function DeckCards({
   }
   return (
     <section className="deck-cards">
+      <TokenSuggestions
+        entries={deck.entries}
+        onAdd={(entry) => {
+          const next = deckSchema.safeParse({
+            ...deck,
+            entries: [...deck.entries, entry],
+          });
+          if (!next.success) {
+            setError(
+              new Error(next.error.issues[0]?.message ?? "Invalid deck"),
+            );
+            return;
+          }
+          setError(null);
+          onChange(next.data);
+          setZone("tokens");
+          setSearch("");
+        }}
+      />
       <div className="toolbar zone-toolbar">
         {zones.map((value) => (
           <button
@@ -611,8 +646,8 @@ function DeckCards({
             {countCards(deck.entries)} cards have chosen art
           </strong>
           <p>
-            Unchanged cards use the original Scryfall printing. Click any card
-            to compare editions.
+            Cards without custom art use the image they were imported with.
+            Click any card to compare editions.
           </p>
         </div>
         <div className="spacer" />
