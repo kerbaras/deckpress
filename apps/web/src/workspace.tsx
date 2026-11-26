@@ -149,7 +149,8 @@ function DeckWorkspace({
     setMpcExportStatus(exported ? "MPC Autofill XML saved." : "");
   };
   const saving = useRef(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [saveMode, setSaveMode] = useState<"toolbar" | "editor" | null>(null);
+  const isSaving = saveMode !== null;
   useEffect(() => {
     if (focusHeading) heading.current?.focus();
   }, [focusHeading]);
@@ -157,13 +158,21 @@ function DeckWorkspace({
     onDirty(deck !== saved);
     return () => onDirty(false);
   }, [deck, saved, onDirty]);
-  const commit = async (next: Deck) => {
+  const commit = async (next: Deck, mode: "toolbar" | "editor" = "editor") => {
     if (saving.current) throw new Error("Wait for the current save to finish");
     saving.current = true;
-    setIsSaving(true);
+    setSaveMode(mode);
     try {
       const result = await api.saveDeck(deckSchema.parse(next));
-      setDeck(result);
+      setDeck((current) =>
+        mode === "toolbar" && current !== next
+          ? {
+              ...current,
+              revision: result.revision,
+              updatedAt: result.updatedAt,
+            }
+          : result,
+      );
       setSaved(result);
       client.setQueryData(["deck", result.id], result);
       void client.invalidateQueries({ queryKey: ["decks"] });
@@ -171,7 +180,7 @@ function DeckWorkspace({
       return result;
     } finally {
       saving.current = false;
-      setIsSaving(false);
+      setSaveMode(null);
     }
   };
   const dirty = deck !== saved;
@@ -179,7 +188,7 @@ function DeckWorkspace({
   const SaveStatusIcon = isSaving ? LoaderCircle : dirty ? CircleAlert : Check;
   const saveChanges = () =>
     void task.run(async () => {
-      await commit(deck);
+      await commit(deck, "toolbar");
       if (
         document.activeElement === saveButton.current ||
         document.activeElement === document.body
@@ -204,7 +213,10 @@ function DeckWorkspace({
   const selected =
     deck.entries.find((entry) => entry.id === selectedId) ?? deck.entries[0];
   return (
-    <fieldset className={`workspace workspace-${view}`} disabled={isSaving}>
+    <fieldset
+      className={`workspace workspace-${view}`}
+      disabled={saveMode === "editor"}
+    >
       <PageToolbar
         title={deck.name}
         titleRef={heading}
@@ -259,7 +271,7 @@ function DeckWorkspace({
           ref={saveButton}
           type="button"
           className={dirty ? "primary" : "quiet"}
-          disabled={task.busy || !dirty}
+          disabled={isSaving || task.busy || !dirty}
           aria-keyshortcuts="Control+S Meta+S"
           title="Save changes (Ctrl+S)"
           onClick={saveChanges}

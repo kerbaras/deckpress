@@ -293,6 +293,47 @@ it("keeps focus in the editor when saving with Ctrl+S", async () => {
   expect(document.activeElement).toBe(search);
 });
 
+it.each(["search", "Save changes"] as const)(
+  "keeps or safely restores focus throughout a pending save from %s",
+  async (start) => {
+    const pending = Promise.withResolvers<Deck>();
+    const user = userEvent.setup();
+    vi.spyOn(api, "decks").mockResolvedValue([deck]);
+    vi.spyOn(api, "deck").mockResolvedValue(deck);
+    const save = vi.spyOn(api, "saveDeck").mockReturnValue(pending.promise);
+    renderWithClient(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Edit card quantities" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "Print Lightning Bolt" }),
+    );
+    const search = screen.getByRole("searchbox", { name: "Find a card" });
+    const button = screen.getByRole("button", { name: "Save changes" });
+    if (start === "search") {
+      await user.type(search, "Bolt");
+      await user.keyboard("{Control>}s{/Control}");
+    } else {
+      await user.click(button);
+    }
+    expect(screen.getByRole("status", { name: "Saving…" })).toBeVisible();
+    expect(button).toBeDisabled();
+    expect(search).toBeEnabled();
+    if (start === "search") expect(search).toHaveFocus();
+
+    const snapshot = save.mock.calls[0]?.[0];
+    if (!snapshot) throw new Error("Save did not start");
+    pending.resolve(snapshot);
+    expect(await screen.findByRole("status", { name: "Saved" })).toBeVisible();
+    expect(
+      start === "search"
+        ? search
+        : screen.getByRole("heading", { name: "Burn", level: 1 }),
+    ).toHaveFocus();
+  },
+);
+
 it("names the save status and exposes its tooltip when switching to Print setup with unsaved changes", async () => {
   mockIPC((cmd) => {
     if (cmd === "list_decks") return [deck];
