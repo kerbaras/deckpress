@@ -891,6 +891,106 @@ it("announces PNG export phases once, naming skipped faces on completion", async
   expect(status.firstChild).toBe(announcement);
 });
 
+it("keeps fast print-job finals and discards only superseded phases for the same job", async () => {
+  const queued: PrintJob = {
+    id,
+    deckId: id,
+    deckName: "First deck",
+    status: "queued",
+    completed: 0,
+    total: 4,
+    message: "Queued",
+    createdAt: deck.createdAt,
+    fileName: "burn.pdf",
+    bytes: 0,
+    pages: 1,
+    calibrationPage: false,
+    format: "pdf",
+  };
+  const second: PrintJob = {
+    ...queued,
+    id: "238aacf8-01a2-4e63-a43a-e42eb1abc32c",
+    deckName: "Second deck",
+  };
+  const failed: PrintJob = {
+    ...queued,
+    id: "338aacf8-01a2-4e63-a43a-e42eb1abc32c",
+    deckName: "Failed deck",
+  };
+  const cancelled: PrintJob = {
+    ...queued,
+    id: "438aacf8-01a2-4e63-a43a-e42eb1abc32c",
+    deckName: "Cancelled deck",
+  };
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  mockIPC(() => []);
+  window.history.replaceState(null, "", "#/jobs");
+  render(
+    <QueryClientProvider client={client}>
+      <App />
+    </QueryClientProvider>,
+  );
+  await screen.findByRole("heading", { name: "No print jobs yet" });
+  const status = screen.getByRole("status", {
+    name: "Print job announcements",
+  });
+  const alert = screen.getByRole("alert", { name: "Print job failures" });
+  const update = async (...jobs: PrintJob[]) => {
+    client.setQueryData(["jobs"], jobs);
+    await advance(0);
+  };
+  const emitted: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records)
+      for (const node of record.addedNodes)
+        if (node.textContent) emitted.push(node.textContent.trim());
+  });
+  observer.observe(status, { childList: true });
+  observer.observe(alert, { childList: true });
+  vi.useFakeTimers();
+  try {
+    await update(queued, second, failed);
+    await advance(25);
+    await update(
+      { ...queued, status: "completed" },
+      { ...failed, status: "failed", message: "Disk full" },
+    );
+    expect(status).toHaveTextContent("First deck started and completed.");
+    expect(alert).toHaveTextContent(
+      "Failed deck started and failed: Disk full",
+    );
+    await advance(25);
+    await update({ ...second, status: "completed" });
+    await advance(75);
+    expect(status).toHaveTextContent("Second deck started and completed.");
+    await update({ ...cancelled, status: "running" });
+    await advance(100);
+    expect(status).toHaveTextContent("Cancelled deck running.");
+    await update({ ...cancelled, status: "cancelled" });
+    await advance(100);
+    expect(status).toHaveTextContent(/^Cancelled$/);
+    await update({ ...cancelled, status: "cancelled", message: "Cancelled" });
+    await update({ ...cancelled, status: "running" });
+    await advance(50);
+    expect(emitted).toEqual([
+      "Print job for First deck started and completed.",
+      "Print job for Failed deck started and failed: Disk full",
+      "Print job for Second deck started and completed.",
+      "Print job for Cancelled deck running.",
+      "Cancelled",
+    ]);
+  } finally {
+    observer.disconnect();
+    vi.useRealTimers();
+  }
+});
+
 it("announces print job phases once, leaving polling ticks in the progress control", async () => {
   const user = userEvent.setup();
   const queued: PrintJob = {

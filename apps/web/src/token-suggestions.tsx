@@ -61,7 +61,7 @@ export function TokenSuggestions({
           {show ? "Hide suggestions" : "Find tokens"}
         </button>
       </div>
-      <StatusRegion label="Token lookup status" coalesce>
+      <StatusRegion label="Token lookup status" coalesce={finding}>
         {status}
       </StatusRegion>
       {(finding || count === 0) && (

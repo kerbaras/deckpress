@@ -73,6 +73,8 @@ export function Loading({ children = "Loading…" }: { children?: ReactNode }) {
   );
 }
 
+export const STATUS_COALESCE_MS = 50;
+
 export function StatusRegion({
   as: Element = "p",
   children,
@@ -94,14 +96,13 @@ export function StatusRegion({
     id: typeof announcementId;
   }>();
   useEffect(() => {
-    if (!coalesce) return;
-    if (!hasMessage) {
+    if (!coalesce || !hasMessage) {
       setSettled(undefined);
       return;
     }
     const timer = setTimeout(
       () => setSettled({ message: children, id: announcementId }),
-      50,
+      STATUS_COALESCE_MS,
     );
     return () => clearTimeout(timer);
   }, [announcementId, children, coalesce, hasMessage]);

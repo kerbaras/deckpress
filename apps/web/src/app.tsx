@@ -45,6 +45,7 @@ import {
   ExternalLink,
   Loading,
   prettyDate,
+  STATUS_COALESCE_MS,
   StatusRegion,
   useTask,
 } from "./ui.tsx";
@@ -146,7 +147,7 @@ export function App() {
   const activeJobs =
     jobs.data?.filter((job) => ["queued", "running"].includes(job.status))
       .length ?? 0;
-  const { announcements, announceJobs } = usePrintJobAnnouncements(jobs.data);
+  const { status, alert, announceJobs } = usePrintJobAnnouncements(jobs.data);
   const applyRoute = useCallback((next: string) => {
     routeRef.current = next;
     setImportedDeckId((id) => (deckRoute(next) === id ? id : undefined));
@@ -255,10 +256,9 @@ export function App() {
       </button>
       <StatusRegion
         label="Print job announcements"
-        coalesce
-        announcementId={announcements.status.map(({ key }) => key).join(",")}
+        announcementId={status?.key}
       >
-        {announcements.status.map(({ text }) => text).join(" ")}
+        {status?.text}
       </StatusRegion>
       <p
         className="sr-only"
@@ -266,12 +266,12 @@ export function App() {
         aria-label="Print job failures"
         aria-atomic="true"
       >
-        {announcements.alert.map(({ key, text }) => (
+        {alert && (
           // biome-ignore lint/a11y/useSemanticElements: Expose the inline announcement as a child in WebKitGTK's accessibility tree.
-          <span key={key} role="group">
-            {text}{" "}
+          <span key={alert.key} role="group">
+            {alert.text}{" "}
           </span>
-        ))}
+        )}
       </p>
       <StatusRegion
         label="Import announcements"
@@ -446,60 +446,137 @@ export function App() {
   );
 }
 
-type JobAnnouncement = { key: string; text: string };
+type JobAnnouncement = {
+  id: string;
+  key: string;
+  text: string;
+  terminal: boolean;
+};
+const JOB_ANNOUNCEMENT_DWELL_MS = 100;
+
+function usePrintJobAnnouncementChannel() {
+  const [message, setMessage] = useState<JobAnnouncement>();
+  const queue = useRef<JobAnnouncement[]>([]);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const publish = useCallback(function next() {
+    if (timer.current !== undefined) return;
+    const announcement = queue.current.shift();
+    if (!announcement) return;
+    setMessage(announcement);
+    timer.current = setTimeout(() => {
+      timer.current = undefined;
+      next();
+    }, JOB_ANNOUNCEMENT_DWELL_MS);
+  }, []);
+  const enqueue = useCallback(
+    (announcement: JobAnnouncement) => {
+      queue.current.push(announcement);
+      publish();
+    },
+    [publish],
+  );
+  const discardIntermediate = useCallback((id: string) => {
+    queue.current = queue.current.filter(
+      (announcement) => announcement.terminal || announcement.id !== id,
+    );
+  }, []);
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+      timer.current = undefined;
+      queue.current = [];
+    },
+    [],
+  );
+  return { message, enqueue, discardIntermediate };
+}
 
 function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
   const seen = useRef(new Map<string, Set<PrintJob["status"]>>());
   const initialized = useRef(false);
-  const [announcements, setAnnouncements] = useState<
-    Record<"status" | "alert", JobAnnouncement[]>
-  >({ status: [], alert: [] });
-  const announceJobs = useCallback((snapshot: PrintJob[], initial = false) => {
-    const polite: JobAnnouncement[] = [];
-    const failures: JobAnnouncement[] = [];
-    for (const { id, status, deckName, message, format } of snapshot) {
-      let statuses = seen.current.get(id);
-      if (!statuses) {
-        statuses = new Set();
-        seen.current.set(id, statuses);
-      }
-      if (
-        statuses.has(status) ||
-        statuses.has("completed") ||
-        statuses.has("failed") ||
-        statuses.has("cancelled") ||
-        (status === "queued" && statuses.has("running"))
-      )
-        continue;
-      statuses.add(status);
-      if (status === "cancelled") continue;
-      const finished = status === "completed" || status === "failed";
-      if (initial && finished && statuses.size === 1) continue;
-      const phase =
-        finished && !statuses.has("running") ? `started and ${status}` : status;
-      const subject = `${format === "png" ? "PNG export" : "Print job"} for ${deckName}`;
-      // PNG results name the faces skipped for missing art.
-      const detail =
-        status === "failed" || (status === "completed" && format === "png");
-      (status === "failed" ? failures : polite).push({
-        key: `${id}:${status}`,
-        text: detail
-          ? `${subject} ${phase}: ${message}`
-          : `${subject} ${phase}.`,
-      });
-    }
-    if (polite.length || failures.length)
-      setAnnouncements((previous) => ({
-        status: polite.length ? polite : previous.status,
-        alert: failures.length ? failures : previous.alert,
-      }));
+  const pending = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const {
+    message: status,
+    enqueue: notify,
+    discardIntermediate,
+  } = usePrintJobAnnouncementChannel();
+  const { message: alert, enqueue: notifyFailure } =
+    usePrintJobAnnouncementChannel();
+  useEffect(() => {
+    const timers = pending.current;
+    const statuses = seen.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+      statuses.clear();
+      initialized.current = false;
+    };
   }, []);
+  const announceJobs = useCallback(
+    (snapshot: PrintJob[], initial = false) => {
+      for (const { id, status, deckName, message, format } of snapshot) {
+        let statuses = seen.current.get(id);
+        if (!statuses) {
+          statuses = new Set();
+          seen.current.set(id, statuses);
+        }
+        if (
+          statuses.has(status) ||
+          statuses.has("completed") ||
+          statuses.has("failed") ||
+          statuses.has("cancelled") ||
+          (status === "queued" && statuses.has("running"))
+        )
+          continue;
+        statuses.add(status);
+        const timer = pending.current.get(id);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          pending.current.delete(id);
+        }
+        discardIntermediate(id);
+        const terminal = status !== "queued" && status !== "running";
+        if (initial && terminal && statuses.size === 1) continue;
+        const phase =
+          terminal && status !== "cancelled" && !statuses.has("running")
+            ? `started and ${status}`
+            : status;
+        const subject = `${format === "png" ? "PNG export" : "Print job"} for ${deckName}`;
+        // PNG results name the faces skipped for missing art.
+        const detail =
+          status === "failed" || (status === "completed" && format === "png");
+        const announcement = {
+          id,
+          terminal,
+          key: `${id}:${status}`,
+          text:
+            status === "cancelled"
+              ? "Cancelled"
+              : detail
+                ? `${subject} ${phase}: ${message}`
+                : `${subject} ${phase}.`,
+        };
+        if (terminal) {
+          (status === "failed" ? notifyFailure : notify)(announcement);
+        } else {
+          pending.current.set(
+            id,
+            setTimeout(() => {
+              pending.current.delete(id);
+              notify(announcement);
+            }, STATUS_COALESCE_MS),
+          );
+        }
+      }
+    },
+    [discardIntermediate, notify, notifyFailure],
+  );
   useEffect(() => {
     if (!jobs) return;
     announceJobs(jobs, !initialized.current);
     initialized.current = true;
   }, [jobs, announceJobs]);
-  return { announcements, announceJobs };
+  return { status, alert, announceJobs };
 }
 
 function PrintJobs({ active }: { active: number }) {
