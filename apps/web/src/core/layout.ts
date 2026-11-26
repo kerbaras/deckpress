@@ -39,6 +39,21 @@ export interface PrintLayout {
 export const REGISTRATION_RADIUS_MM = 1.5;
 export const LABEL_SIZE_PT = 5;
 
+export function sheetLabel(
+  settings: PrintSettings,
+  deckName: string,
+  sheet: number,
+  totalSheets: number,
+  back: boolean,
+): string {
+  const name = deckName
+    .toUpperCase()
+    .replace(/[^ -~]/g, "")
+    .slice(0, 40)
+    .trim();
+  return `${name} / SHEET ${sheet} OF ${totalSheets} / ${back ? "BACKS" : "FRONTS"} / TRIM ${settings.cardWidthMm} × ${settings.cardHeightMm} mm / ${settings.bleedMm} mm BLEED / ${settings.dpi} DPI / PRINT AT 100%`;
+}
+
 export function createLayout(input: PrintSettings): PrintLayout {
   const options = printSettingsSchema.parse(input);
   const paper =

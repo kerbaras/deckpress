@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { createLayout, duplexSlot, mmToPt } from "./layout.ts";
+import { createLayout, duplexSlot, mmToPt, sheetLabel } from "./layout.ts";
 import { printSettingsSchema } from "./models.ts";
 
 describe("print geometry", () => {
+  it("labels the exact trim, bleed and DPI on a back sheet", () => {
+    const settings = printSettingsSchema.parse({
+      cardWidthMm: 63.5,
+      cardHeightMm: 88.9,
+      bleedMm: 0.625,
+      dpi: 600,
+    });
+    expect(sheetLabel(settings, " Proof ★ ", 2, 3, true)).toBe(
+      "PROOF / SHEET 2 OF 3 / BACKS / TRIM 63.5 × 88.9 mm / 0.625 mm BLEED / 600 DPI / PRINT AT 100%",
+    );
+  });
+
   it.each(["a4", "letter"] as const)(
     "fits nine exact-size cards on %s with safe crop marks",
     (paper) => {

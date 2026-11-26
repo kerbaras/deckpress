@@ -59,7 +59,31 @@ pub struct PrintLayout {
 /// Registration targets and the label only appear when the sheet has marks
 /// at all; `guides: none` means a clean page.
 pub const REGISTRATION_RADIUS_MM: f64 = 1.5;
-const LABEL_SIZE_PT: f64 = 5.0;
+pub const LABEL_SIZE_PT: f64 = 5.0;
+
+pub fn sheet_label(
+    settings: &PrintSettings,
+    deck_name: &str,
+    sheet: usize,
+    total_sheets: usize,
+    back: bool,
+) -> String {
+    let name: String = deck_name
+        .to_uppercase()
+        .chars()
+        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+        .take(40)
+        .collect();
+    format!(
+        "{} / SHEET {sheet} OF {total_sheets} / {} / TRIM {} × {} mm / {} mm BLEED / {} DPI / PRINT AT 100%",
+        name.trim(),
+        if back { "BACKS" } else { "FRONTS" },
+        settings.card_width_mm,
+        settings.card_height_mm,
+        settings.bleed_mm,
+        settings.dpi
+    )
+}
 
 fn dedup(values: impl Iterator<Item = f64>) -> Vec<f64> {
     let mut out: Vec<f64> = Vec::new();

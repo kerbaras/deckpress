@@ -24,6 +24,7 @@ import {
   type PrintSettings,
   printableEntries,
   printSettingsSchema,
+  sheetLabel,
 } from "./core/index.ts";
 import { ErrorNotice, useTask } from "./ui.tsx";
 
@@ -161,6 +162,7 @@ export function PrintSetup({
         </div>
         <div className="spacer" />
         <span className="mono muted">
+          Trim {settings.cardWidthMm} × {settings.cardHeightMm} mm ·{" "}
           {selectedSheets} sheets ·{" "}
           {selectedSheets * (settings.backs === "none" ? 1 : 2)} PDF pages
         </span>
@@ -311,7 +313,7 @@ export function PrintSetup({
           </section>
           <section className="panel settings-panel">
             <h3>Cards & layout</h3>
-            <label className="setting-row">
+            <label className="setting-row card-size-setting">
               Card size
               <select
                 value={`${settings.cardWidthMm}x${settings.cardHeightMm}`}
@@ -325,7 +327,9 @@ export function PrintSetup({
                 }}
               >
                 <option value="63x88">MTG · 63 × 88 mm</option>
-                <option value="63.5x88.9">Poker · 2.5 × 3.5 in</option>
+                <option value="63.5x88.9">
+                  Poker / MPC 63.5 × 88.9 mm (larger than MTG)
+                </option>
                 <option value="59x86">Japanese · 59 × 86 mm</option>
                 <option value="89x127">Oversized · 89 × 127 mm</option>
                 <option
@@ -405,6 +409,13 @@ export function PrintSetup({
               Existing MPC bleed is cropped first. Your chosen bleed is then
               added outside the card's trim line.
             </p>
+            {settings.bleedMm > settings.gapMm / 2 && (
+              <p className="hint warning-text">
+                Bleed exceeds half the gap. It can overlap neighbouring cards in
+                a cutter template that measures gaps between trim edges.
+                Deckpress adds the gap between bleed edges.
+              </p>
+            )}
           </section>
           <section className="panel settings-panel">
             <h3>Cut guides</h3>
@@ -565,7 +576,7 @@ export function PrintSetup({
                   change({ calibrationPage: event.target.checked })
                 }
               />
-              Add a calibration page with a 100 mm ruler
+              Add a calibration page with a 50 mm ruler and MTG reference box
             </label>
             <ErrorNotice
               error={system.error}
@@ -829,11 +840,13 @@ export function PrintSetup({
                       fontSize={LABEL_SIZE_PT}
                       fontFamily="ui-monospace, monospace"
                     >
-                      {deck.name.toUpperCase().slice(0, 40)} / SHEET{" "}
-                      {currentPage + 1} OF {totalSheets} /{" "}
-                      {back ? "BACKS" : "FRONTS"} / {settings.cardWidthMm} X{" "}
-                      {settings.cardHeightMm} MM + {settings.bleedMm} MM BLEED /{" "}
-                      {settings.dpi} DPI / PRINT AT 100%
+                      {sheetLabel(
+                        settings,
+                        deck.name,
+                        currentPage + 1,
+                        totalSheets,
+                        back,
+                      )}
                     </text>
                   )}
                 </svg>

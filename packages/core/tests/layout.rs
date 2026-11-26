@@ -1,5 +1,20 @@
-use deckpress_core::layout::{create_layout, duplex_slot, mm_to_pt};
+use deckpress_core::layout::{create_layout, duplex_slot, mm_to_pt, sheet_label};
 use deckpress_core::models::{Backs, Guides, PrintSettings};
+
+#[test]
+fn labels_the_exact_trim_bleed_and_dpi_on_a_back_sheet() {
+    let settings = PrintSettings {
+        card_width_mm: 63.5,
+        card_height_mm: 88.9,
+        bleed_mm: 0.625,
+        dpi: 600,
+        ..PrintSettings::default()
+    };
+    assert_eq!(
+        sheet_label(&settings, " Proof ★ ", 2, 3, true),
+        "PROOF / SHEET 2 OF 3 / BACKS / TRIM 63.5 × 88.9 mm / 0.625 mm BLEED / 600 DPI / PRINT AT 100%"
+    );
+}
 
 #[test]
 fn a4_fits_nine_cards_with_default_settings() {
