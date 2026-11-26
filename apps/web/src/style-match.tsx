@@ -3,7 +3,7 @@ import { ArrowRight, LoaderCircle, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, type ScoredArt, type StyleReport } from "./api.ts";
 import { type Art, type Deck, type DeckEntry, frontArt } from "./core/index.ts";
-import { CardImage, ErrorNotice, Modal, useTask } from "./ui.tsx";
+import { CardImage, ErrorNotice, Modal, StatusRegion, useTask } from "./ui.tsx";
 
 /** Printings compared per card; matches the limit enforced in Rust. */
 const MAX_OPTIONS = 80;
@@ -76,6 +76,18 @@ export function applyPicks(
       };
     }),
   };
+}
+
+/** Announces phase changes and the settled result once; the running counts
+ * stay in the visible progress block, outside the live region. */
+function phaseAnnouncement(phase: Phase): string {
+  if (phase.step === "collect") return "Collecting printings…";
+  if (phase.step === "analyse") return "Comparing illustrations…";
+  if (phase.step === "review") {
+    const count = phase.report.matches.length;
+    return `Matches ready for ${count} ${count === 1 ? "card" : "cards"}.`;
+  }
+  return "";
 }
 
 export function StyleMatch({
@@ -184,6 +196,9 @@ export function StyleMatch({
           </div>
         </div>
         <ErrorNotice error={task.error} />
+        <StatusRegion label="Art style match status">
+          {phaseAnnouncement(phase)}
+        </StatusRegion>
         {phase.step === "intro" && (
           <>
             <label className="check-label">
@@ -220,7 +235,7 @@ export function StyleMatch({
           </>
         )}
         {(phase.step === "collect" || phase.step === "analyse") && (
-          <div className="style-progress" role="status">
+          <div className="style-progress">
             <LoaderCircle size={17} className="spin" />
             <div>
               <strong>
@@ -235,6 +250,7 @@ export function StyleMatch({
               </span>
             </div>
             <progress
+              aria-label="Art style match progress"
               value={phase.total ? phase.done : undefined}
               max={phase.total || undefined}
             />

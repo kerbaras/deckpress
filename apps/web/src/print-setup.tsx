@@ -24,6 +24,7 @@ import {
   frontArt,
   MAX_SCM_BLEED_MM,
   mmToPixels,
+  mmToPt,
   type PrintSettings,
   printableEntries,
   printPageCount,
@@ -31,11 +32,12 @@ import {
   type ScmTemplate,
   scmCardLabel,
   scmCards,
+  scmCutFile,
   scmPapers,
   sheetLabel,
 } from "./core/index.ts";
 import { DuplexCalibration } from "./duplex-calibration.tsx";
-import { ErrorNotice, ExternalLink, useTask } from "./ui.tsx";
+import { ErrorNotice, ExternalLink, StatusRegion, useTask } from "./ui.tsx";
 
 const paperNames = {
   a4: "A4",
@@ -53,8 +55,10 @@ const scmVariants = [
   { value: "default", label: "Standard layout" },
   { value: "borderless", label: "Borderless layout" },
 ] as const;
-const scmCuttingTemplates =
-  "https://github.com/Alan-Cha/silhouette-card-maker/tree/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates";
+const scmTree =
+  "https://github.com/Alan-Cha/silhouette-card-maker/tree/0da09b729814aa5aafde024b5a6059624fa87951";
+const scmCuttingTemplates = `${scmTree}/cutting_templates`;
+const scmBorderlessDocs = `${scmTree}/hugo/content/miscellaneous/borderless.md`;
 
 export const bleedModes: {
   value: PrintSettings["bleedMode"];
@@ -102,8 +106,8 @@ export function PrintSetup({
   });
   const task = useTask();
   const cutTemplateTask = useTask();
+  const [cutTemplatePath, setCutTemplatePath] = useState("");
   const [page, setPage] = useState(0);
-  const [back, setBack] = useState(false);
   const [trim, setTrim] = useState(false);
   const [presetMessage, setPresetMessage] = useState("");
   const [previewSettings, setPreviewSettings] = useState(settings);
@@ -130,6 +134,7 @@ export function PrintSetup({
     ? Number(effective.cardHeightMm.toFixed(2))
     : effective.cardHeightMm;
   const sheetName = layout?.scm?.name ?? paperNames[settings.paper];
+  const cutFile = layout?.scm && scmCutFile(layout.scm.name);
   const changeTemplate = (patch: Partial<ScmTemplate>) =>
     change({ scmTemplate: { ...template, ...patch } });
   const matchingPapers = isScm
@@ -158,13 +163,30 @@ export function PrintSetup({
   const upscalerReady = !!selectedModel?.installed;
   const valid =
     !!layout && selectedSheets > 0 && (!settings.upscale || upscalerReady);
-  const currentPage = Math.max(first, Math.min(first + page, last - 1));
-  const pageCards = layout
-    ? cards.slice(
-        currentPage * layout.slots.length,
-        (currentPage + 1) * layout.slots.length,
-      )
-    : [];
+  const previewPage = Math.max(0, Math.min(page, pdfPages - 1));
+  const calibration = previewPage < calibrationPages;
+  const side = previewPage - calibrationPages;
+  const duplex =
+    effective.backs === "long-edge" || effective.backs === "short-edge";
+  const back =
+    effective.backs === "separate"
+      ? side >= selectedSheets
+      : duplex && side % 2 === 1;
+  const currentPage =
+    first +
+    (duplex ? Math.floor(side / 2) : side % Math.max(1, selectedSheets));
+  const previewLabel = calibration
+    ? previewPage === 0
+      ? "Calibration page"
+      : "Blank calibration back"
+    : `Sheet ${currentPage + 1} · ${back ? "back" : "front"}`;
+  const pageCards =
+    layout && pdfPages > 0 && !calibration
+      ? cards.slice(
+          currentPage * layout.slots.length,
+          (currentPage + 1) * layout.slots.length,
+        )
+      : [];
   const selectedCards = layout
     ? cards.slice(first * layout.slots.length, last * layout.slots.length)
     : [];
@@ -185,9 +207,12 @@ export function PrintSetup({
     (art) => art.dpi < settings.dpi * 0.95,
   ).length;
   const estimatedMB = arts.length * 0.45 * (settings.dpi / 600) ** 2;
-  const label = layout?.scm
-    ? `sheet: ${currentPage + 1}, template: ${layout.scm.name}`
-    : sheetLabel(settings, deck.name, currentPage + 1, totalSheets, back);
+  const label =
+    pdfPages === 0 || calibration
+      ? ""
+      : layout?.scm
+        ? `sheet: ${currentPage + 1}, template: ${layout.scm.name}`
+        : sheetLabel(settings, deck.name, currentPage + 1, totalSheets, back);
   const labelPlacement = layout && fitSheetLabel(layout, label);
   const start = () =>
     void task.run(async () => {
@@ -213,13 +238,20 @@ export function PrintSetup({
             ` (includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`}
         </span>
         {isScm ? (
-          <span className="muted">Use the SCM .studio3 cut template.</span>
+          <span className="muted">
+            {cutFile
+              ? "Use the SCM .studio3 cut template."
+              : "No SCM cut file for this layout."}
+          </span>
         ) : (
           <button
             type="button"
             disabled={!layout || cutTemplateTask.busy}
             onClick={() =>
-              void cutTemplateTask.run(() => downloadCutTemplate(deck))
+              void cutTemplateTask.run(async () => {
+                setCutTemplatePath("");
+                setCutTemplatePath((await downloadCutTemplate(deck)) ?? "");
+              })
             }
           >
             Export cut template (SVG)
@@ -237,6 +269,12 @@ export function PrintSetup({
       </div>
       <ErrorNotice error={task.error ?? layoutError} />
       <ErrorNotice error={cutTemplateTask.error} />
+      <StatusRegion
+        className={cutTemplatePath ? "notice success" : "sr-only"}
+        label="Cut template export status"
+      >
+        {cutTemplatePath && `Cut template saved to ${cutTemplatePath}`}
+      </StatusRegion>
       <div className="print-layout">
         <div className="print-controls">
           <div className="panel presets">
@@ -433,24 +471,27 @@ export function PrintSetup({
                           {layout.slots.length} cards per sheet
                         </dd>
                       </div>
-                      <div>
-                        <dt>Cut file</dt>
-                        <dd>
-                          <code>{layout.scm.name}.studio3</code>
-                        </dd>
-                      </div>
-                    </dl>
-                    <ExternalLink href={scmCuttingTemplates}>
-                      SCM cutting templates
-                    </ExternalLink>
-                    {template.variant === "borderless" &&
-                      (template.paper === "a3" ||
-                        template.paper === "arch_b") && (
-                        <p className="my-0 text-meta text-warning-ink">
-                          SCM does not publish a cut file for this borderless
-                          layout.
-                        </p>
+                      {cutFile && (
+                        <div>
+                          <dt>Cut file</dt>
+                          <dd>
+                            <code>{cutFile}</code>
+                          </dd>
+                        </div>
                       )}
+                    </dl>
+                    {cutFile ? (
+                      <ExternalLink href={scmCuttingTemplates}>
+                        SCM cutting templates
+                      </ExternalLink>
+                    ) : (
+                      <p className="scm-cut-warning my-0 text-meta text-warning-ink">
+                        No SCM cut file for this layout.{" "}
+                        <ExternalLink href={scmBorderlessDocs}>
+                          SCM borderless docs
+                        </ExternalLink>
+                      </p>
+                    )}
                     <p className="my-0 text-meta text-muted">
                       Registration marks replace crop guides. Template spacing
                       replaces free margins and gaps. Duplex uses long-edge
@@ -814,12 +855,11 @@ export function PrintSetup({
               Back pages
               <select
                 value={effective.backs}
-                onChange={(event) => {
+                onChange={(event) =>
                   change({
                     backs: event.target.value as PrintSettings["backs"],
-                  });
-                  setBack(false);
-                }}
+                  })
+                }
               >
                 <option value="none">Fronts only</option>
                 <option value="long-edge">Duplex · flip long edge</option>
@@ -890,48 +930,37 @@ export function PrintSetup({
               <button
                 type="button"
                 className="icon-button"
-                aria-label="Previous sheet"
-                disabled={page === 0}
-                onClick={() => setPage(page - 1)}
+                aria-label="Previous page"
+                disabled={previewPage === 0}
+                onClick={() => setPage(previewPage - 1)}
               >
                 <ArrowLeft size={15} />
               </button>
-              <span className="mono">
-                Sheet {totalSheets ? currentPage + 1 : 0} of {totalSheets}
+              <span className="mono" aria-live="polite" aria-atomic="true">
+                Page {pdfPages ? previewPage + 1 : 0} of {pdfPages}
+                {pdfPages > 0 && ` · ${previewLabel}`}
               </span>
               <button
                 type="button"
                 className="icon-button"
-                aria-label="Next sheet"
-                disabled={page + 1 >= selectedSheets}
-                onClick={() => setPage(page + 1)}
+                aria-label="Next page"
+                disabled={previewPage + 1 >= pdfPages}
+                onClick={() => setPage(previewPage + 1)}
               >
                 <ArrowRight size={15} />
               </button>
-              <div className="spacer" />
-              <div className="segmented">
-                <button
-                  type="button"
-                  aria-pressed={!back}
-                  onClick={() => setBack(false)}
-                >
-                  Fronts
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={back}
-                  disabled={effective.backs === "none"}
-                  onClick={() => setBack(true)}
-                >
-                  Backs
-                </button>
-              </div>
             </div>
             <div
               className="proof-canvas"
               aria-busy={previewSettings !== settings}
             >
-              {layout && selectedSheets > 0 ? (
+              {layout && calibration ? (
+                <CalibrationProof
+                  layout={layout}
+                  blank={previewPage > 0}
+                  label={previewLabel}
+                />
+              ) : layout && pdfPages > 0 ? (
                 <svg
                   className="proof-sheet"
                   style={{
@@ -1103,6 +1132,7 @@ export function PrintSetup({
                 <input
                   type="checkbox"
                   checked={trim}
+                  disabled={pdfPages === 0 || calibration}
                   onChange={(event) => setTrim(event.target.checked)}
                 />
                 Show trim boundary
@@ -1169,6 +1199,101 @@ export function PrintSetup({
         </section>
       </div>
     </div>
+  );
+}
+
+function CalibrationProof({
+  layout,
+  blank,
+  label,
+}: {
+  layout: ReturnType<typeof createLayout>;
+  blank: boolean;
+  label: string;
+}) {
+  const compact = layout.width < mmToPt(135) || layout.height < mmToPt(145);
+  const margin = mmToPt(compact ? 5 : 15);
+  const ruleY = compact ? mmToPt(20) : margin + 59;
+  const boxY = compact ? mmToPt(29) : ruleY + mmToPt(5) + 33;
+  const rulerMm = compact && layout.width < mmToPt(60) ? 20 : 50;
+  const tickMm = compact ? 5 : 1;
+  const showBox =
+    !compact || (layout.width >= mmToPt(73) && layout.height >= mmToPt(122));
+  const heading = compact
+    ? "Deckpress print-size check"
+    : "Deckpress calibration page";
+  const blankNote = "Back of the calibration page. Intentionally blank.";
+  const fittedSize = (value: string, maxSize: number) =>
+    Math.min(maxSize, (layout.width - mmToPt(6)) / (0.6 * value.length));
+  return (
+    <svg
+      className="proof-sheet"
+      style={{
+        width: `min(100%, ${(66 * layout.width) / layout.height}vh, ${(650 * layout.width) / layout.height}px)`,
+      }}
+      viewBox={`0 0 ${layout.width} ${layout.height}`}
+      role="img"
+      aria-label={label}
+      fill="var(--preview-loading-text)"
+    >
+      {blank ? (
+        <text x={mmToPt(3)} y={mmToPt(6)} fontSize={fittedSize(blankNote, 8.5)}>
+          {blankNote}
+        </text>
+      ) : (
+        <>
+          <text
+            x={compact ? mmToPt(3) : margin}
+            y={compact ? mmToPt(6) : margin + 14}
+            fontSize={fittedSize(heading, compact ? 10 : 14)}
+          >
+            {heading}
+          </text>
+          <text
+            x={compact ? mmToPt(3) : margin}
+            y={compact ? mmToPt(11) : margin + 33}
+            fontSize={compact ? 8 : 8.5}
+          >
+            {compact
+              ? "Print at actual size (100%)."
+              : "Print at 100% / actual size. Measure from line centre to line centre."}
+          </text>
+          <g stroke="var(--preview-loading-text)" strokeWidth={0.5} fill="none">
+            <path d={`M ${margin} ${ruleY} h ${mmToPt(rulerMm)}`} />
+            {Array.from({ length: rulerMm / tickMm + 1 }, (_, index) => {
+              const mm = index * tickMm;
+              const x = margin + mmToPt(mm);
+              const tick = mmToPt(
+                compact ? 3 : mm % 10 === 0 ? 5 : mm % 5 === 0 ? 3 : 1.5,
+              );
+              return (
+                <line key={x} x1={x} x2={x} y1={ruleY} y2={ruleY + tick} />
+              );
+            })}
+            {showBox && (
+              <rect
+                x={margin}
+                y={boxY}
+                width={mmToPt(63)}
+                height={mmToPt(88)}
+              />
+            )}
+          </g>
+          <text
+            x={compact ? mmToPt(3) : margin}
+            y={compact ? mmToPt(15) : boxY - 11}
+            fontSize={8}
+          >
+            {rulerMm} mm ruler, {tickMm} mm ticks
+          </text>
+          {showBox && (
+            <text x={margin + 10} y={boxY + 18} fontSize={compact ? 8 : 9}>
+              63 × 88 mm MTG reference
+            </text>
+          )}
+        </>
+      )}
+    </svg>
   );
 }
 

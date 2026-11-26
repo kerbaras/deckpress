@@ -706,6 +706,12 @@ pre {
   color: var(--warning-text);
   background: var(--warning-bg);
 }
+.notice.success {
+  border-color: color-mix(in srgb, var(--success-text) 22%, var(--line-subtle));
+  color: var(--success-text);
+  background: var(--success-bg);
+  overflow-wrap: anywhere;
+}
 .loading {
   display: flex;
   align-items: center;
@@ -1955,6 +1961,17 @@ dd {
   min-height: var(--control-size);
   font-size: var(--type-meta);
   line-height: var(--leading-meta);
+}
+.scm-cut-warning .external-link,
+.scm-cut-warning .external-link:hover {
+  display: inline;
+  min-height: 0;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.scm-cut-warning .external-link:hover {
+  text-decoration-thickness: 2px;
 }
 .setting-row {
   display: flex;
@@ -3471,4 +3488,9 @@ progress::-webkit-progress-value {
     position: static;
     max-height: none;
   }
+}
+.builder-dropped {
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 12px;
 }

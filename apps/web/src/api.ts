@@ -524,17 +524,18 @@ export async function downloadJson(deck: Deck): Promise<boolean> {
   return true;
 }
 
-export async function downloadCutTemplate(deck: Deck): Promise<void> {
+export async function downloadCutTemplate(deck: Deck): Promise<string | null> {
   const destination = await save({
     title: "Save cut template",
     defaultPath: `${deck.name.replace(/[^\w-]+/g, "-")}-cut-template.svg`,
     filters: [{ name: "SVG cut template", extensions: ["svg"] }],
   });
-  if (!destination) return;
+  if (!destination) return null;
   await command("save_cut_template", nothing, {
     destination,
     settings: deck.printSettings,
   });
+  return destination;
 }
 
 export async function downloadMpcXml(deck: Deck): Promise<boolean> {

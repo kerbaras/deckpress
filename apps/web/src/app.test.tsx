@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -11,7 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import printPageCounts from "../../../packages/core/tests/fixtures/print-page-counts.json";
-import { api } from "./api.ts";
+import { api, type StyleReport } from "./api.ts";
 import { App } from "./app.tsx";
 import { ArtPicker, filterArt } from "./art-picker.tsx";
 import {
@@ -140,6 +141,50 @@ beforeEach(() => {
     dataDir: "/tmp/deckpress",
     styleModel: null,
   });
+});
+
+it("shows the calibration ruler hint only on jobs that included it", async () => {
+  const job = {
+    id,
+    deckId: id,
+    status: "completed",
+    completed: 60,
+    total: 60,
+    message: "PDF ready",
+    createdAt: deck.createdAt,
+    fileName: "Burn.pdf",
+    bytes: 1000,
+    pages: 7,
+  };
+  mockIPC((cmd) => {
+    if (cmd === "health")
+      return { status: "ok", service: "@deckpress/desktop" };
+    if (cmd === "list_jobs")
+      return [
+        { ...job, deckName: "Without calibration", calibrationPage: false },
+        {
+          ...job,
+          id: "85ec616b-91ec-4da4-be64-be378806c981",
+          deckName: "With calibration",
+          pages: 8,
+          calibrationPage: true,
+        },
+        {
+          ...job,
+          id: "bfdd21b1-4be2-4bbc-a6ac-30c07b752520",
+          deckName: "Older export",
+        },
+      ];
+    return [];
+  });
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  await screen.findByRole("heading", { name: "Without calibration" });
+  expect(screen.getByRole("heading", { name: "Older export" })).toBeVisible();
+  const hint = screen.getByText(
+    /measure the ruler on the print-size calibration page/i,
+  );
+  expect(hint.closest("article")).toHaveTextContent("With calibration");
 });
 
 it("suggests related tokens and saves them in the tokens zone only when added", async () => {
@@ -739,12 +784,88 @@ it("returns to the start with the error when collecting printings fails", async 
   );
   await user.click(screen.getByRole("button", { name: "Find matches" }));
   expect(await screen.findByText(/Scryfall is unreachable/)).toBeVisible();
-  expect(screen.queryByRole("status")).toBeNull();
+  expect(
+    screen.getByRole("status", { name: "Art style match status" }),
+  ).toBeEmptyDOMElement();
   expect(match).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "Try again" }));
   await waitFor(() => expect(match).toHaveBeenCalledOnce());
   expect(art).toHaveBeenCalledTimes(2);
   expect(screen.queryByText(/Scryfall is unreachable/)).toBeNull();
+});
+
+it("announces style-match phases and the result once, not every count", async () => {
+  const user = userEvent.setup();
+  const others = ["Fireblast", "Lava Spike"].map((name, index): DeckEntry => {
+    const cardId = `b4f5c8d1-0903-40be-8f8c-e9dcb5aa724${index}`;
+    return {
+      ...entry,
+      id: cardId,
+      card: { ...entry.card, id: cardId, oracleId: cardId, name },
+    };
+  });
+  const firstPage = Promise.withResolvers<void>();
+  vi.spyOn(api, "art").mockImplementation(async (_provider, oracleId) => {
+    if (oracleId === others[1]?.card.oracleId) await firstPage.promise;
+    return { items: [alternate], page: 1, hasMore: false, total: 1 };
+  });
+  const report = Promise.withResolvers<StyleReport>();
+  let progress: ((value: { done: number; total: number }) => void) | undefined;
+  vi.spyOn(api, "matchArtStyle").mockImplementation((_request, onProgress) => {
+    progress = onProgress;
+    return report.promise;
+  });
+  renderWithClient(
+    <StyleMatch
+      deck={{ ...deck, entries: [entry, ...others] }}
+      entry={entry}
+      reference={original}
+      onClose={vi.fn()}
+      onApply={vi.fn(async (value: Deck) => value)}
+    />,
+  );
+  const status = screen.getByRole("status", { name: "Art style match status" });
+  const announced: string[] = [];
+  const observer = new MutationObserver(() => {
+    const text = status.textContent ?? "";
+    if (text && announced.at(-1) !== text) announced.push(text);
+  });
+  observer.observe(status, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+  await user.click(screen.getByRole("button", { name: "Find matches" }));
+  expect(await screen.findByText("1 / 2")).toBeVisible();
+  expect(status).toHaveTextContent(/^Collecting printings…$/);
+  expect(screen.getByText("1 / 2").closest("[role=status]")).toBeNull();
+  firstPage.resolve();
+  expect(await screen.findByText("Comparing illustrations")).toBeVisible();
+  expect(status).toHaveTextContent(/^Comparing illustrations…$/);
+  act(() => progress?.({ done: 1, total: 2 }));
+  expect(screen.getByText("1 / 2")).toBeVisible();
+  act(() => progress?.({ done: 2, total: 2 }));
+  expect(screen.getByText("2 / 2")).toBeVisible();
+  expect(status).toHaveTextContent(/^Comparing illustrations…$/);
+  expect(
+    screen.getByRole("progressbar", { name: "Art style match progress" }),
+  ).toHaveValue(2);
+  report.resolve({
+    method: "heuristic",
+    model: null,
+    warnings: [],
+    embedded: 0,
+    skipped: 0,
+    matches: others.map((other) => ({ entryId: other.id, ranked: [] })),
+  });
+  expect(await screen.findByText("No changes selected")).toBeVisible();
+  expect(status).toHaveTextContent(/^Matches ready for 2 cards\.$/);
+  observer.disconnect();
+  expect(announced).toEqual([
+    "Collecting printings…",
+    "Comparing illustrations…",
+    "Matches ready for 2 cards.",
+  ]);
 });
 
 it("intersects official provenance, labels and source resolution without inventing popularity", () => {
@@ -814,6 +935,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
     fileName: "burn.pdf",
     bytes: 0,
     pages: 1,
+    calibrationPage: true,
   });
   function PrintHarness() {
     const [value, setValue] = useState({
@@ -834,6 +956,7 @@ it("blocks an impossible sheet and exports the saved settings after correction",
   for (const button of screen.getAllByRole("button", { name: "Generate PDF" }))
     expect(button).toBeDisabled();
   await user.selectOptions(screen.getByLabelText("Print preset"), "proof");
+  await user.click(screen.getByRole("button", { name: "Next page" }));
   const proof = screen.getByRole("img", {
     name: /Print preview, A4, 3 columns by 3 rows/,
   });
@@ -904,6 +1027,10 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
     }),
   });
   expect(saveTemplate).not.toHaveBeenCalled();
+  const status = screen.getByRole("status", {
+    name: "Cut template export status",
+  });
+  expect(status).toBeEmptyDOMElement();
   await user.click(button);
   await waitFor(() =>
     expect(saveTemplate).toHaveBeenCalledWith({
@@ -911,6 +1038,10 @@ it("saves a cut template by keyboard and only shows export in Free layout", asyn
       settings: deck.printSettings,
     }),
   );
+  expect(status).toHaveTextContent(
+    /^Cut template saved to \/chosen\/burn\.svg$/,
+  );
+  expect(status).toBeVisible();
   const mode = screen.getByRole("combobox", { name: "Layout mode" });
   await user.selectOptions(mode, "scm");
   const template = screen.getByRole("combobox", {
@@ -958,39 +1089,83 @@ it("shows the selected trim and warns when bleed exceeds half the gap", async ()
   expect(screen.queryByText(/Bleed exceeds half the gap/)).toBeNull();
 });
 
-it.each(printPageCounts)("shows the PDF page count for $name", (fixture) => {
-  const { quantity, settings, cardSheets, pdfPages, calibrationPages } =
-    fixture;
-  renderWithClient(
-    <PrintSetup
-      deck={{
-        ...deck,
-        entries: quantity ? [{ ...entry, quantity }] : [],
-        printSettings: printSettingsSchema.parse(settings),
-      }}
-      onChange={() => {}}
-      onSave={async (value) => value}
-      onJobs={() => {}}
-    />,
-  );
-  const summary = screen.getByText(/^Trim [\d.]+ × [\d.]+ mm/);
-  const sheets = `${cardSheets} card ${cardSheets === 1 ? "sheet" : "sheets"}`;
-  const pages = `${pdfPages} PDF ${pdfPages === 1 ? "page" : "pages"}`;
-  expect(summary).toHaveTextContent(`${sheets} · ${pages}`);
-  if (calibrationPages) {
-    expect(summary).toHaveTextContent(
-      `(includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`,
+it.each(printPageCounts)(
+  "shows the PDF page count for $name",
+  async (fixture) => {
+    const user = userEvent.setup();
+    const { quantity, settings, cardSheets, pdfPages, calibrationPages } =
+      fixture;
+    renderWithClient(
+      <PrintSetup
+        deck={{
+          ...deck,
+          entries: quantity ? [{ ...entry, quantity }] : [],
+          printSettings: printSettingsSchema.parse(settings),
+        }}
+        onChange={() => {}}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+      />,
     );
-  } else {
-    expect(summary).not.toHaveTextContent(/calibration/);
-  }
-  for (const button of screen.getAllByRole("button", {
-    name: "Generate PDF",
-  })) {
-    if (cardSheets) expect(button).toBeEnabled();
-    else expect(button).toBeDisabled();
-  }
-});
+    const summary = screen.getByText(/^Trim [\d.]+ × [\d.]+ mm/);
+    const sheets = `${cardSheets} card ${cardSheets === 1 ? "sheet" : "sheets"}`;
+    const pages = `${pdfPages} PDF ${pdfPages === 1 ? "page" : "pages"}`;
+    expect(summary).toHaveTextContent(`${sheets} · ${pages}`);
+    if (calibrationPages) {
+      expect(summary).toHaveTextContent(
+        `(includes ${calibrationPages} calibration ${calibrationPages === 1 ? "page" : "pages"})`,
+      );
+    } else {
+      expect(summary).not.toHaveTextContent(/calibration/);
+    }
+    for (const button of screen.getAllByRole("button", {
+      name: "Generate PDF",
+    })) {
+      if (cardSheets) expect(button).toBeEnabled();
+      else expect(button).toBeDisabled();
+    }
+    const next = screen.getByRole("button", { name: "Next page" });
+    const previous = screen.getByRole("button", { name: "Previous page" });
+    expect(previous).toBeDisabled();
+    if (pdfPages === 0) {
+      expect(screen.queryByText("Sheet 8 of 7")).not.toBeInTheDocument();
+      expect(screen.getByText("Page 0 of 0")).toBeVisible();
+      expect(next).toBeDisabled();
+      return;
+    }
+    for (let page = 1; page <= pdfPages; page++) {
+      const counter = screen.getByText(`Page ${page} of ${pdfPages}`, {
+        exact: false,
+      });
+      if (page <= calibrationPages) {
+        const label =
+          page === 1 ? "Calibration page" : "Blank calibration back";
+        expect(counter).toHaveTextContent(label);
+        const proof = screen.getByRole("img", { name: label });
+        expect(proof).toBeVisible();
+        if (page === 1 && "rulerMm" in fixture) {
+          expect(proof).toHaveTextContent(`${fixture.rulerMm} mm ruler`);
+          expect(proof).not.toHaveTextContent("MTG reference");
+        }
+      } else {
+        expect(counter).toHaveTextContent(/Sheet \d+ · (front|back)/);
+      }
+      if (page < pdfPages) {
+        expect(next).toBeEnabled();
+        await user.click(next);
+      }
+    }
+    expect(next).toBeDisabled();
+    if (pdfPages > 1) {
+      await user.click(previous);
+      expect(
+        screen.getByText(`Page ${pdfPages - 1} of ${pdfPages}`, {
+          exact: false,
+        }),
+      ).toBeVisible();
+    }
+  },
+);
 
 it("clamps SCM bleed visibly and previews the selected registration template", async () => {
   const user = userEvent.setup();
@@ -1001,6 +1176,7 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
         ...deck.printSettings,
         bleedMm: 1.4,
         backs: "short-edge",
+        calibrationPage: false,
       },
     });
     return (
@@ -1029,8 +1205,9 @@ it("clamps SCM bleed visibly and previews the selected registration template", a
   await user.clear(bleed);
   await user.type(bleed, "2");
   expect(bleed).toHaveValue(0.625);
-  expect(screen.getByRole("status")).toHaveTextContent(
-    "SCM limits bleed to 0.625 mm",
+  expect(screen.getByText(/SCM limits bleed to 0.625 mm/)).toHaveAttribute(
+    "role",
+    "status",
   );
   expect(
     screen.queryByRole("combobox", { name: "Style" }),
@@ -1063,6 +1240,7 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
         gapMm: 2,
         columns: 2,
         rows: 2,
+        calibrationPage: false,
       },
     });
     return (
@@ -1135,7 +1313,17 @@ it("filters the paper-grouped cutter picker by card size and keeps free geometry
   ).toBeVisible();
 
   await user.selectOptions(picker, "arch_b:borderless");
-  expect(screen.getByText(/SCM does not publish a cut file/)).toBeVisible();
+  expect(screen.getAllByText(/No SCM cut file for this layout/)).toHaveLength(
+    2,
+  );
+  expect(screen.queryByText(/\.studio3$/)).not.toBeInTheDocument();
+  expect(screen.queryByText("Cut file")).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("link", { name: "SCM borderless docs" }),
+  ).toHaveAttribute(
+    "href",
+    expect.stringMatching(/\/hugo\/content\/miscellaneous\/borderless\.md$/),
+  );
   await user.selectOptions(mode, "free");
   expect(screen.getByRole("img", { name: freePreview })).toBeVisible();
   expect(

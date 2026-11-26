@@ -182,6 +182,7 @@ export const jobSchema = z.object({
   fileName: z.string(),
   bytes: z.number(),
   pages: z.number(),
+  calibrationPage: z.boolean().default(false),
 });
 export type PrintJob = z.infer<typeof jobSchema>;
 

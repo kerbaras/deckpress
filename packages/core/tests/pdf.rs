@@ -20,6 +20,7 @@ fn pdf_page_tree_matches_the_print_setup_counts() {
         card_sheets: usize,
         pdf_pages: usize,
         calibration_pages: usize,
+        ruler_mm: Option<usize>,
     }
 
     let cases: Vec<Case> =
@@ -69,6 +70,11 @@ fn pdf_page_tree_matches_the_print_setup_counts() {
         assert_eq!(card_sheets, case.card_sheets, "{}", case.name);
         assert_eq!(output.pages, case.pdf_pages, "{}", case.name);
         assert_eq!(pdf_pages, case.pdf_pages, "{}", case.name);
+        if let Some(ruler_mm) = case.ruler_mm {
+            let calibration = pdf.extract_text(&[1]).unwrap();
+            assert!(calibration.contains(&format!("{ruler_mm} mm ruler")));
+            assert!(!calibration.contains("MTG reference"));
+        }
         assert_eq!(
             pdf_pages - plan.sides.len(),
             case.calibration_pages,
