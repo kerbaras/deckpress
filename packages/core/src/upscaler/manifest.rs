@@ -13,7 +13,7 @@ use tokio::io::AsyncWriteExt;
 
 use super::ort_backend::OrtModel;
 use super::tiling::{TiledUpscaler, DEFAULT_OVERLAP};
-use super::Upscaler;
+use super::{CancelToken, Upscaler};
 use crate::error::{AppError, AppResult};
 
 const MANIFEST: &str = include_str!("../../models.json");
@@ -284,12 +284,22 @@ impl ModelManager {
 
     /// Returns a ready-to-run upscaler, loading the session on first use.
     pub fn upscaler(&self, id: &str) -> AppResult<Arc<dyn Upscaler>> {
+        self.upscaler_cancellable(id, &CancelToken::default())
+    }
+
+    pub fn upscaler_cancellable(
+        &self,
+        id: &str,
+        cancel: &CancelToken,
+    ) -> AppResult<Arc<dyn Upscaler>> {
+        cancel.check()?;
         if let Some(existing) = self
             .loaded
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(id)
         {
+            cancel.check()?;
             return Ok(existing.clone());
         }
         let spec = self.spec(id)?;
@@ -301,7 +311,8 @@ impl ModelManager {
         }
         let path = self.installed_path(spec)?;
         std::fs::create_dir_all(&self.cache_dir)?;
-        let model = OrtModel::load(spec, &path, &self.cache_dir)?;
+        let model = OrtModel::load_cancellable(spec, &path, &self.cache_dir, cancel)?;
+        cancel.check()?;
         let upscaler: Arc<dyn Upscaler> = Arc::new(TiledUpscaler::new(model, DEFAULT_OVERLAP));
         self.loaded
             .lock()

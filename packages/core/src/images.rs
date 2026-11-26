@@ -21,6 +21,7 @@ use crate::models::{new_id, now_iso, Art, Provider, Upload};
 use crate::providers::USER_AGENT;
 use crate::raster::{detect_upload_bleed, UPLOAD_CARD_MM};
 use crate::store::Store;
+use crate::upscaler::CancelToken;
 
 pub const UPLOAD_SCHEME: &str = "upload://";
 /// Art URL prefix the Node API wrote into decks; still present in migrated
@@ -167,18 +168,28 @@ impl Images {
     /// Returns the cached original bytes for an art URL, downloading on a miss.
     /// Concurrent readers of the same URL wait for the first download.
     pub async fn read(&self, url: &str) -> AppResult<Vec<u8>> {
+        self.read_cancellable(url, &CancelToken::default()).await
+    }
+
+    pub async fn read_cancellable(&self, url: &str, cancel: &CancelToken) -> AppResult<Vec<u8>> {
+        cancel.check()?;
         if let Some(id) = upload_id(url) {
             let id = id?;
             if self.store.get::<Upload>("upload", &id)?.is_none() {
                 return Err(AppError::not_found("Uploaded image not found"));
             }
-            return Ok(tokio::fs::read(self.upload_path(&id)).await?);
+            let bytes = tokio::fs::read(self.upload_path(&id)).await;
+            cancel.check()?;
+            return Ok(bytes?);
         }
         validate_image_url(url)?;
         let key = image_key(url);
         let path = self.root.join("images").join(&key);
         loop {
-            match tokio::fs::read(&path).await {
+            cancel.check()?;
+            let cached = tokio::fs::read(&path).await;
+            cancel.check()?;
+            match cached {
                 Ok(bytes) => return Ok(bytes),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
@@ -194,10 +205,14 @@ impl Images {
                 }
             };
             if let Some(notify) = waiter {
-                wait_for_leader(&self.pending, &key, &notify).await;
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err(AppError::Cancelled),
+                    _ = wait_for_leader(&self.pending, &key, &notify) => {}
+                }
                 continue;
             }
-            let result = self.download_to(url, &path).await;
+            let result = self.download_to(url, &path, cancel).await;
             let notify = self
                 .pending
                 .lock()
@@ -206,17 +221,33 @@ impl Images {
             if let Some(notify) = notify {
                 notify.notify_waiters();
             }
+            cancel.check()?;
             return result;
         }
     }
 
-    async fn download_to(&self, url: &str, path: &Path) -> AppResult<Vec<u8>> {
-        let bytes = self.download(url).await?;
+    async fn download_to(
+        &self,
+        url: &str,
+        path: &Path,
+        cancel: &CancelToken,
+    ) -> AppResult<Vec<u8>> {
+        let bytes = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(AppError::Cancelled),
+            result = self.download(url) => result?,
+        };
+        cancel.check()?;
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
+        cancel.check()?;
         let tmp = path.with_extension(format!("part-{}", new_id()));
         tokio::fs::write(&tmp, &bytes).await?;
+        if cancel.is_cancelled() {
+            let _ = tokio::fs::remove_file(&tmp).await;
+            return Err(AppError::Cancelled);
+        }
         tokio::fs::rename(&tmp, path).await?;
         Ok(bytes)
     }

@@ -1,5 +1,8 @@
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::models::{PrintSettings, Provider};
@@ -217,6 +220,92 @@ fn comparison_cancels_during_inference_without_loading_later_models() {
     assert!(matches!(result, Err(AppError::Cancelled)));
 }
 
+#[test]
+fn cancelled_cold_load_leaves_the_model_unloaded_and_allows_retry() {
+    let temp = tempfile::tempdir().unwrap();
+    let manager = ModelManager::new(bundled_resources(), temp.path()).unwrap();
+    let id = default_model_id();
+    let cancel = CancelToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        manager.upscaler_cancellable(&id, &cancel),
+        Err(AppError::Cancelled)
+    ));
+    assert!(manager.loaded_info().is_none());
+    assert_eq!(manager.upscaler(&id).unwrap().info().model_id, id);
+}
+
+thread_local! {
+    static LOAD_GATE: Cell<Option<LoadGate>> = const { Cell::new(None) };
+    static NATIVE_LOAD_CANCELLED: Cell<bool> = const { Cell::new(false) };
+}
+
+struct LoadGate {
+    started: mpsc::Sender<()>,
+    resume: mpsc::Receiver<()>,
+}
+
+struct ObserveLoad;
+
+impl log::Log for ObserveLoad {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.target() == "deckpress_core::upscaler::ort_backend"
+            && metadata.level() == log::Level::Trace
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        match record.args().to_string().as_str() {
+            "Initializing session." => {
+                if let Some(gate) = LOAD_GATE.take() {
+                    let _ = gate.started.send(());
+                    let _ = gate.resume.recv_timeout(Duration::from_secs(3));
+                }
+            }
+            "ONNX session creation failed: ModelLoadCanceled" => NATIVE_LOAD_CANCELLED.set(true),
+            _ => {}
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+#[test]
+fn cancelling_in_flight_onnx_session_creation_returns_promptly() {
+    log::set_logger(&ObserveLoad).unwrap();
+    log::set_max_level(log::LevelFilter::Trace);
+    let temp = tempfile::tempdir().unwrap();
+    let manager = ModelManager::new(bundled_resources(), temp.path()).unwrap();
+    let cancel = CancelToken::default();
+    let (started, initializing) = mpsc::channel();
+    let (resume, resume_load) = mpsc::channel();
+    let (finished, result) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let (manager, cancel) = (&manager, &cancel);
+        scope.spawn(move || {
+            LOAD_GATE.set(Some(LoadGate {
+                started,
+                resume: resume_load,
+            }));
+            let result = manager.upscaler_cancellable(&default_model_id(), cancel);
+            let _ = finished.send((result, NATIVE_LOAD_CANCELLED.get()));
+        });
+        initializing.recv_timeout(Duration::from_secs(10)).unwrap();
+        let start = Instant::now();
+        cancel.cancel();
+        resume.send(()).unwrap();
+        assert!(matches!(
+            result.recv_timeout(Duration::from_secs(1)),
+            Ok((Err(AppError::Cancelled), true))
+        ));
+        assert!(start.elapsed() < Duration::from_secs(1));
+    });
+
+    assert!(manager.loaded_info().is_none());
+}
+
 /// Nearest-neighbour 2x "model" with a batch of 2, used to validate tiling.
 struct Nearest;
 
@@ -254,6 +343,39 @@ impl TileModel for Nearest {
         }
         Ok(out)
     }
+}
+
+#[test]
+fn cancelling_a_waiter_does_not_require_the_running_model_to_unlock() {
+    let upscaler = TiledUpscaler::new(Nearest, 0);
+    let image = RgbImage::new(16, 16);
+    let cancel = CancelToken::default();
+    let (locked, lock_held) = mpsc::channel();
+    let (release, wait_for_release) = mpsc::channel();
+    let (done, result) = mpsc::channel();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let mut wait_for_release = Some(wait_for_release);
+            upscaler
+                .upscale(&image, &CancelToken::default(), &mut |_, _| {
+                    if let Some(wait) = wait_for_release.take() {
+                        locked.send(()).unwrap();
+                        wait.recv().unwrap();
+                    }
+                })
+                .unwrap();
+        });
+        lock_held.recv_timeout(Duration::from_secs(2)).unwrap();
+        scope.spawn(|| {
+            done.send(upscaler.upscale(&image, &cancel, &mut |_, _| {}))
+                .unwrap();
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        cancel.cancel();
+        let cancelled = result.recv_timeout(Duration::from_millis(900));
+        release.send(()).unwrap();
+        assert!(matches!(cancelled, Ok(Err(AppError::Cancelled))));
+    });
 }
 
 #[test]

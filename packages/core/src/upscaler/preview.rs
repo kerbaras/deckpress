@@ -124,7 +124,7 @@ pub fn compare_at(
             .into_iter()
             .filter(|status| status.installed)
             .map(|status| status.spec.id),
-        |id| models.upscaler(id),
+        |id| models.upscaler_cancellable(id, cancel),
         position,
         cancel,
     )

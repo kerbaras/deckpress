@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use image::RgbImage;
 use serde::Serialize;
+use tokio::sync::Notify;
 
 use crate::error::AppResult;
 
@@ -21,6 +22,7 @@ type CancelHook = dyn Fn() + Send + Sync;
 #[derive(Default)]
 struct Cancellation {
     cancelled: AtomicBool,
+    wake: Notify,
     hooks: Mutex<Vec<Weak<CancelHook>>>,
 }
 
@@ -31,6 +33,7 @@ pub struct CancelToken(Arc<Cancellation>);
 impl CancelToken {
     pub fn cancel(&self) {
         if !self.0.cancelled.swap(true, Ordering::SeqCst) {
+            self.0.wake.notify_waiters();
             let mut hooks = self.0.hooks.lock().unwrap_or_else(|err| err.into_inner());
             for hook in hooks.drain(..).filter_map(|hook| hook.upgrade()) {
                 hook();
@@ -47,6 +50,13 @@ impl CancelToken {
             Err(crate::error::AppError::Cancelled)
         } else {
             Ok(())
+        }
+    }
+
+    pub async fn cancelled(&self) {
+        let notified = self.0.wake.notified();
+        if !self.is_cancelled() {
+            notified.await;
         }
     }
 

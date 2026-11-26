@@ -128,7 +128,10 @@ pub async fn compare_upscalers(
         .cloned()
         .ok_or(AppError::Cancelled)?;
     let result = async {
-        let source = state.images.read(&art.image_url).await?;
+        let source = state
+            .images
+            .read_cancellable(&art.image_url, &cancel)
+            .await?;
         let models = Arc::clone(&state.models);
         tokio::task::spawn_blocking(move || {
             preview::compare_at(

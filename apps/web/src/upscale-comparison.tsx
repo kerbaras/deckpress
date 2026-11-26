@@ -74,10 +74,11 @@ function CropPicker({
           const delta = arrowSteps[event.key as keyof typeof arrowSteps];
           if (!delta) return;
           event.preventDefault();
-          onMove({
+          const next = {
             x: clampPosition(position.x + delta.x),
             y: clampPosition(position.y + delta.y),
-          });
+          };
+          if (next.x !== position.x || next.y !== position.y) onMove(next);
         }}
         onClick={(event) => {
           if (event.detail === 0) onMove(position);
