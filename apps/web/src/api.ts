@@ -503,6 +503,19 @@ export async function downloadJson(deck: Deck): Promise<boolean> {
   return true;
 }
 
+export async function downloadCutTemplate(deck: Deck): Promise<void> {
+  const destination = await save({
+    title: "Save cut template",
+    defaultPath: `${deck.name.replace(/[^\w-]+/g, "-")}-cut-template.svg`,
+    filters: [{ name: "SVG cut template", extensions: ["svg"] }],
+  });
+  if (!destination) return;
+  await command("save_cut_template", nothing, {
+    destination,
+    settings: deck.printSettings,
+  });
+}
+
 export async function downloadMpcXml(deck: Deck): Promise<boolean> {
   const contents = await exportMpcXml(deck.entries, lookupMpcArtwork);
   const destination = await save({
