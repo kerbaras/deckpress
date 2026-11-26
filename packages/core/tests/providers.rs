@@ -195,8 +195,8 @@ async fn moxfield_companion_section_is_a_companion_heading_in_any_board_order() 
 async fn archidekt_import_puts_companion_categories_under_a_companion_heading() {
     let store = Arc::new(Store::in_memory().unwrap());
     let key = hex::encode(Sha256::digest("https://archidekt.com/api/decks/42/null"));
-    let card = |name: &str, category: &str, set: &str, cn: &str| {
-        serde_json::json!({"quantity": 1, "categories": [category], "card": {
+    let card = |name: &str, categories: &[&str], set: &str, cn: &str| {
+        serde_json::json!({"quantity": 1, "categories": categories, "card": {
             "oracleCard": {"name": name},
             "edition": {"editioncode": set},
             "collectorNumber": cn
@@ -207,10 +207,18 @@ async fn archidekt_import_puts_companion_categories_under_a_companion_heading() 
             "cache",
             &key,
             &serde_json::json!({
-                "categories": [{"name": "Companion", "includedInDeck": false}],
+                "categories": [
+                    {"name": "Companion", "includedInDeck": false},
+                    {"name": "Maybeboard", "includedInDeck": false},
+                    {"name": "Considering", "includedInDeck": false},
+                    {"name": "Creature", "includedInDeck": true}
+                ],
                 "cards": [
-                    card("Lurrus of the Dream-Den", "Companion", "iko", "226"),
-                    card("Ranger-Captain of Eos", "Creature", "mh1", "21"),
+                    card("Lurrus of the Dream-Den", &["Companion"], "iko", "226"),
+                    card("Ranger-Captain of Eos", &["Creature"], "mh1", "21"),
+                    card("Yorion, Sky Nomad", &["Companion", "Creature"], "iko", "232"),
+                    card("Kaheera, the Orphanguard", &["Companion", "Maybeboard"], "iko", "7"),
+                    card("Jegantha, the Wellspring", &["Considering", "Companion"], "iko", "222"),
                 ]
             }),
         )
@@ -222,7 +230,19 @@ async fn archidekt_import_puts_companion_categories_under_a_companion_heading() 
         .unwrap();
     assert_eq!(
         text,
-        "Companion\n1 Lurrus of the Dream-Den (iko) 226\nDeck\n1 Ranger-Captain of Eos (mh1) 21"
+        [
+            "Companion",
+            "1 Lurrus of the Dream-Den (iko) 226",
+            "Deck",
+            "1 Ranger-Captain of Eos (mh1) 21",
+            "Companion",
+            "1 Yorion, Sky Nomad (iko) 232",
+            "Maybeboard",
+            "1 Kaheera, the Orphanguard (iko) 7",
+            "Maybeboard",
+            "1 Jegantha, the Wellspring (iko) 222",
+        ]
+        .join("\n")
     );
 }
 

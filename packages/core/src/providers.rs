@@ -1011,13 +1011,16 @@ impl Providers {
                     .filter_map(|c| c.as_str().map(str::to_string))
                     .collect();
                 let lower: Vec<String> = categories.iter().map(|c| c.to_lowercase()).collect();
+                let excluded_board = categories
+                    .iter()
+                    .any(|c| !c.eq_ignore_ascii_case("companion") && excluded.contains(c));
                 let zone = if lower.iter().any(|c| c == "commander") {
                     "Commander"
-                } else if lower.iter().any(|c| c == "companion") {
+                } else if !excluded_board && lower.iter().any(|c| c == "companion") {
                     "Companion"
                 } else if lower.iter().any(|c| c == "sideboard") {
                     "Sideboard"
-                } else if categories.iter().any(|c| excluded.contains(c)) {
+                } else if excluded_board {
                     "Maybeboard"
                 } else {
                     "Deck"

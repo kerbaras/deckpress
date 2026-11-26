@@ -3890,6 +3890,7 @@ it.each([
       onChange={() => {}}
       onSave={async (value) => value}
       onJobs={() => {}}
+      mpcExport={{ busy: false, run: () => {} }}
     />,
   );
   const summary = within(screen.getByRole("region", { name: "Print summary" }));
