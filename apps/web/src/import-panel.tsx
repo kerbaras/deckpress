@@ -1,7 +1,18 @@
-import { Check, FileUp, ListPlus } from "lucide-react";
-import { useState } from "react";
-import { api, type ImportResult } from "./api.ts";
+import {
+  AlertCircle,
+  ClipboardPaste,
+  FileUp,
+  ListPlus,
+  RotateCw,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { api, type ImportResult, UrlImportError } from "./api.ts";
+import { ImportReview, importStatus } from "./import-review.tsx";
 import { countCards, ErrorNotice, useTask } from "./ui.tsx";
+
+type Mode = "paste" | "file" | "url";
+const modes: Mode[] = ["paste", "file", "url"];
+const modeLabels = { paste: "Paste", file: "File", url: "URL" };
 
 export function ImportPanel({
   existing,
@@ -10,17 +21,50 @@ export function ImportPanel({
   existing: number;
   onApply: (result: ImportResult, replace: boolean) => Promise<void>;
 }) {
-  const [mode, setMode] = useState("paste");
+  const [mode, setMode] = useState<Mode>("paste");
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [resolvedMode, setResolvedMode] = useState<Mode>("paste");
   const [replace, setReplace] = useState(false);
-  const [applied, setApplied] = useState(false);
+  const [saved, setSaved] = useState<number | null>(null);
+  const [urlError, setUrlError] = useState<string | null>(null);
+  const [focusPaste, setFocusPaste] = useState(false);
+  const decklist = useRef<HTMLTextAreaElement>(null);
+  const retry = useRef<HTMLButtonElement>(null);
   const task = useTask();
+  const save = useTask();
+  const busy = task.busy || save.busy;
   const reset = () => {
     setResult(null);
-    setApplied(false);
+    setSaved(null);
+    setUrlError(null);
   };
+  const switchMode = (next: Mode) => {
+    setMode(next);
+    reset();
+  };
+  useEffect(() => {
+    if (!focusPaste || mode !== "paste") return;
+    decklist.current?.focus();
+    setFocusPaste(false);
+  }, [focusPaste, mode]);
+  useEffect(() => {
+    if (urlError) retry.current?.focus();
+  }, [urlError]);
+  const resolve = () =>
+    void task.run(async () => {
+      reset();
+      try {
+        setResult(
+          await api.import(mode === "url" ? { url: url.trim() } : { text }),
+        );
+        setResolvedMode(mode);
+      } catch (error) {
+        if (!(error instanceof UrlImportError)) throw error;
+        setUrlError(error.message);
+      }
+    });
   return (
     <section className="panel import-panel">
       <div className="section-heading">
@@ -31,22 +75,19 @@ export function ImportPanel({
         <span className="badge">Auto-detect</span>
       </div>
       <div className="segmented">
-        {["paste", "file", "url"].map((value) => (
+        {modes.map((value) => (
           <button
             type="button"
             key={value}
-            disabled={task.busy}
+            disabled={busy}
             aria-pressed={mode === value}
-            onClick={() => {
-              setMode(value);
-              reset();
-            }}
+            onClick={() => switchMode(value)}
           >
-            {value === "url" ? "URL" : value === "file" ? "File" : "Paste"}
+            {modeLabels[value]}
           </button>
         ))}
       </div>
-      <fieldset disabled={task.busy}>
+      <fieldset disabled={busy}>
         {mode === "url" ? (
           <>
             <label className="field">
@@ -62,8 +103,9 @@ export function ImportPanel({
               />
             </label>
             <p className="hint">
-              If the source blocks imports, export a text list from the site and
-              paste it here.
+              Public Archidekt decks import directly. Moxfield may block apps
+              outside the browser. If it does, use More › Download / Export ›
+              Copy Plain Text there and paste the list instead.
             </p>
           </>
         ) : (
@@ -93,6 +135,7 @@ export function ImportPanel({
             <label className="field">
               Decklist
               <textarea
+                ref={decklist}
                 className="decklist-input"
                 spellCheck={false}
                 placeholder={
@@ -115,79 +158,62 @@ export function ImportPanel({
           type="button"
           className="wide"
           disabled={mode === "url" ? !url.trim() : !text.trim()}
-          onClick={() =>
-            void task.run(async () => {
-              reset();
-              setResult(
-                await api.import(
-                  mode === "url" ? { url: url.trim() } : { text },
-                ),
-              );
-            })
-          }
+          onClick={resolve}
         >
           {task.busy ? "Resolving cards…" : "Resolve on Scryfall"}
         </button>
       </fieldset>
       <ErrorNotice error={task.error} />
-      {result && (
-        <div className="import-result">
-          <span className="badge official">{result.format}</span>
-          <p>
-            <Check size={16} />
-            {countCards(result.entries)} cards resolved
-          </p>
-          {result.issues.length > 0 && (
-            <div className="import-issues">
-              <strong>
-                {result.issues.length}{" "}
-                {result.issues.length === 1 ? "line needs" : "lines need"}{" "}
-                review
-              </strong>
-              {result.issues.map((issue) => (
-                <div key={`${issue.line}-${issue.input}-${issue.message}`}>
-                  <code>{issue.input}</code>
-                  <span>{issue.message}</span>
-                </div>
-              ))}
-              <p>
-                Only resolved cards will be imported. Correct these lines and
-                resolve again to include them.
-              </p>
-            </div>
-          )}
-          {existing > 0 && (
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={replace}
-                onChange={(event) => {
-                  setReplace(event.target.checked);
-                  setApplied(false);
-                }}
-              />
-              Replace current list, keeping matching art choices
-            </label>
-          )}
-          <button
-            type="button"
-            className="primary wide"
-            disabled={task.busy || !result.entries.length || applied}
-            onClick={() =>
-              void task.run(async () => {
-                await onApply(result, replace);
-                setApplied(true);
-              })
-            }
-          >
-            {applied
-              ? "Imported and saved"
-              : replace
-                ? `Replace list with ${countCards(result.entries)} cards`
-                : `Add ${countCards(result.entries)} cards to deck`}
-          </button>
+      {urlError && mode === "url" && (
+        <div className="notice error import-url-error" role="alert">
+          <AlertCircle size={17} />
+          <span>{urlError}</span>
+          <div className="actions">
+            <button
+              type="button"
+              onClick={() => {
+                switchMode("paste");
+                setFocusPaste(true);
+              }}
+            >
+              <ClipboardPaste size={15} />
+              Paste exported list
+            </button>
+            <button ref={retry} type="button" disabled={busy} onClick={resolve}>
+              <RotateCw size={15} />
+              Retry URL
+            </button>
+          </div>
         </div>
       )}
+      {result && (
+        <ImportReview
+          result={result}
+          existing={existing}
+          replace={replace}
+          onReplace={(value) => {
+            setReplace(value);
+            setSaved(null);
+          }}
+          showLines={resolvedMode !== "url"}
+          saving={save.busy}
+          saved={saved}
+          saveError={save.error}
+          onSave={() =>
+            void save.run(async () => {
+              await onApply(result, replace);
+              setSaved(countCards(result.entries));
+            })
+          }
+        />
+      )}
+      <p className="import-status" role="status">
+        {saved === null && result ? (
+          <span className="sr-only">{importStatus(result, saved)}</span>
+        ) : (
+          importStatus(result, saved)
+        )}
+      </p>
     </section>
   );
 }

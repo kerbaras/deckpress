@@ -233,7 +233,7 @@ it("creates a deck, imports resolved cards, and reopens the saved project", asyn
   );
   expect(
     await screen.findByRole("button", { name: "Imported and saved" }),
-  ).toBeDisabled();
+  ).toHaveAttribute("aria-disabled", "true");
   await user.click(screen.getByRole("button", { name: "Back to decks" }));
   await user.click(await screen.findByRole("button", { name: "Open Burn" }));
   expect(

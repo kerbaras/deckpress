@@ -1163,7 +1163,9 @@ pre {
   flex-direction: column;
   gap: 12px;
 }
-.import-result > p {
+.import-result > .import-summary {
+  font: inherit;
+  margin: 0;
   display: flex;
   gap: 6px;
   align-items: center;
@@ -1176,7 +1178,15 @@ pre {
   padding: 11px;
   border-radius: 6px;
 }
-.import-issues > div {
+.import-issues p {
+  margin-top: 10px;
+}
+.import-issues ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.import-issues li {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1184,8 +1194,48 @@ pre {
   margin-top: 9px;
   padding-top: 9px;
 }
-.import-issues p {
-  margin-top: 10px;
+.import-line {
+  font-weight: 600;
+}
+.import-boards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11.5px;
+}
+.import-boards li {
+  display: flex;
+  gap: 6px;
+  border: 1px solid #3d4049;
+  border-radius: 6px;
+  padding: 4px 8px;
+  color: var(--muted);
+}
+.import-boards strong {
+  color: #ececee;
+}
+.import-status {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.import-url-error {
+  flex-wrap: wrap;
+}
+.import-url-error .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  padding-left: 26px;
+}
+.import-url-error button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .deck-cards {
   min-width: 0;

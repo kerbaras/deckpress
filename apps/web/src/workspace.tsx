@@ -246,7 +246,7 @@ function DeckWorkspace({
       {view === "edit" && (
         <div className="editor-layout">
           <ImportPanel
-            existing={deck.entries.length}
+            existing={countCards(deck.entries)}
             onApply={async (result, replace) => {
               await commit({
                 ...deck,

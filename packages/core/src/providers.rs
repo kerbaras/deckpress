@@ -208,9 +208,23 @@ impl Providers {
     }
 
     pub async fn json(&self, url: &str, body: Option<Value>) -> AppResult<Value> {
+        self.json_or_status(url, body).await?.map_err(|status| {
+            AppError::user(format!(
+                "Provider returned {status}. Try again or import an exported decklist instead."
+            ))
+        })
+    }
+
+    /// Like [`Self::json`], but hands a non-success HTTP status back to the
+    /// caller so it can explain that provider's refusal.
+    async fn json_or_status(
+        &self,
+        url: &str,
+        body: Option<Value>,
+    ) -> AppResult<Result<Value, u16>> {
         let key = cache_key(url, body.as_ref());
         if let Some(cached) = self.store.cached(&key)? {
-            return Ok(cached);
+            return Ok(Ok(cached));
         }
         let parsed = Url::parse(url).map_err(|_| AppError::user("Invalid provider URL"))?;
         let scryfall = parsed.host_str() == Some("api.scryfall.com");
@@ -245,23 +259,20 @@ impl Providers {
             return Err(AppError::RateLimited);
         }
         if !response.status().is_success() {
-            return Err(AppError::user(format!(
-                "Provider returned {}. Try again or import an exported decklist instead.",
-                response.status().as_u16()
-            )));
+            return Ok(Err(response.status().as_u16()));
         }
         let json: Value = response
             .json()
             .await
             .map_err(|_| AppError::user("Provider returned invalid JSON"))?;
         self.store.put("cache", &key, &json)?;
-        Ok(json)
+        Ok(Ok(json))
     }
 
     pub async fn resolve(&self, lines: Vec<ImportLine>) -> AppResult<ResolvedCards> {
         let mut entries = Vec::new();
         let mut issues = Vec::new();
-        for batch in lines.chunks(COLLECTION_BATCH) {
+        for (offset, batch) in lines.chunks(COLLECTION_BATCH).enumerate() {
             let identifiers: Vec<Value> = batch
                 .iter()
                 .map(|line| {
@@ -296,7 +307,8 @@ impl Providers {
                     }),
                 }
             }
-            for line in batch {
+            for (index, line) in batch.iter().enumerate() {
+                let position = offset * COLLECTION_BATCH + index + 1;
                 let wanted = fold_name(&line.name);
                 let found = cards.iter().find(|candidate| {
                     let front = &candidate.faces[0];
@@ -323,7 +335,7 @@ impl Providers {
                         excluded: false,
                     }),
                     None => issues.push(ImportIssue {
-                        line: 0,
+                        line: position as u32,
                         input: if line.set.is_empty() {
                             format!("{} {}", line.quantity, line.name)
                         } else {
@@ -519,11 +531,12 @@ impl Providers {
                 })
                 .ok_or_else(|| AppError::user("Invalid Moxfield deck URL"))?;
             let data = self
-                .json(
+                .json_or_status(
                     &format!("https://api2.moxfield.com/v3/decks/all/{id}"),
                     None,
                 )
-                .await?;
+                .await?
+                .map_err(moxfield_status_error)?;
             let mut lines = Vec::new();
             for (zone, board) in data
                 .get("boards")
@@ -531,7 +544,7 @@ impl Providers {
                 .into_iter()
                 .flatten()
             {
-                lines.push(zone.clone());
+                let header = lines.len();
                 for entry in board
                     .get("cards")
                     .and_then(Value::as_object)
@@ -551,6 +564,11 @@ impl Providers {
                     } else {
                         format!("{quantity} {name}")
                     });
+                }
+                // Moxfield lists every board, even empty ones; a bare header the
+                // parser doesn't know would otherwise read as a card name.
+                if lines.len() > header {
+                    lines.insert(header, zone.clone());
                 }
             }
             return Ok(lines.join("\n"));
@@ -621,5 +639,21 @@ impl Providers {
         Err(AppError::user(
             "Only public Moxfield and Archidekt URLs are supported. Other sites can be imported as text or CSV.",
         ))
+    }
+}
+
+/// Explains a failed Moxfield deck request. Moxfield answers 403 to every
+/// client that is not a web browser, so the exported text list is the way in.
+pub fn moxfield_status_error(status: u16) -> AppError {
+    match status {
+        403 => AppError::user(
+            "Moxfield refused the request (HTTP 403): it blocks apps that are not a web browser. In Moxfield, open the deck, choose More › Download / Export, click Copy Plain Text and paste the list here.",
+        ),
+        404 => AppError::user(
+            "Moxfield could not find this deck (HTTP 404). Check that the deck is public, or paste its exported text list.",
+        ),
+        status => AppError::user(format!(
+            "Moxfield returned HTTP {status}. Retry later, or paste the deck's exported text list."
+        )),
     }
 }

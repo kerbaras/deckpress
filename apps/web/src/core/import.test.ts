@@ -92,6 +92,7 @@ describe("decklist import", () => {
       "2 Island\n3 Island\n1 Island (M21) 265\nSideboard\n1 Island",
     );
     expect(result.entries.map((entry) => entry.quantity)).toEqual([5, 1, 1]);
+    expect(result.lines).toEqual([1, 3, 5]);
     expect(parseDecklist("9999 Island").issues).toHaveLength(1);
   });
 });
