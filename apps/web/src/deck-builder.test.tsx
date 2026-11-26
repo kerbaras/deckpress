@@ -325,6 +325,34 @@ it.each(["format", "theme"])(
   },
 );
 
+it.each([
+  [0, "Deck is full", "The deck is already at its target size"],
+  [1, "Fill remaining 1 slot", "Add 1 card: top suggestions, then basic lands"],
+  [
+    2,
+    "Fill remaining 2 slots",
+    "Add 2 cards: top suggestions, then basic lands",
+  ],
+])(
+  "labels the fill action when the remaining count is %i",
+  async (remaining, label, title) => {
+    vi.spyOn(api, "builderSummary").mockImplementation(
+      async (spec, entries) => {
+        const current = summary(spec, entries);
+        return { ...current, target: current.count + remaining };
+      },
+    );
+    await buildRedDraft(userEvent.setup());
+    expect(
+      screen.getByRole("heading", { name: /Suggestions\s*· 1 card$/ }),
+    ).toBeVisible();
+    const fill = await screen.findByRole("button", { name: label });
+    expect(fill).toHaveAttribute("title", title);
+    if (remaining === 0) expect(fill).toBeDisabled();
+    else expect(fill).toBeEnabled();
+  },
+);
+
 it("labels a partial deck as a draft next to Create and creates it", async () => {
   const user = userEvent.setup();
   const onCreated = vi.fn();
