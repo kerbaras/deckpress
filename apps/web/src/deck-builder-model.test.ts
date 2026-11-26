@@ -14,6 +14,7 @@ import {
   fitEntries,
   mergeEntries,
   orderEntries,
+  sameChoices,
   scorePercent,
   setQuantity,
   stepsFor,
@@ -229,6 +230,8 @@ describe("deck entries", () => {
     const names = (next: typeof r) =>
       droppedPicks(picked, r, next).map((e) => e.card.name);
 
+    expect(sameChoices(r, { ...r })).toBe(true);
+    expect(sameChoices(r, { ...r, colors: ["R"] })).toBe(false);
     expect(names({ ...r, colors: ["R", "G"] })).toEqual([]);
     expect(names({ ...r, style: "aggro", tribe: "Elf" })).toEqual([]);
     expect(names(r)).toEqual([]);

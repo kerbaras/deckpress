@@ -126,6 +126,13 @@ export function droppedPicks(
   );
 }
 
+/** True when every wizard choice is unchanged, e.g. re-picking the active format. */
+export function sameChoices(a: WizardState, b: WizardState): boolean {
+  return (Object.keys(b) as (keyof WizardState)[]).every(
+    (key) => a[key] === b[key],
+  );
+}
+
 /** Why a change drops picks, worded for the confirmation dialog. */
 export function changeReason(previous: WizardState, next: WizardState): string {
   if (next.format?.id !== previous.format?.id)

@@ -42,6 +42,7 @@ import {
   roleName,
   roleNames,
   type StepId,
+  sameChoices,
   scorePercent,
   setQuantity,
   stepNames,
@@ -146,6 +147,7 @@ function Wizard({
   };
   const update = (patch: Partial<WizardState>) => {
     const next = { ...state, ...patch };
+    if (sameChoices(state, next)) return;
     if (droppedPicks(entries, state, next).length > 0)
       setPending({ next, restore: changing ?? state });
     else apply(next);

@@ -316,8 +316,8 @@ it("asks before a format change clears the picks and keeps the format on cancel"
   expect(screen.getByText("Nothing added yet")).toBeVisible();
 });
 
-it("restores the commander when Keep follows Commander → Change", async () => {
-  const user = userEvent.setup();
+/** Commander with Radha, Aggro / Burn, then one Lightning Bolt on Cards. */
+async function buildRadhaDraft(user: ReturnType<typeof userEvent.setup>) {
   renderBuilder();
   await user.click(await screen.findByRole("button", { name: /^Commander/ }));
   await user.click(screen.getByRole("button", { name: /Next/ }));
@@ -334,6 +334,11 @@ it("restores the commander when Keep follows Commander → Change", async () => 
     await screen.findByRole("button", { name: "Add Lightning Bolt" }),
   );
   expect(deckList()).toHaveTextContent("1×Lightning Bolt");
+}
+
+it("restores the commander when Keep follows Commander → Change", async () => {
+  const user = userEvent.setup();
+  await buildRadhaDraft(user);
 
   await user.click(step("Commander"));
   await user.click(screen.getByRole("button", { name: "Change" }));
@@ -345,6 +350,35 @@ it("restores the commander when Keep follows Commander → Change", async () => 
   );
   await user.click(
     within(dialog).getByRole("button", { name: "Keep current choices" }),
+  );
+  expect(screen.getByText(/Commander:/)).toHaveTextContent(
+    "Commander: Radha, Heart of Keld",
+  );
+  expect(screen.getByRole("button", { name: /Next/ })).toBeEnabled();
+  await nextTo(user, "Cards");
+  expect(deckList()).toHaveTextContent("1×Lightning Bolt");
+  expect(deckList()).toHaveTextContent("Radha, Heart of Keld");
+});
+
+it("still restores the commander after re-picking the active format mid-Change", async () => {
+  const user = userEvent.setup();
+  await buildRadhaDraft(user);
+
+  await user.click(step("Commander"));
+  await user.click(screen.getByRole("button", { name: "Change" }));
+  await user.click(step("Format"));
+  await user.click(screen.getByRole("button", { name: /^Commander/ }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await user.click(screen.getByRole("button", { name: /Next/ }));
+  await user.type(
+    screen.getByRole("searchbox", { name: /Search legendary creatures/ }),
+    "go",
+  );
+  await user.click(await screen.findByRole("button", { name: /^Goreclaw/ }));
+  await user.click(
+    within(
+      screen.getByRole("dialog", { name: "Remove picked cards?" }),
+    ).getByRole("button", { name: "Keep current choices" }),
   );
   expect(screen.getByText(/Commander:/)).toHaveTextContent(
     "Commander: Radha, Heart of Keld",
