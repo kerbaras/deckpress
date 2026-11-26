@@ -3611,7 +3611,9 @@ it("keys candidate collection on the chosen printing and includes it", async () 
     total: 1,
   });
   const swapped: DeckEntry = { ...entry, selectedArt: community };
+  const policy: DeckEntry = { ...entry, policyArt: [alternate] };
   expect(optionsKey(swapped)).not.toEqual(optionsKey(entry));
+  expect(optionsKey(policy)).not.toEqual(optionsKey(entry));
   expect(optionsKey({ ...entry, id: "other-entry" })).toEqual(
     optionsKey(entry),
   );
@@ -3621,6 +3623,10 @@ it("keys candidate collection on the chosen printing and includes it", async () 
   expect((await collectOptions(swapped)).map((art) => art.id)).toEqual([
     original.id,
     community.id,
+  ]);
+  expect((await collectOptions(policy)).map((art) => art.id)).toEqual([
+    original.id,
+    alternate.id,
   ]);
 });
 

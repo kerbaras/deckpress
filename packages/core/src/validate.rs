@@ -90,6 +90,13 @@ pub fn validate_entries(entries: &[DeckEntry]) -> AppResult<()> {
         if entry.board.as_deref() == Some("") {
             return Err(AppError::user("A board name cannot be empty"));
         }
+        if entry
+            .policy_art
+            .as_ref()
+            .is_some_and(|art| art.len() != entry.card.faces.len())
+        {
+            return Err(AppError::user("Policy art must match the card's faces"));
+        }
         total = total.saturating_add(entry.quantity);
     }
     if total > MAX_CARDS {

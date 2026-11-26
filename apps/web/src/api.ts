@@ -3,6 +3,7 @@ import { ask, save } from "@tauri-apps/plugin-dialog";
 import { z } from "zod";
 import {
   type Art,
+  type ArtPolicy,
   type ArtPreference,
   artPreferenceSchema,
   artSchema,
@@ -68,6 +69,22 @@ const modelStatusSchema = z.object({
   installed: z.boolean(),
   downloading: z.boolean(),
 });
+const artPreviewSchema = z.object({
+  previewId: z.uuid(),
+  canApply: z.boolean(),
+  changes: z.array(
+    z.object({
+      entryId: z.uuid(),
+      name: z.string(),
+      quantity: z.number(),
+      before: artSchema,
+      after: artSchema.nullable(),
+      kind: z.enum(["changed", "unchanged", "pinned", "unmatched", "fallback"]),
+      reason: z.string(),
+    }),
+  ),
+});
+export type ArtPreview = z.infer<typeof artPreviewSchema>;
 export type ModelStatus = z.infer<typeof modelStatusSchema>;
 const cropPreviewSchema = z
   .object({
@@ -383,6 +400,7 @@ export const api = {
           | "printSettings"
           | "coverEntryId"
           | "missingPrints"
+          | "artPolicy"
         >
       >,
   ) => command("create_deck", deckSchema, { deck: value }),
@@ -396,6 +414,40 @@ export const api = {
       { contents },
     ),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
+  previewArtPolicy: (
+    deckId: string,
+    expectedRevision: number,
+    policy: ArtPolicy,
+  ) =>
+    command("preview_art_policy", artPreviewSchema, {
+      deckId,
+      expectedRevision,
+      policy,
+    }),
+  previewArtLocalization: (
+    deckId: string,
+    expectedRevision: number,
+    entryId: string,
+    artId: string,
+  ) =>
+    command("preview_art_localization", artPreviewSchema, {
+      deckId,
+      expectedRevision,
+      entryId,
+      artId,
+    }),
+  applyArtPreview: (
+    deckId: string,
+    expectedRevision: number,
+    previewId: string,
+  ) =>
+    command("apply_art_preview", deckSchema, {
+      deckId,
+      expectedRevision,
+      previewId,
+    }),
+  undoArtChange: (deckId: string, expectedRevision: number) =>
+    command("undo_art_change", deckSchema, { deckId, expectedRevision }),
   deleteDeck: (id: string) => command("delete_deck", nothing, { id }),
   relatedTokens: (cardIds: string[]) =>
     command("related_tokens", z.array(entrySchema), { cardIds }),

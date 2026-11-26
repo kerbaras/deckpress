@@ -25,6 +25,7 @@ import {
   effectivePrintSettings,
   formatCount,
   frontArt,
+  isArtPinned,
 } from "./core/index.ts";
 import {
   languageBadge,
@@ -54,6 +55,8 @@ export function ArtPicker(props: {
   onApply: (deck: Deck) => Promise<Deck>;
   onPreviewChange?: (changed: boolean) => void;
   onUploadEdited?: (art: Art) => void;
+  canLocalize?: boolean;
+  onLocalize?: (entryId: string, artId: string) => void;
 }) {
   const { entry, onSelect } = props;
   const [activeFace, setActiveFace] = useState({
@@ -192,6 +195,8 @@ function ArtSession({
   onSelect,
   onApply,
   onUploadEdited,
+  canLocalize,
+  onLocalize,
   face,
   activeFaceControl,
   setFace,
@@ -205,6 +210,8 @@ function ArtSession({
   onSelect: (id: string, face?: number) => void;
   onApply: (deck: Deck) => Promise<Deck>;
   onUploadEdited?: (art: Art) => void;
+  canLocalize?: boolean;
+  onLocalize?: (entryId: string, artId: string) => void;
   face: number;
   activeFaceControl: React.Ref<HTMLButtonElement>;
   setFace: (face: number, restoreFocus: boolean) => void;
@@ -427,10 +434,27 @@ function ArtSession({
   };
   const apply = (next: boolean) =>
     void task.run(async () => {
-      const selected =
-        face === 0
-          ? { selectedArt: candidate?.id === original?.id ? null : candidate }
-          : { selectedBack: candidate?.id === original?.id ? null : candidate };
+      const pick = (item: DeckEntry): DeckEntry => {
+        const followsPolicy = item.policyArt && !isArtPinned(item);
+        const selection = {
+          ...item,
+          selectedArt:
+            face === 0
+              ? candidate?.id === item.card.faces[0]?.id
+                ? null
+                : candidate
+              : (item.selectedArt ?? (followsPolicy ? frontArt(item) : null)),
+          selectedBack:
+            face !== 0
+              ? !followsPolicy && candidate?.id === item.card.faces[1]?.id
+                ? null
+                : candidate
+              : item.selectedBack,
+        };
+        return isArtPinned(selection)
+          ? selection
+          : { ...selection, artPinned: true };
+      };
       const splitId =
         scope === "one" && entry.quantity > 1 ? crypto.randomUUID() : null;
       const entries = deck.entries.flatMap((item) => {
@@ -442,9 +466,9 @@ function ArtSession({
         if (splitId)
           return [
             { ...item, quantity: item.quantity - 1 },
-            { ...item, ...selected, quantity: 1, id: splitId },
+            { ...pick(item), quantity: 1, id: splitId },
           ];
-        return [{ ...item, ...selected }];
+        return [pick(item)];
       });
       const committed = await onApply({ ...deck, entries });
       const appliedEntry = committed.entries.find(
@@ -523,6 +547,65 @@ function ArtSession({
             </button>
           </div>
           <div className="spacer" />
+          {onLocalize && candidate?.provider === "scryfall" && (
+            <button
+              type="button"
+              disabled={!canLocalize || task.busy}
+              onClick={() => onLocalize(entry.id, candidate.id)}
+            >
+              Localize same illustration
+            </button>
+          )}
+          {!isArtPinned(entry) && (
+            <button
+              type="button"
+              disabled={task.busy}
+              onClick={() =>
+                void task.run(() =>
+                  onApply({
+                    ...deck,
+                    entries: deck.entries.map((item) =>
+                      item.id === entry.id
+                        ? {
+                            ...item,
+                            artPinned: true,
+                            selectedArt: item.policyArt?.[0] ?? null,
+                            selectedBack: item.policyArt?.[1] ?? null,
+                          }
+                        : item,
+                    ),
+                  }),
+                )
+              }
+            >
+              Pin current art
+            </button>
+          )}
+          {isArtPinned(entry) && (
+            <button
+              type="button"
+              disabled={task.busy}
+              onClick={() =>
+                void task.run(() =>
+                  onApply({
+                    ...deck,
+                    entries: deck.entries.map((item) =>
+                      item.id === entry.id
+                        ? {
+                            ...item,
+                            selectedArt: null,
+                            selectedBack: null,
+                            artPinned: false,
+                          }
+                        : item,
+                    ),
+                  }),
+                )
+              }
+            >
+              Follow deck art policy
+            </button>
+          )}
           {face === 0 && candidate && deck.entries.length > 1 && (
             <button
               type="button"

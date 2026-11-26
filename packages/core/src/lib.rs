@@ -3,6 +3,7 @@
 //! upscaling and the raster/PDF print pipeline. The crate has no knowledge of
 //! Tauri; the app maps its commands onto these types.
 
+pub mod art_policy;
 pub mod art_quality;
 pub mod builder;
 pub mod cut_svg;
@@ -52,6 +53,7 @@ pub struct Core {
     pub style: Arc<style::StyleMatcher>,
     pub builder: Arc<builder::Builder>,
     pub decksearch: Arc<decksearch::DeckSearch>,
+    pub art_policy: art_policy::ArtPolicies,
 }
 
 impl Core {
@@ -92,6 +94,7 @@ impl Core {
             Arc::clone(&decksearch),
         ));
         Ok(Self {
+            art_policy: art_policy::ArtPolicies::new(Arc::clone(&store), Arc::clone(&providers)),
             data_dir: data_dir.to_path_buf(),
             store,
             providers,

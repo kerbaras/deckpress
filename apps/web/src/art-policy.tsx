@@ -1,0 +1,241 @@
+import { useState } from "react";
+import type { ArtPreview } from "./api.ts";
+import {
+  type Art,
+  type ArtPolicy,
+  artBorders,
+  artFrames,
+  artTreatments,
+} from "./core/index.ts";
+import { languageCode } from "./print-language.tsx";
+import { CardImage, ErrorNotice, Modal } from "./ui.tsx";
+
+export function ArtPolicyFields({
+  current,
+  disabled,
+  busy,
+  canUndo,
+  onPreview,
+  onUndo,
+}: {
+  current: ArtPolicy | undefined;
+  disabled: boolean;
+  busy: boolean;
+  canUndo: boolean;
+  onPreview: (policy: ArtPolicy) => void;
+  onUndo: () => void;
+}) {
+  const [kind, setKind] = useState<ArtPolicy["kind"]>(
+    current?.kind ?? "original",
+  );
+  const [set, setSet] = useState(
+    current?.kind === "matchSet" ? current.set : "",
+  );
+  const [frame, setFrame] = useState<(typeof artFrames)[number] | "">(
+    current?.kind === "style" ? (current.frame ?? "") : "",
+  );
+  const [border, setBorder] = useState<(typeof artBorders)[number] | "">(
+    current?.kind === "style" ? (current.border ?? "") : "",
+  );
+  const [treatment, setTreatment] = useState<
+    (typeof artTreatments)[number] | ""
+  >(current?.kind === "style" ? (current.treatment ?? "") : "");
+  const policy: ArtPolicy =
+    kind === "matchSet"
+      ? { kind, set: set.trim().toLowerCase() }
+      : kind === "style"
+        ? {
+            kind,
+            frame: frame || null,
+            border: border || null,
+            treatment: treatment || null,
+          }
+        : { kind };
+  return (
+    <fieldset className="field">
+      <legend>Deck art policy</legend>
+      <p className="hint">
+        Apply a print preference across the deck without replacing pinned art.
+      </p>
+      <label className="field">
+        Policy
+        <select
+          value={kind}
+          disabled={busy}
+          onChange={(event) => setKind(event.target.value as ArtPolicy["kind"])}
+        >
+          <option value="original">Original printing</option>
+          <option value="latest">Latest printing</option>
+          <option value="matchSet">Match set</option>
+          <option value="style">Frame, border, or treatment</option>
+        </select>
+      </label>
+      {kind === "matchSet" && (
+        <label className="field">
+          Set code
+          <input
+            value={set}
+            disabled={busy}
+            maxLength={20}
+            placeholder="e.g. M11"
+            onChange={(event) => setSet(event.target.value)}
+          />
+        </label>
+      )}
+      {kind === "style" && (
+        <>
+          <label className="field">
+            Frame
+            <select
+              value={frame}
+              disabled={busy}
+              onChange={(event) => setFrame(event.target.value as typeof frame)}
+            >
+              <option value="">Any frame</option>
+              {artFrames.map((value) => (
+                <option key={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Border
+            <select
+              value={border}
+              disabled={busy}
+              onChange={(event) =>
+                setBorder(event.target.value as typeof border)
+              }
+            >
+              <option value="">Any border</option>
+              {artBorders.map((value) => (
+                <option key={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            Preferred treatment
+            <select
+              value={treatment}
+              disabled={busy}
+              onChange={(event) =>
+                setTreatment(event.target.value as typeof treatment)
+              }
+            >
+              <option value="">Any treatment</option>
+              <option value={artTreatments[0]}>None</option>
+              <option value={artTreatments[1]}>Full art</option>
+              <option value={artTreatments[2]}>Showcase</option>
+            </select>
+          </label>
+        </>
+      )}
+      {disabled && (
+        <p className="hint">
+          Save your deck changes before previewing or undoing art changes.
+        </p>
+      )}
+      <div className="modal-actions">
+        {canUndo && (
+          <button type="button" disabled={disabled} onClick={onUndo}>
+            Undo last art change
+          </button>
+        )}
+        <button
+          type="button"
+          aria-disabled={busy}
+          disabled={
+            disabled ||
+            (kind === "matchSet" && !set.trim()) ||
+            (kind === "style" && !frame && !border && !treatment)
+          }
+          onClick={() => {
+            if (!busy) onPreview(policy);
+          }}
+        >
+          Preview art policy
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
+const labels = {
+  changed: "Changed",
+  unchanged: "Unchanged",
+  pinned: "Pinned — unchanged",
+  unmatched: "Unmatched — unchanged",
+  fallback: "English fallback",
+};
+
+function PrintSummary({ art, label }: { art: Art; label: string }) {
+  return (
+    <div className="art-change-print">
+      <CardImage url={art.thumbnailUrl} name="" />
+      <div>
+        <span className="hint">{label}</span>
+        <div>
+          {art.set.toUpperCase() || art.source}{" "}
+          {art.collectorNumber && `#${art.collectorNumber}`} ·{" "}
+          {art.language ? languageCode(art.language) : "Language unknown"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ArtPreviewDialog({
+  preview,
+  busy,
+  error,
+  onKeep,
+  onApply,
+}: {
+  preview: ArtPreview;
+  busy: boolean;
+  error: unknown;
+  onKeep: () => void;
+  onApply: () => void;
+}) {
+  return (
+    <Modal title="Preview art changes" wide busy={busy} onClose={onKeep}>
+      <p>
+        Review the proposed printings. Your deck changes only if you apply this
+        preview.
+      </p>
+      <ul className="art-change-list" aria-label="Proposed print changes">
+        {preview.changes.map((row) => (
+          <li key={row.entryId}>
+            <strong>
+              {row.quantity}× {row.name}
+            </strong>
+            <p>
+              <span className="badge">{labels[row.kind]}</span> {row.reason}
+            </p>
+            <div className="art-change-prints">
+              <PrintSummary art={row.before} label="Current" />
+              {row.after && <PrintSummary art={row.after} label="Proposed" />}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <ErrorNotice error={error} />
+      <div className="modal-actions">
+        <button
+          type="button"
+          className="primary"
+          onClick={onKeep}
+          disabled={busy}
+        >
+          Keep current choices
+        </button>
+        <button
+          type="button"
+          onClick={onApply}
+          disabled={busy || !preview.canApply}
+        >
+          Apply art changes
+        </button>
+      </div>
+    </Modal>
+  );
+}

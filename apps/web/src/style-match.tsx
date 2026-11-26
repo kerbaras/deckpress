@@ -36,7 +36,9 @@ type Phase =
  * editions. Community art is left out on purpose: its metadata is too thin
  * to rank fairly and every image would have to be fetched from Drive. */
 export async function collectOptions(entry: DeckEntry): Promise<Art[]> {
-  const items = [entry.card.faces[0], entry.selectedArt].filter(
+  const original = entry.card.faces[0];
+  const chosen = frontArt(entry);
+  const items = [original, chosen.id === original?.id ? null : chosen].filter(
     (art): art is Art => !!art,
   );
   let page = 1;
@@ -68,7 +70,7 @@ export function optionsKey(entry: DeckEntry) {
     "style-options",
     entry.card.oracleId,
     entry.card.faces[0]?.id ?? "",
-    entry.selectedArt?.id ?? "",
+    frontArt(entry).id,
     styleLanguage(entry),
   ];
 }
@@ -92,6 +94,7 @@ export function applyPicks(
       if (!pick) return entry;
       return {
         ...entry,
+        ...(pick.id === entry.card.faces[0]?.id ? { artPinned: true } : {}),
         selectedArt: pick.id === entry.card.faces[0]?.id ? null : pick,
       };
     }),

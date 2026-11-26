@@ -60,6 +60,22 @@ export const cardSchema = z.object({
 });
 export type Card = z.infer<typeof cardSchema>;
 
+export const artFrames = ["1993", "1997", "2003", "2015", "future"] as const;
+export const artBorders = ["black", "white", "borderless"] as const;
+export const artTreatments = ["none", "fullArt", "showcase"] as const;
+export const artPolicySchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("original") }),
+  z.object({ kind: z.literal("latest") }),
+  z.object({ kind: z.literal("matchSet"), set: z.string() }),
+  z.object({
+    kind: z.literal("style"),
+    frame: z.enum(artFrames).nullable(),
+    border: z.enum(artBorders).nullable(),
+    treatment: z.enum(artTreatments).nullable(),
+  }),
+]);
+export type ArtPolicy = z.infer<typeof artPolicySchema>;
+
 export const entrySchema = z.object({
   id: z.uuid(),
   card: cardSchema,
@@ -68,6 +84,8 @@ export const entrySchema = z.object({
   board: boardSchema,
   selectedArt: artSchema.nullable().default(null),
   selectedBack: artSchema.nullable().default(null),
+  artPinned: z.boolean().optional(),
+  policyArt: z.array(artSchema).min(1).max(2).optional(),
   excluded: z.boolean().default(false),
   requestedLanguages: z.array(z.string()).optional(),
 });
@@ -177,6 +195,7 @@ export const deckSchema = z.object({
     ),
   coverEntryId: z.string().max(36).default(""),
   missingPrints: z.array(missingPrintSchema).optional(),
+  artPolicy: artPolicySchema.optional(),
   printSettings: printSettingsSchema,
   revision: z.number().int().min(0),
   createdAt: z.iso.datetime(),
@@ -216,14 +235,34 @@ export const jobSchema = z.object({
 });
 export type PrintJob = z.infer<typeof jobSchema>;
 
+export function isArtPinned(entry: DeckEntry): boolean {
+  return Boolean(entry.artPinned || entry.selectedArt || entry.selectedBack);
+}
+
+export function hasChosenArt(entry: DeckEntry): boolean {
+  return Boolean(
+    entry.selectedArt ||
+      entry.selectedBack ||
+      (!isArtPinned(entry) && entry.policyArt),
+  );
+}
+
+function effectiveFaces(entry: DeckEntry): Art[] {
+  return !isArtPinned(entry) && entry.policyArt
+    ? entry.policyArt
+    : entry.card.faces;
+}
+
 export function frontArt(entry: DeckEntry): Art {
-  const art = entry.selectedArt ?? entry.card.faces[0];
+  const art = entry.selectedArt ?? effectiveFaces(entry)[0];
   if (!art) throw new Error(`No front image for ${entry.card.name}`);
   return art;
 }
 
 export function backArt(entry: DeckEntry): Art | null {
   if (entry.selectedBack) return entry.selectedBack;
+  const back = effectiveFaces(entry)[1];
+  if (!isArtPinned(entry) && entry.policyArt && back) return back;
   const front = frontArt(entry);
   if (front.backImageUrl)
     return {
@@ -236,7 +275,7 @@ export function backArt(entry: DeckEntry): Art | null {
           ? entry.card.faces[1].illustrationId
           : undefined,
     };
-  return entry.card.faces[1] ?? null;
+  return back ?? null;
 }
 
 export function printableEntries(
@@ -308,12 +347,27 @@ export function mergeImport(
     for (const old of matches) {
       if (!remaining) break;
       const quantity = Math.min(remaining, old.quantity);
+      const selectedArt = permitsArt(old.selectedArt) ? old.selectedArt : null;
+      const selectedBack = permitsArt(old.selectedBack)
+        ? old.selectedBack
+        : null;
       result.push({
         ...entry,
         id: old.id,
         quantity,
-        selectedArt: permitsArt(old.selectedArt) ? old.selectedArt : null,
-        selectedBack: permitsArt(old.selectedBack) ? old.selectedBack : null,
+        selectedArt,
+        selectedBack,
+        artPinned:
+          old.artPinned &&
+          (old.card.id === entry.card.id ||
+            selectedArt !== null ||
+            selectedBack !== null) &&
+          selectedArt === old.selectedArt &&
+          selectedBack === old.selectedBack,
+        policyArt:
+          old.card.id === entry.card.id && old.policyArt?.every(permitsArt)
+            ? old.policyArt
+            : undefined,
         excluded: old.excluded,
       });
       used.add(old.id);

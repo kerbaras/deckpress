@@ -103,6 +103,10 @@ pub struct DeckEntry {
     pub selected_art: Option<Art>,
     #[serde(default)]
     pub selected_back: Option<Art>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub art_pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy_art: Option<Vec<Art>>,
     #[serde(default)]
     pub excluded: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -110,15 +114,34 @@ pub struct DeckEntry {
 }
 
 impl DeckEntry {
+    pub fn is_art_pinned(&self) -> bool {
+        self.art_pinned || self.selected_art.is_some() || self.selected_back.is_some()
+    }
+
+    fn effective_faces(&self) -> &[Art] {
+        self.policy_art
+            .as_deref()
+            .filter(|_| !self.is_art_pinned())
+            .unwrap_or(&self.card.faces)
+    }
+
     pub fn front_art(&self) -> &Art {
         self.selected_art
             .as_ref()
-            .or(self.card.faces.first())
+            .or(self.effective_faces().first())
             .expect("deck entries always carry at least one face")
     }
 
     pub fn back_art(&self) -> Option<Art> {
         if let Some(back) = &self.selected_back {
+            return Some(back.clone());
+        }
+        if let Some(back) = self
+            .policy_art
+            .as_ref()
+            .filter(|_| !self.is_art_pinned())
+            .and_then(|faces| faces.get(1))
+        {
             return Some(back.clone());
         }
         let front = self.front_art();
@@ -139,7 +162,7 @@ impl DeckEntry {
                 ..front.clone()
             });
         }
-        self.card.faces.get(1).cloned()
+        self.effective_faces().get(1).cloned()
     }
 }
 
@@ -353,6 +376,8 @@ pub struct Deck {
     pub cover_entry_id: String,
     #[serde(default)]
     pub print_settings: PrintSettings,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub art_policy: Option<crate::art_policy::ArtPolicy>,
     pub revision: u64,
     pub created_at: String,
     pub updated_at: String,
@@ -387,6 +412,8 @@ pub struct NewDeck {
     pub cover_entry_id: String,
     #[serde(default)]
     pub print_settings: PrintSettings,
+    #[serde(default)]
+    pub art_policy: Option<crate::art_policy::ArtPolicy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
