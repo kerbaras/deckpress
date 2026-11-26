@@ -28,7 +28,7 @@ import {
   type BuilderSummary,
   type Suggestion,
 } from "./api.ts";
-import type { Card, DeckEntry } from "./core/index.ts";
+import { type Card, type DeckEntry, formatCount } from "./core/index.ts";
 import { DroppedPicksDialog } from "./deck-builder-change.tsx";
 import {
   addCard,
@@ -421,7 +421,11 @@ function CardsStage({
           <h3>
             <Sparkles size={15} aria-hidden="true" />
             Suggestions
-            {first && <span className="muted"> · {first.total} cards</span>}
+            {first && (
+              <span className="muted">
+                {` · ${formatCount(first.total, "card")}`}
+              </span>
+            )}
           </h3>
           {roles.length > 1 && (
             <div className="chips">
@@ -449,12 +453,10 @@ function CardsStage({
           <p className="hint builder-source">
             Pool: Scryfall search <code>{first.queries[0]}</code>
             {first.queries.length > 1 &&
-              ` and ${first.queries.length - 1} more ${
-                first.queries.length === 2 ? "query" : "queries"
-              }`}
+              ` and ${formatCount(first.queries.length - 1, "more query", "more queries")}`}
             .{" "}
             {first.meta &&
-              `Play rates from the ${first.meta.decks} most-viewed public ${sourceNames[first.meta.source]} ${first.meta.label}. `}
+              `Play rates from ${formatCount(first.meta.decks, "deck")} in the most-viewed public ${sourceNames[first.meta.source]} sample (${first.meta.label}). `}
             Scores are a transparent heuristic; each card lists why.
           </p>
         )}
@@ -531,7 +533,7 @@ function CardsStage({
           title={
             remaining === 0
               ? "The deck is already at its target size"
-              : `Add ${remaining} cards: top suggestions, then basic lands`
+              : `Add ${formatCount(remaining, "card")}: top suggestions, then basic lands`
           }
           onClick={runFill}
         >
@@ -539,7 +541,7 @@ function CardsStage({
           {fill.busy
             ? "Filling…"
             : remaining
-              ? `Fill remaining ${remaining} slots`
+              ? `Fill remaining ${formatCount(remaining, "slot")}`
               : "Deck is full"}
         </button>
         <DeckList
@@ -610,7 +612,7 @@ function SuggestionRow({
           full
             ? limit === 1
               ? "Already in the deck (singleton)"
-              : `Already at ${limit} copies`
+              : `Already at ${formatCount(limit, "copy", "copies")}`
             : "Add to deck"
         }
         onClick={onAdd}
@@ -652,7 +654,7 @@ function SummaryPanel({ summary }: { summary: BuilderSummary }) {
           <div
             key={bucket.label}
             className="builder-curve-col"
-            title={`${bucket.count} cards at mana value ${bucket.label}, target about ${bucket.target}`}
+            title={`${formatCount(bucket.count, "card")} at mana value ${bucket.label}, target about ${bucket.target}`}
           >
             <span className="builder-curve-bars">
               <span
@@ -677,7 +679,7 @@ function SummaryPanel({ summary }: { summary: BuilderSummary }) {
                 key={share.color}
                 className={`mana-${share.color}`}
                 style={{ flex: share.pips || 1 }}
-                title={`${share.color}: ${share.pips} pips in ${share.cards} cards`}
+                title={`${share.color}: ${formatCount(share.pips, "pip")} in ${formatCount(share.cards, "card")}`}
               />
             ))}
           </span>
