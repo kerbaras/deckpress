@@ -420,6 +420,7 @@ function NewDeck({
         <label className="field">
           Deck name
           <input
+            ref={(input) => input?.setAttribute("autofocus", "")}
             required
             maxLength={100}
             placeholder="Your next favorite deck"

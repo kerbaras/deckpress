@@ -13,7 +13,14 @@ import {
   Trash2,
   Wand2,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   api,
   type BuilderOptions,
@@ -126,6 +133,14 @@ function Wizard({
   const client = useQueryClient();
   const [state, setState] = useState<WizardState>(emptyState);
   const [index, setIndex] = useState(0);
+  const previousIndex = useRef(index);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const actionNoteId = useId();
+  useLayoutEffect(() => {
+    if (previousIndex.current === index) return;
+    previousIndex.current = index;
+    headingRef.current?.focus();
+  }, [index]);
   const [entries, setEntries] = useState<DeckEntry[]>([]);
   const [name, setName] = useState("");
   const task = useTask();
@@ -203,6 +218,7 @@ function Wizard({
 
   const count = countCards(entries);
   const target = state.format?.deckSize ?? 0;
+  const stepProps = { options, state, update, headingRef };
   return (
     <>
       <PageToolbar
@@ -247,59 +263,68 @@ function Wizard({
           </button>
         )}
         {step !== "cards" ? (
-          <button
-            type="button"
-            className="primary"
-            disabled={Boolean(stop)}
-            title={stop ?? undefined}
-            onClick={next}
-          >
-            Next
-            <ArrowRight size={15} />
-          </button>
+          <>
+            <span
+              className="hint builder-action-note"
+              id={actionNoteId}
+              role="status"
+            >
+              {stop && `${stop}.`}
+            </span>
+            <button
+              type="button"
+              className="primary builder-next"
+              aria-disabled={stop ? true : undefined}
+              aria-describedby={stop ? actionNoteId : undefined}
+              onClick={next}
+            >
+              Next
+              <ArrowRight size={15} />
+            </button>
+          </>
         ) : (
-          <button
-            type="button"
-            className="primary"
-            disabled={task.busy || entries.length === 0}
-            title={
-              entries.length === 0
-                ? "Add at least one card first"
-                : count === target
-                  ? "Create the deck and open it"
-                  : `Create with ${count} of ${target} cards; finish it in the editor`
-            }
-            onClick={create}
-          >
-            <Check size={15} />
-            {task.busy ? "Creating…" : "Create deck"}
-          </button>
+          <>
+            <span className="hint builder-action-note" id={actionNoteId}>
+              {count < target && "Draft · "}
+              {count} of {target} cards
+            </span>
+            <button
+              type="button"
+              className="primary"
+              disabled={task.busy || entries.length === 0}
+              aria-describedby={actionNoteId}
+              title={
+                entries.length === 0 ? "Add at least one card first" : undefined
+              }
+              onClick={create}
+            >
+              <Check size={15} />
+              {task.busy ? "Creating…" : "Create deck"}
+            </button>
+          </>
         )}
       </PageToolbar>
       <div className="page-content builder">
         <ErrorNotice error={task.error} />
-        {step === "format" && (
-          <FormatStep options={options} state={state} update={update} />
-        )}
-        {step === "commander" && (
-          <CommanderStep options={options} state={state} update={update} />
-        )}
-        {step === "colors" && (
-          <ColorsStep options={options} state={state} update={update} />
-        )}
-        {step === "style" && (
-          <StyleStep options={options} state={state} update={update} />
-        )}
+        {step === "format" && <FormatStep {...stepProps} />}
+        {step === "commander" && <CommanderStep {...stepProps} />}
+        {step === "colors" && <ColorsStep {...stepProps} />}
+        {step === "style" && <StyleStep {...stepProps} />}
         {step === "cards" && spec && state.format && (
-          <CardsStage
-            spec={spec}
-            maxCopies={state.format.maxCopies}
-            entries={entries}
-            setEntries={setEntries}
-            name={name}
-            suggestedName={suggestedName}
-            setName={setName}
-          />
+          <>
+            <h2 className="builder-intro-title" ref={headingRef} tabIndex={-1}>
+              {stepNames.cards}
+            </h2>
+            <CardsStage
+              spec={spec}
+              maxCopies={state.format.maxCopies}
+              entries={entries}
+              setEntries={setEntries}
+              name={name}
+              suggestedName={suggestedName}
+              setName={setName}
+            />
+          </>
         )}
         {change && pending && (
           <DroppedPicksDialog
@@ -314,11 +339,6 @@ function Wizard({
               setChange(null);
             }}
           />
-        )}
-        {stop && step !== "cards" && (
-          <p className="hint builder-blocker" role="status">
-            {stop}.
-          </p>
         )}
       </div>
     </>

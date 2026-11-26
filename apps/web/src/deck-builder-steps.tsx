@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Check, Crown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type Ref, useEffect, useState } from "react";
 import {
   api,
   type BuilderFormat,
@@ -21,24 +21,29 @@ interface StepProps {
   options: BuilderOptions;
   state: WizardState;
   update: (patch: Partial<WizardState>) => void;
+  headingRef: Ref<HTMLHeadingElement>;
 }
 
-export function StepIntro({
+function StepIntro({
   title,
   children,
+  headingRef,
 }: {
   title: string;
   children: React.ReactNode;
+  headingRef: Ref<HTMLHeadingElement>;
 }) {
   return (
     <header className="builder-intro">
-      <h2 className="builder-intro-title">{title}</h2>
+      <h2 className="builder-intro-title" ref={headingRef} tabIndex={-1}>
+        {title}
+      </h2>
       <p className="muted builder-intro-text">{children}</p>
     </header>
   );
 }
 
-export function FormatStep({ options, state, update }: StepProps) {
+export function FormatStep({ options, state, update, headingRef }: StepProps) {
   const choose = (format: BuilderFormat) =>
     update({
       format,
@@ -47,7 +52,7 @@ export function FormatStep({ options, state, update }: StepProps) {
     });
   return (
     <section className="builder-step">
-      <StepIntro title="What are you building?">
+      <StepIntro title="What are you building?" headingRef={headingRef}>
         The format sets the deck size, the copy limit and which cards Scryfall
         will offer.
       </StepIntro>
@@ -121,7 +126,12 @@ function SetPicker({
   );
 }
 
-export function CommanderStep({ options, state, update }: StepProps) {
+export function CommanderStep({
+  options,
+  state,
+  update,
+  headingRef,
+}: StepProps) {
   const [query, setQuery] = useState(state.commander?.name ?? "");
   const [debounced, setDebounced] = useState(query);
   useEffect(() => {
@@ -137,7 +147,7 @@ export function CommanderStep({ options, state, update }: StepProps) {
   const pick = (card: Card) => update({ commander: card, colors: card.colors });
   return (
     <section className="builder-step">
-      <StepIntro title="Who leads the deck?">
+      <StepIntro title="Who leads the deck?" headingRef={headingRef}>
         Pick a commander. Its colour identity becomes the deck's, and its rules
         text tells the builder which themes it rewards.
       </StepIntro>
@@ -247,7 +257,7 @@ function CommanderRow({
   );
 }
 
-export function ColorsStep({ options, state, update }: StepProps) {
+export function ColorsStep({ options, state, update, headingRef }: StepProps) {
   const toggle = (id: string) =>
     update({
       colors: state.colors.includes(id)
@@ -257,7 +267,7 @@ export function ColorsStep({ options, state, update }: StepProps) {
   const drafted = Boolean(state.format?.needsSet);
   return (
     <section className="builder-step">
-      <StepIntro title="Which colours?">
+      <StepIntro title="Which colours?" headingRef={headingRef}>
         {drafted
           ? "Pick the colours you drafted; only cards from the set in those colours are suggested. Two colours is the norm for a 40-card deck."
           : "Cards outside this colour identity are left out. Leave everything off for a colourless deck; two colours is the sweet spot for 60-card decks."}
@@ -296,11 +306,11 @@ export function ColorsStep({ options, state, update }: StepProps) {
   );
 }
 
-export function StyleStep({ options, state, update }: StepProps) {
+export function StyleStep({ options, state, update, headingRef }: StepProps) {
   const theme = options.themes.find((item) => item.id === state.theme);
   return (
     <section className="builder-step">
-      <StepIntro title="How does it want to win?">
+      <StepIntro title="How does it want to win?" headingRef={headingRef}>
         The play style shapes the mana curve and land count. The theme decides
         which rules text counts as synergy.
       </StepIntro>
