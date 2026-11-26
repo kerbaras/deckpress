@@ -135,6 +135,62 @@ beforeEach(() => {
   });
 });
 
+it("shows the model download error and retries the same model", async () => {
+  const user = userEvent.setup();
+  const qualityModel = {
+    ...compactModel,
+    id: "realesrgan-x4plus",
+    name: "RealESRGAN x4plus (quality)",
+    tier: "quality" as const,
+    url: "https://example.com/quality.onnx",
+    bundled: false,
+    installed: false,
+  };
+  const settings = {
+    models: [compactModel, qualityModel],
+    defaultModel: compactModel.id,
+    loaded: null,
+    storage: "Local SQLite",
+    localOnly: true,
+    dataDir: "/tmp/deckpress",
+    styleModel: null,
+  };
+  const installedModels = [compactModel, { ...qualityModel, installed: true }];
+  const message = `${qualityModel.name} download failed (HTTP 404): ${qualityModel.url}`;
+  const download = vi.fn().mockRejectedValueOnce(message);
+  download.mockImplementationOnce(() => {
+    vi.mocked(api.settings).mockResolvedValue({
+      ...settings,
+      models: installedModels,
+    });
+    return installedModels;
+  });
+  vi.mocked(api.settings).mockResolvedValue(settings);
+  mockIPC((cmd, args) => {
+    if (cmd === "download_model") return download(args);
+    if (cmd === "health") {
+      return { status: "ok", service: "@deckpress/desktop" };
+    }
+    return [];
+  });
+  window.history.replaceState(null, "", "#/settings");
+  renderWithClient(<App />);
+
+  await user.click(await screen.findByRole("button", { name: "Download" }));
+  const error = await screen.findByText(message);
+  const notice = error.closest("[role=alert]") as HTMLElement;
+  await user.click(within(notice).getByRole("button", { name: "Retry" }));
+
+  expect(
+    await screen.findAllByRole("button", { name: "Load now" }),
+  ).toHaveLength(2);
+  expect(screen.queryByText(message)).toBeNull();
+  expect(download.mock.calls).toEqual([
+    [{ id: qualityModel.id }],
+    [{ id: qualityModel.id }],
+  ]);
+});
+
 it("creates a deck, imports resolved cards, and reopens the saved project", async () => {
   const user = userEvent.setup();
   let stored: Deck | null = null;

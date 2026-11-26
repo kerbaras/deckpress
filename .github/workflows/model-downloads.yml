@@ -1,0 +1,33 @@
+name: Model downloads
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/core/models.json'
+      - 'apps/desktop/scripts/check-models.mjs'
+      - 'package.json'
+      - '.node-version'
+      - '.github/workflows/model-downloads.yml'
+  pull_request:
+    paths:
+      - 'packages/core/models.json'
+      - 'apps/desktop/scripts/check-models.mjs'
+      - 'package.json'
+      - '.node-version'
+      - '.github/workflows/model-downloads.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-models:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - run: pnpm check:models --verify-sha

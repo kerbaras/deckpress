@@ -39,6 +39,25 @@ fn manifest_has_one_default_and_bundled_files_match_their_digests() {
     }
 }
 
+#[tokio::test]
+#[ignore = "downloads release assets from the network"]
+async fn install_downloadable_models_from_manifest() {
+    let temp = tempfile::tempdir().unwrap();
+    let data_dir = std::env::var_os("DECKPRESS_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temp.path().to_path_buf());
+    let manager = ModelManager::new(bundled_resources(), &data_dir).unwrap();
+    for spec in specs().into_iter().filter(|spec| spec.url.is_some()) {
+        assert!(manager.path(&spec).is_none(), "use an empty data directory");
+        let installed = manager
+            .install(&spec.id, |_, _| {})
+            .await
+            .unwrap_or_else(|err| panic!("{}: {err}", spec.id));
+        assert_eq!(sha256_file(&installed).unwrap(), spec.sha256);
+        assert_eq!(std::fs::metadata(&installed).unwrap().len(), spec.bytes);
+    }
+}
+
 #[test]
 fn bundled_model_runs_on_cpu_and_produces_a_4x_tile() {
     let dir = tempfile::tempdir().unwrap();
