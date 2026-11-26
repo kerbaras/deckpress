@@ -22,14 +22,17 @@ import {
   type Suggestion,
 } from "./api.ts";
 import type { Card, DeckEntry } from "./core/index.ts";
+import { DroppedPicksDialog } from "./deck-builder-change.tsx";
 import {
   addCard,
   blocker,
+  changeReason,
   commanderEntry,
   copiesOf,
   copyLimit,
   deckFormatOf,
   defaultDeckName,
+  droppedPicks,
   emptyState,
   fitEntries,
   isLand,
@@ -129,10 +132,19 @@ function Wizard({
   const step: StepId = steps[Math.min(index, steps.length - 1)] ?? "format";
   const stop = blocker(state, step, options.themes);
   const spec = toSpec(state);
-  const update = (patch: Partial<WizardState>) => {
-    const next = { ...state, ...patch };
+  const [pending, setPending] = useState<{
+    next: WizardState;
+    dropped: DeckEntry[];
+  } | null>(null);
+  const apply = (next: WizardState) => {
     setEntries(fitEntries(entries, state, next));
     setState(next);
+  };
+  const update = (patch: Partial<WizardState>) => {
+    const next = { ...state, ...patch };
+    const dropped = droppedPicks(entries, state, next);
+    if (dropped.length > 0) setPending({ next, dropped });
+    else apply(next);
   };
   const picked = index > 0 || entries.length > 0 || name.trim() !== "";
   useEffect(() => {
@@ -272,6 +284,17 @@ function Wizard({
             name={name}
             suggestedName={suggestedName}
             setName={setName}
+          />
+        )}
+        {pending && (
+          <DroppedPicksDialog
+            reason={changeReason(state, pending.next)}
+            dropped={pending.dropped}
+            onKeep={() => setPending(null)}
+            onApply={() => {
+              apply(pending.next);
+              setPending(null);
+            }}
           />
         )}
         {stop && step !== "cards" && (

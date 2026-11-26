@@ -3378,3 +3378,8 @@ progress::-webkit-progress-value {
     max-height: none;
   }
 }
+.builder-dropped {
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 12px;
+}

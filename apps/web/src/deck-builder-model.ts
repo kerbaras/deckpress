@@ -111,6 +111,32 @@ export function fitEntries(
   });
 }
 
+/**
+ * Picks that `fitEntries` would drop for this change. The commander entry is
+ * rebuilt from the wizard on the way to the cards step, so it never counts.
+ */
+export function droppedPicks(
+  entries: DeckEntry[],
+  previous: WizardState,
+  next: WizardState,
+): DeckEntry[] {
+  const kept = new Set(fitEntries(entries, previous, next).map((e) => e.id));
+  return entries.filter(
+    (entry) => entry.zone !== "commander" && !kept.has(entry.id),
+  );
+}
+
+/** Why a change drops picks, worded for the confirmation dialog. */
+export function changeReason(previous: WizardState, next: WizardState): string {
+  if (next.format?.id !== previous.format?.id)
+    return `Switching to ${next.format?.name ?? "another format"} starts the card list over.`;
+  if (next.format?.needsSet && next.set !== previous.set)
+    return `Only cards from ${next.set.toUpperCase() || "the drafted set"} and basic lands fit a ${next.format.name} deck.`;
+  if (next.commander && next.commander.id !== previous.commander?.id)
+    return `Cards outside ${next.commander.name}'s colour identity no longer fit.`;
+  return "Cards outside the new colour identity no longer fit.";
+}
+
 /** The `Deck.format` label for a builder format; unknown labels fall back to Casual. */
 export const deckFormatOf = (format: BuilderFormat): Deck["format"] =>
   formats.find((label) => label === format.deckFormat) ?? "Casual";

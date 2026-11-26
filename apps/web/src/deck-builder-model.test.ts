@@ -4,10 +4,12 @@ import { artSchema, type Card } from "./core/index.ts";
 import {
   addCard,
   blocker,
+  changeReason,
   commanderEntry,
   copiesOf,
   deckFormatOf,
   defaultDeckName,
+  droppedPicks,
   emptyState,
   fitEntries,
   mergeEntries,
@@ -218,6 +220,47 @@ describe("deck entries", () => {
       drafted,
     );
     expect(kept.map((e) => e.card.name)).toEqual(["Llanowar Elves", "Forest"]);
+  });
+
+  it("lists the picks a change would drop and why, ignoring compatible changes", () => {
+    const red = { ...bolt, colors: ["R"] };
+    const picked = [...addCard([], red, 4), ...addCard([], forest, 4)];
+    const r = { ...emptyState, format: format({}), colors: ["R"] };
+    const names = (next: typeof r) =>
+      droppedPicks(picked, r, next).map((e) => e.card.name);
+
+    expect(names({ ...r, colors: ["R", "G"] })).toEqual([]);
+    expect(names({ ...r, style: "aggro", tribe: "Elf" })).toEqual([]);
+    expect(names(r)).toEqual([]);
+    expect(names({ ...r, colors: [] })).toEqual(["Lightning Bolt"]);
+    expect(changeReason(r, { ...r, colors: [] })).toMatch(
+      /outside the new colour identity/,
+    );
+    expect(names({ ...r, format: limited, set: "blb" })).toEqual([
+      "Lightning Bolt",
+      "Forest",
+    ]);
+    expect(changeReason(r, { ...r, format: limited })).toBe(
+      "Switching to Draft / Limited starts the card list over.",
+    );
+
+    const drafted = { ...r, format: limited, set: "blb" };
+    expect(changeReason(drafted, { ...drafted, set: "dsk" })).toMatch(
+      /Only cards from DSK and basic lands/,
+    );
+
+    const edh = { ...r, format: commander, commander: atraxa };
+    const deck = [commanderEntry(atraxa), ...picked];
+    const other = { ...atraxa, id: crypto.randomUUID(), colors: ["G"] };
+    expect(
+      droppedPicks(deck, edh, { ...edh, commander: other }).map(
+        (e) => e.card.name,
+      ),
+    ).toEqual(["Lightning Bolt"]);
+    expect(changeReason(edh, { ...edh, commander: other })).toMatch(
+      /outside Atraxa, Praetors' Voice's colour identity/,
+    );
+    expect(droppedPicks(deck, edh, { ...edh, commander: null })).toEqual([]);
   });
 
   it("orders commander first, then spells by mana value, lands last", () => {
