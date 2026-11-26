@@ -183,9 +183,18 @@ export function parseDecklist(input: string): ParsedDecklist {
     });
   } else if (csvHeaderDelimiter) {
     result.format = "CSV";
-    const boardLine =
-      leadingLines.match(/^\/\/ Board:[^\r\n]*(?:\r\n|\r|\n)/gm)?.pop() ?? "";
-    const csvText = boardLine + text.slice(leadingLines.length);
+    const leadingBoard = leadingLines
+      .split(/\r\n|\r|\n/)
+      .map((line) => boardComment(line.trim()))
+      .filter(Boolean)
+      .pop();
+    const boardLine = leadingBoard ? `${csvComment} ${leadingBoard}\n` : "";
+    const csvText =
+      boardLine +
+      text
+        .slice(leadingLines.length)
+        .replace(/\r\n?/g, "\n")
+        .replace(/^[ \t]+(?=\/\/ Board:)/gm, "");
     const config: Papa.ParseConfig<Record<string, string>> = {
       header: true,
       comments: csvComment,
@@ -266,6 +275,14 @@ export function parseDecklist(input: string): ParsedDecklist {
         row.name ?? row.cardname ?? "",
       );
     });
+    const unreadLine = dataLines.find((line) => !headingLines.has(line));
+    if (!result.entries.length && !result.issues.length && unreadLine)
+      result.issues.push({
+        line: unreadLine,
+        input: "CSV row",
+        message: "No cards could be read from the CSV rows",
+        category: "csv",
+      });
   } else {
     let zone: ImportLine["zone"] = "main";
     let board: string | undefined;
