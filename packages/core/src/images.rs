@@ -5,6 +5,7 @@
 //! - `uploads/<uuid>.png` normalized uploads (`upload://<uuid>` in decks)
 
 use std::collections::HashMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -55,6 +56,50 @@ const MAX_DOWNLOAD: usize = 32 * 1024 * 1024;
 const MAX_UPLOAD: usize = 16 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
 const UPLOAD_THUMBNAIL_EDGE: u32 = 480;
+
+fn upload_thumbnail_name(id: &str, bleed_mm: f64) -> String {
+    let key = image_key(&format!(
+        "{PIPELINE_VERSION}:{UPLOAD_THUMBNAIL_EDGE}:{id}:{bleed_mm}"
+    ));
+    format!("{key}.png")
+}
+
+fn prune_thumbnail_files(dir: &Path, should_remove: impl Fn(&Path) -> bool) -> bool {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return true,
+        Err(error) => {
+            log::warn!("Could not read thumbnail cache {}: {error}", dir.display());
+            return false;
+        }
+    };
+    let mut complete = true;
+    for entry in entries {
+        let path = match entry {
+            Ok(entry) => entry.path(),
+            Err(error) => {
+                log::warn!(
+                    "Could not read thumbnail cache entry in {}: {error}",
+                    dir.display()
+                );
+                complete = false;
+                continue;
+            }
+        };
+        if path.extension().is_some_and(|ext| ext == "png") && should_remove(&path) {
+            if let Err(error) = std::fs::remove_file(&path) {
+                if error.kind() != ErrorKind::NotFound {
+                    log::warn!(
+                        "Could not remove cached thumbnail {}: {error}",
+                        path.display()
+                    );
+                    complete = false;
+                }
+            }
+        }
+    }
+    complete
+}
 
 pub fn validate_image_url(input: &str) -> AppResult<Url> {
     let url = Url::parse(input).map_err(|_| AppError::user("Invalid image URL"))?;
@@ -152,12 +197,14 @@ impl Images {
             .redirect(redirect::Policy::none())
             .timeout(Duration::from_secs(45))
             .build()?;
-        Ok(Self {
+        let images = Self {
             root: root.into(),
             store,
             client,
             pending: Mutex::new(HashMap::new()),
-        })
+        };
+        images.prune_legacy_upload_thumbnails();
+        Ok(images)
     }
 
     pub fn root(&self) -> &Path {
@@ -363,8 +410,12 @@ impl Images {
     /// Updates the declaration without replacing the original image or its ID.
     pub fn update_upload_bleed(&self, url: &str, bleed_mm: Option<f64>) -> AppResult<Art> {
         let (id, mut upload) = self.saved_upload(url)?;
+        let previous = upload.art.bleed_mm;
         self.set_upload_bleed(&id, &mut upload, bleed_mm)?;
         self.store.put("upload", &id, &upload)?;
+        if previous != upload.art.bleed_mm {
+            self.prune_upload_thumbnails(&id, upload.art.bleed_mm);
+        }
         Ok(upload.art)
     }
 
@@ -409,16 +460,21 @@ impl Images {
         let input: NewDeck =
             serde_json::from_value(backup).map_err(|_| AppError::user("Invalid deck backup"))?;
         let mut uploads = HashMap::new();
+        let mut changed_bleeds = Vec::new();
         for (id, bleed) in bleeds {
             if let Some(mut upload) = self.store.get::<Upload>("upload", &id)? {
                 if upload.art.bleed_mm != bleed {
                     self.set_upload_bleed(&id, &mut upload, Some(bleed))?;
+                    changed_bleeds.push((id.clone(), upload.art.bleed_mm));
                     uploads.insert(id, upload);
                 }
             }
         }
         let updated_uploads = uploads.len();
         let deck = self.store.create_deck_with_uploads(input, uploads)?;
+        for (id, current) in changed_bleeds {
+            self.prune_upload_thumbnails(&id, current);
+        }
         Ok(RestoreResult {
             deck,
             updated_uploads,
@@ -439,6 +495,50 @@ impl Images {
         .await?
     }
 
+    fn upload_thumbnail_root(&self) -> PathBuf {
+        self.root.join("preview").join("upload-thumbnails")
+    }
+
+    fn prune_legacy_upload_thumbnails(&self) {
+        let root = self.upload_thumbnail_root();
+        let marker = root.join("flat-cache-pruned-v1");
+        match marker.try_exists() {
+            Ok(true) => return,
+            Ok(false) => {}
+            Err(error) => {
+                log::warn!(
+                    "Could not check thumbnail cleanup marker {}: {error}",
+                    marker.display()
+                );
+                return;
+            }
+        }
+        if prune_thumbnail_files(&root, |path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|stem| {
+                    stem.len() == 64 && stem.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                })
+        }) {
+            if let Err(error) = std::fs::File::create_new(&marker) {
+                if !matches!(error.kind(), ErrorKind::AlreadyExists | ErrorKind::NotFound) {
+                    log::warn!(
+                        "Could not write thumbnail cleanup marker {}: {error}",
+                        marker.display()
+                    );
+                }
+            }
+        }
+    }
+
+    fn prune_upload_thumbnails(&self, id: &str, current: f64) {
+        let current = upload_thumbnail_name(id, current);
+        prune_thumbnail_files(&self.upload_thumbnail_root().join(id), |path| {
+            path.file_name()
+                .is_some_and(|name| name != current.as_str())
+        });
+    }
+
     /// Returns the cropped thumbnail for an upload at the requested bleed.
     pub async fn upload_thumbnail(&self, url: &str, bleed_mm: f64) -> AppResult<Vec<u8>> {
         validate_upload_bleed(Some(bleed_mm))?;
@@ -446,11 +546,8 @@ impl Images {
         if bleed_mm == 0.0 {
             return Ok(tokio::fs::read(self.upload_path(&id)).await?);
         }
-        let dir = self.root.join("preview").join("upload-thumbnails");
-        let key = image_key(&format!(
-            "{PIPELINE_VERSION}:{UPLOAD_THUMBNAIL_EDGE}:{id}:{bleed_mm}"
-        ));
-        let path = dir.join(format!("{key}.png"));
+        let dir = self.upload_thumbnail_root().join(&id);
+        let path = dir.join(upload_thumbnail_name(&id, bleed_mm));
         match tokio::fs::read(&path).await {
             Ok(bytes) => return Ok(bytes),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
