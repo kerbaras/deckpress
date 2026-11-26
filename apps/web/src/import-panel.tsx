@@ -18,9 +18,12 @@ const modeLabels = { paste: "Paste", file: "File", url: "URL" };
 export function ImportPanel({
   existing,
   onApply,
+  beforeApply,
 }: {
   existing: number;
   onApply: (result: ImportResult, replace: boolean) => Promise<void>;
+  /** Returns false to stop a save before it starts, e.g. while a host form is incomplete. */
+  beforeApply?: () => boolean;
 }) {
   const [mode, setMode] = useState<Mode>("paste");
   const [text, setText] = useState("");
@@ -224,12 +227,13 @@ export function ImportPanel({
           saving={save.busy}
           saved={saved}
           saveError={save.error}
-          onSave={() =>
+          onSave={() => {
+            if (beforeApply && !beforeApply()) return;
             void save.run(async () => {
               await onApply(result, replace);
               setSaved(countCards(result.entries));
-            })
-          }
+            });
+          }}
         />
       )}
       <p className="import-status text-meta text-muted" role="status">
