@@ -1607,50 +1607,50 @@ export function PrintSetup({
               rendered by the PDF raster pipeline.
             </p>
           </div>
-          <div className="preflight">
-            <div className="preflight-title">
-              <h3>Print check</h3>
-              <span className="badge">sRGB output</span>
-            </div>
-            <dl>
-              <div>
-                <dt>Cards in export</dt>
-                <dd>{selectedCards.length}</dd>
-              </div>
-              <div>
-                <dt>Raster per card, without bleed</dt>
-                <dd className="mono">
-                  {trimPixels.trimWidth} × {trimPixels.trimHeight} px
-                </dd>
-              </div>
-              <div>
-                <dt>Estimated PDF size</dt>
-                <dd>~{Math.max(0.1, estimatedMB).toFixed(1)} MB</dd>
-              </div>
-            </dl>
-            {lowResolution > 0 && (
-              <p className="notice warning">
-                <AlertTriangle size={16} />
-                {lowResolution} unique images below target DPI.{" "}
-                {settings.upscale
-                  ? "AI will process lower-resolution sources."
-                  : "Resizing alone does not add detail."}
-              </p>
-            )}
-            {settings.marginMm < 4 && (
-              <p className="notice warning">
-                Some printers will clip margins below 4 mm.
-              </p>
-            )}
-            <p className="print-reminder">
-              <Printer size={17} />
-              <span>
-                Print at <strong>100% / actual size.</strong> Turn off “Fit to
-                page”. Check a ruler against the first sheet.
-              </span>
-            </p>
-          </div>
         </section>
+        <div className="preflight">
+          <div className="preflight-title">
+            <h3>Print check</h3>
+            <span className="badge">sRGB output</span>
+          </div>
+          <dl>
+            <div>
+              <dt>Cards in export</dt>
+              <dd>{selectedCards.length}</dd>
+            </div>
+            <div>
+              <dt>Raster per card, without bleed</dt>
+              <dd className="mono">
+                {trimPixels.trimWidth} × {trimPixels.trimHeight} px
+              </dd>
+            </div>
+            <div>
+              <dt>Estimated PDF size</dt>
+              <dd>~{Math.max(0.1, estimatedMB).toFixed(1)} MB</dd>
+            </div>
+          </dl>
+          {lowResolution > 0 && (
+            <p className="notice warning">
+              <AlertTriangle size={16} />
+              {lowResolution} unique images below target DPI.{" "}
+              {settings.upscale
+                ? "AI will process lower-resolution sources."
+                : "Resizing alone does not add detail."}
+            </p>
+          )}
+          {settings.marginMm < 4 && (
+            <p className="notice warning">
+              Some printers will clip margins below 4 mm.
+            </p>
+          )}
+          <p className="print-reminder">
+            <Printer size={17} />
+            <span>
+              Print at <strong>100% / actual size.</strong> Turn off “Fit to
+              page”. Check a ruler against the first sheet.
+            </span>
+          </p>
+        </div>
       </div>
     </div>
   );
