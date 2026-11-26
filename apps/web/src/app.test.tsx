@@ -194,12 +194,45 @@ it("shows the calibration ruler hint only on jobs that included it", async () =>
   window.history.replaceState(null, "", "#/jobs");
   renderWithClient(<App />);
   await screen.findByRole("heading", { name: "Without calibration" });
+  expect(screen.getByText("3 exports")).toBeVisible();
   expect(screen.getByRole("heading", { name: "Older export" })).toBeVisible();
   const hint = screen.getByText(
     /measure the ruler on the print-size calibration page/i,
   );
   expect(hint.closest("article")).toHaveTextContent("With calibration");
 });
+
+it.each([
+  [0, 0, 0, "0 PDF pages", "0 / 0 faces"],
+  [1, 0, 1, "1 PDF page", "0 / 1 face"],
+  [1, 1, 1, "1 PDF page", "1 / 1 face"],
+  [2, 1, 2, "2 PDF pages", "1 / 2 faces"],
+])(
+  "shows %i PDF pages and %i of %i faces with the right forms",
+  async (pages, completed, total, pageLabel, faceLabel) => {
+    const job: PrintJob = {
+      id,
+      deckId: id,
+      deckName: "Burn",
+      status: "failed",
+      completed,
+      total,
+      message: "Export failed",
+      createdAt: deck.createdAt,
+      fileName: "Burn.pdf",
+      bytes: 0,
+      pages,
+      calibrationPage: false,
+    };
+    mockIPC((cmd) => (cmd === "list_jobs" ? [job] : []));
+    window.history.replaceState(null, "", "#/jobs");
+    renderWithClient(<App />);
+    const card = await screen.findByRole("article");
+    expect(within(card).getByText(pageLabel)).toBeVisible();
+    expect(within(card).getByText(faceLabel)).toBeVisible();
+    expect(screen.getByText("1 export")).toBeVisible();
+  },
+);
 
 it("shows a singular card count in the deck workspace", async () => {
   const user = userEvent.setup();

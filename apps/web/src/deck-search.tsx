@@ -12,7 +12,12 @@ import {
   type ResolvedCards,
   searchFields,
 } from "./api.ts";
-import { type Deck, formatCount, formats, type ImportLine } from "./core/index.ts";
+import {
+  type Deck,
+  formatCount,
+  formats,
+  type ImportLine,
+} from "./core/index.ts";
 import { ImportIssueDetails, importLanguageSummary } from "./import-review.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
