@@ -18,8 +18,8 @@ import {
   createLayout,
   type Deck,
   duplexSlot,
+  fitSheetLabel,
   frontArt,
-  LABEL_SIZE_PT,
   mmToPixels,
   type PrintSettings,
   printableEntries,
@@ -147,6 +147,14 @@ export function PrintSetup({
     (art) => art.dpi < settings.dpi * 0.95,
   ).length;
   const estimatedMB = arts.length * 0.45 * (settings.dpi / 600) ** 2;
+  const label = sheetLabel(
+    settings,
+    deck.name,
+    currentPage + 1,
+    totalSheets,
+    back,
+  );
+  const labelPlacement = layout && fitSheetLabel(layout, label);
   const start = () =>
     void task.run(async () => {
       const saved = await onSave(deck);
@@ -832,21 +840,18 @@ export function PrintSetup({
                       />
                     </g>
                   ))}
-                  {layout.labelBaseline !== null && layout.slots[0] && (
+                  {labelPlacement && (
                     <text
-                      x={layout.slots[0].x}
-                      y={layout.labelBaseline}
+                      x={labelPlacement.x}
+                      y={labelPlacement.baseline}
                       fill={settings.guideColor}
-                      fontSize={LABEL_SIZE_PT}
+                      fontSize={labelPlacement.fontSizePt}
                       fontFamily="ui-monospace, monospace"
+                      textLength={labelPlacement.width}
+                      lengthAdjust="spacingAndGlyphs"
+                      xmlSpace="preserve"
                     >
-                      {sheetLabel(
-                        settings,
-                        deck.name,
-                        currentPage + 1,
-                        totalSheets,
-                        back,
-                      )}
+                      {label}
                     </text>
                   )}
                 </svg>

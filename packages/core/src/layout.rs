@@ -59,7 +59,42 @@ pub struct PrintLayout {
 /// Registration targets and the label only appear when the sheet has marks
 /// at all; `guides: none` means a clean page.
 pub const REGISTRATION_RADIUS_MM: f64 = 1.5;
-pub const LABEL_SIZE_PT: f64 = 5.0;
+const LABEL_SIZE_PT: f64 = 5.0;
+const LABEL_GLYPH_ADVANCE_EM: f64 = 0.6;
+
+pub struct SheetLabelPlacement {
+    pub x: f64,
+    pub baseline: f64,
+    pub font_size_pt: f64,
+    pub width: f64,
+}
+
+pub fn fit_sheet_label(layout: &PrintLayout, text: &str) -> Option<SheetLabelPlacement> {
+    let baseline = layout.label_baseline?;
+    let x = layout.slots.first()?.rect.x;
+    let advance = text.chars().count() as f64 * LABEL_GLYPH_ADVANCE_EM;
+    let width = (advance * LABEL_SIZE_PT).min(layout.width - x - mm_to_pt(4.0));
+    if width <= 0.0 {
+        return None;
+    }
+    Some(SheetLabelPlacement {
+        x,
+        baseline,
+        font_size_pt: width / advance,
+        width,
+    })
+}
+
+fn label_number(value: f64) -> String {
+    let thousandths = (value * 1000.0).round() as u32;
+    let whole = thousandths / 1000;
+    let fraction = thousandths % 1000;
+    if fraction == 0 {
+        return whole.to_string();
+    }
+    let fraction = format!("{fraction:03}");
+    format!("{whole}.{}", fraction.trim_end_matches('0'))
+}
 
 pub fn sheet_label(
     settings: &PrintSettings,
@@ -78,10 +113,10 @@ pub fn sheet_label(
         "{} / SHEET {sheet} OF {total_sheets} / {} / TRIM {} × {} mm / {} mm BLEED / {} DPI / PRINT AT 100%",
         name.trim(),
         if back { "BACKS" } else { "FRONTS" },
-        settings.card_width_mm,
-        settings.card_height_mm,
-        settings.bleed_mm,
-        settings.dpi
+        label_number(settings.card_width_mm),
+        label_number(settings.card_height_mm),
+        label_number(settings.bleed_mm),
+        label_number(f64::from(settings.dpi))
     )
 }
 

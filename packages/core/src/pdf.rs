@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
 use crate::layout::{
-    create_layout, duplex_slot, mm_to_pt, sheet_label, PrintLayout, Slot, LABEL_SIZE_PT,
+    create_layout, duplex_slot, fit_sheet_label, mm_to_pt, sheet_label, PrintLayout, Slot,
 };
 use crate::models::{Art, Backs, Deck, DeckEntry, PrintSettings};
 use crate::raster::{encode_jpeg, parse_hex_color, rasterize};
@@ -167,24 +167,18 @@ fn draw_registration(
 fn draw_sheet_label(
     surface: &mut krilla::surface::Surface<'_>,
     layout: &PrintLayout,
-    settings: &PrintSettings,
     font: &Font,
     color: rgb::Color,
     text: &str,
 ) {
-    let Some(baseline) = layout.label_baseline else {
+    let Some(placement) = fit_sheet_label(layout, text) else {
         return;
     };
-    let x = layout
-        .slots
-        .first()
-        .map(|slot| slot.rect.x)
-        .unwrap_or(mm_to_pt(settings.margin_mm));
     surface.set_fill(Some(fill(color)));
     surface.draw_text(
-        Point::from_xy(x as f32, baseline as f32),
+        Point::from_xy(placement.x as f32, placement.baseline as f32),
         font.clone(),
-        LABEL_SIZE_PT as f32,
+        placement.font_size_pt as f32,
         text,
         false,
         TextDirection::LeftToRight,
@@ -634,7 +628,6 @@ pub fn build_pdf(
         draw_sheet_label(
             &mut surface,
             &layout,
-            settings,
             &font,
             guide_color,
             &sheet_label(settings, &deck.name, side.sheet, total_sheets, side.back),

@@ -1,5 +1,5 @@
-use deckpress_core::layout::{create_layout, duplex_slot, mm_to_pt, sheet_label};
-use deckpress_core::models::{Backs, Guides, PrintSettings};
+use deckpress_core::layout::{create_layout, duplex_slot, fit_sheet_label, mm_to_pt, sheet_label};
+use deckpress_core::models::{Backs, Guides, Paper, PrintSettings};
 
 #[test]
 fn labels_the_exact_trim_bleed_and_dpi_on_a_back_sheet() {
@@ -14,6 +14,71 @@ fn labels_the_exact_trim_bleed_and_dpi_on_a_back_sheet() {
         sheet_label(&settings, " Proof ★ ", 2, 3, true),
         "PROOF / SHEET 2 OF 3 / BACKS / TRIM 63.5 × 88.9 mm / 0.625 mm BLEED / 600 DPI / PRINT AT 100%"
     );
+}
+
+#[test]
+fn formats_label_numbers_from_the_shared_vectors() {
+    #[derive(serde::Deserialize)]
+    struct Case {
+        settings: PrintSettings,
+        expected: String,
+    }
+
+    let cases: Vec<Case> =
+        serde_json::from_str(include_str!("fixtures/sheet-label-numbers.json")).unwrap();
+    for Case { settings, expected } in cases {
+        settings.validate().unwrap();
+        assert_eq!(
+            sheet_label(&settings, "Proof", 1, 1, false),
+            format!("PROOF / SHEET 1 OF 1 / FRONTS / {expected} / PRINT AT 100%"),
+        );
+    }
+}
+
+#[test]
+fn fits_the_complete_sheet_label_at_the_first_slot_on_narrow_paper() {
+    let cases = [
+        (
+            PrintSettings {
+                paper: Paper::Custom,
+                custom_width_mm: 115.0,
+                custom_height_mm: 180.0,
+                card_width_mm: 63.5,
+                card_height_mm: 88.9,
+                bleed_mm: 0.625,
+                dpi: 300,
+                ..PrintSettings::default()
+            },
+            "QA PRINT PROOF / SHEET 1 OF 11 / FRONTS / TRIM 63.5 × 88.9 mm / 0.625 mm BLEED / 300 DPI / PRINT AT 100%",
+        ),
+        (
+            PrintSettings {
+                paper: Paper::Custom,
+                custom_width_mm: 40.0,
+                custom_height_mm: 40.0,
+                card_width_mm: 25.0,
+                card_height_mm: 25.0,
+                bleed_mm: 0.0,
+                dpi: 150,
+                guides: Guides::Full,
+                ..PrintSettings::default()
+            },
+            "QA PRINT PROOF / SHEET 1 OF 11 / FRONTS / TRIM 25 × 25 mm / 0 mm BLEED / 150 DPI / PRINT AT 100%",
+        ),
+    ];
+    for (settings, expected) in cases {
+        settings.validate().unwrap();
+        let layout = create_layout(&settings).unwrap();
+        let sheets = 11_usize.div_ceil(layout.slots.len());
+        let text = sheet_label(&settings, "QA print proof ★", 1, sheets, false);
+        assert_eq!(text, expected);
+        let placement = fit_sheet_label(&layout, &text).unwrap();
+        assert_eq!(placement.x, layout.slots[0].rect.x);
+        assert_eq!(Some(placement.baseline), layout.label_baseline);
+        assert!(placement.font_size_pt > 0.0 && placement.font_size_pt < 5.0);
+        let right = placement.x + text.chars().count() as f64 * 0.6 * placement.font_size_pt;
+        assert!((right - (layout.width - mm_to_pt(4.0))).abs() < 1e-6);
+    }
 }
 
 #[test]

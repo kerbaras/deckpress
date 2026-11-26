@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createLayout, duplexSlot, mmToPt, sheetLabel } from "./layout.ts";
+import labelNumbers from "../../../../packages/core/tests/fixtures/sheet-label-numbers.json";
+import {
+  createLayout,
+  duplexSlot,
+  fitSheetLabel,
+  mmToPt,
+  sheetLabel,
+} from "./layout.ts";
 import { printSettingsSchema } from "./models.ts";
 
 describe("print geometry", () => {
@@ -13,6 +20,50 @@ describe("print geometry", () => {
     expect(sheetLabel(settings, " Proof ★ ", 2, 3, true)).toBe(
       "PROOF / SHEET 2 OF 3 / BACKS / TRIM 63.5 × 88.9 mm / 0.625 mm BLEED / 600 DPI / PRINT AT 100%",
     );
+  });
+
+  it.each(labelNumbers)("formats sheet labels as $expected", (vector) => {
+    const settings = printSettingsSchema.parse(vector.settings);
+    expect(sheetLabel(settings, "Proof", 1, 1, false)).toBe(
+      `PROOF / SHEET 1 OF 1 / FRONTS / ${vector.expected} / PRINT AT 100%`,
+    );
+  });
+
+  it.each([
+    {
+      customWidthMm: 115,
+      customHeightMm: 180,
+      cardWidthMm: 63.5,
+      cardHeightMm: 88.9,
+      bleedMm: 0.625,
+      dpi: 300,
+      expected:
+        "QA PRINT PROOF / SHEET 1 OF 11 / FRONTS / TRIM 63.5 × 88.9 mm / 0.625 mm BLEED / 300 DPI / PRINT AT 100%",
+    },
+    {
+      customWidthMm: 40,
+      customHeightMm: 40,
+      cardWidthMm: 25,
+      cardHeightMm: 25,
+      bleedMm: 0,
+      dpi: 150,
+      guides: "full",
+      expected:
+        "QA PRINT PROOF / SHEET 1 OF 11 / FRONTS / TRIM 25 × 25 mm / 0 mm BLEED / 150 DPI / PRINT AT 100%",
+    },
+  ])("fits the complete sheet label on $customWidthMm mm paper", (vector) => {
+    const settings = printSettingsSchema.parse({ paper: "custom", ...vector });
+    const layout = createLayout(settings);
+    const sheets = Math.ceil(11 / layout.slots.length);
+    const text = sheetLabel(settings, "QA print proof ★", 1, sheets, false);
+    expect(text).toBe(vector.expected);
+    const placement = fitSheetLabel(layout, text);
+    if (!placement) throw new Error("Missing fitted sheet label");
+    expect(placement.x).toBe(layout.slots[0]?.x);
+    expect(placement.baseline).toBe(layout.labelBaseline);
+    expect(placement.fontSizePt).toBeGreaterThan(0);
+    expect(placement.fontSizePt).toBeLessThan(5);
+    expect(placement.x + placement.width).toBeCloseTo(layout.width - mmToPt(4));
   });
 
   it.each(["a4", "letter"] as const)(

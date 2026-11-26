@@ -1,0 +1,22 @@
+[
+  {
+    "settings": { "cardWidthMm": 63.5, "cardHeightMm": 88.9, "bleedMm": 0.0000001, "dpi": 300 },
+    "expected": "TRIM 63.5 × 88.9 mm / 0 mm BLEED / 300 DPI"
+  },
+  {
+    "settings": { "cardWidthMm": 63, "cardHeightMm": 88, "bleedMm": 0.625, "dpi": 800 },
+    "expected": "TRIM 63 × 88 mm / 0.625 mm BLEED / 800 DPI"
+  },
+  {
+    "settings": { "cardWidthMm": 63.0005, "cardHeightMm": 88.4995, "bleedMm": 1.0005, "dpi": 150 },
+    "expected": "TRIM 63.001 × 88.5 mm / 1.001 mm BLEED / 150 DPI"
+  },
+  {
+    "settings": { "cardWidthMm": 63.9995, "cardHeightMm": 88.00049, "bleedMm": 0.0005, "dpi": 1200 },
+    "expected": "TRIM 64 × 88 mm / 0.001 mm BLEED / 1200 DPI"
+  },
+  {
+    "settings": { "cardWidthMm": 25, "cardHeightMm": 25, "bleedMm": 0.00049999, "dpi": 600 },
+    "expected": "TRIM 25 × 25 mm / 0 mm BLEED / 600 DPI"
+  }
+]
