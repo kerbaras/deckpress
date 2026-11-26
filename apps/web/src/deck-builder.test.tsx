@@ -3,8 +3,13 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BuilderFormat, BuilderSpec } from "./api.ts";
-import { artSchema, type Card, type DeckEntry } from "./core/index.ts";
+import { api, type BuilderFormat, type BuilderSpec } from "./api.ts";
+import {
+  artSchema,
+  type Card,
+  type DeckEntry,
+  deckSchema,
+} from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { addCard } from "./deck-builder-model.ts";
 import { ToolbarSlotProvider } from "./titlebar.tsx";
@@ -150,6 +155,7 @@ beforeEach(() => {
   vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(
     function (this: HTMLDialogElement) {
       this.setAttribute("open", "");
+      this.querySelector("button")?.focus();
     },
   );
   vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (
@@ -201,7 +207,7 @@ beforeEach(() => {
   });
 });
 
-function renderBuilder() {
+function renderBuilder(onCreated: (id: string) => void = () => {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -212,7 +218,7 @@ function renderBuilder() {
       <ToolbarSlotProvider value={slot}>
         <DeckBuilder
           onBack={() => {}}
-          onCreated={() => {}}
+          onCreated={onCreated}
           onDirty={() => {}}
         />
       </ToolbarSlotProvider>
@@ -234,8 +240,11 @@ const deckList = () =>
   screen.queryByRole("list", { name: "Cards in the deck" });
 
 /** Modern, red, Aggro / Burn, then two Lightning Bolts on the Cards step. */
-async function buildRedDraft(user: ReturnType<typeof userEvent.setup>) {
-  renderBuilder();
+async function buildRedDraft(
+  user: ReturnType<typeof userEvent.setup>,
+  onCreated?: (id: string) => void,
+) {
+  renderBuilder(onCreated);
   await user.click(await screen.findByRole("button", { name: /^Modern/ }));
   await user.click(screen.getByRole("button", { name: /Next/ }));
   await user.click(screen.getByRole("button", { name: /Red/ }));
@@ -248,6 +257,104 @@ async function buildRedDraft(user: ReturnType<typeof userEvent.setup>) {
   await user.click(add);
   expect(deckList()).toHaveTextContent("2×Lightning Bolt");
 }
+
+it.each(["Next", "Back", "Format"])(
+  "focuses the destination heading after %s and tabs into the step",
+  async (navigation) => {
+    const user = userEvent.setup();
+    renderBuilder();
+    const modern = await screen.findByRole("button", { name: /^Modern/ });
+    await user.click(modern);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    const forward = navigation === "Next";
+    if (!forward) {
+      await user.click(
+        navigation === "Back"
+          ? screen.getByRole("button", { name: "Back" })
+          : step("Format"),
+      );
+    }
+
+    const activeStep = forward ? "Colours" : "Format";
+    expect(step(activeStep).closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+    expect(document.activeElement).toBe(
+      screen.getByRole("heading", {
+        name: forward ? "Which colours?" : "What are you building?",
+      }),
+    );
+    await user.tab();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: forward ? /Red/ : /^Modern/ }),
+    );
+  },
+);
+
+it.each(["format", "theme"])(
+  "explains the missing %s at Next and prevents keyboard activation",
+  async (choice) => {
+    const user = userEvent.setup();
+    renderBuilder();
+    const modern = await screen.findByRole("button", { name: /^Modern/ });
+    const next = screen.getByRole("button", { name: "Next" });
+    if (choice === "theme") {
+      await user.click(modern);
+      await user.click(next);
+      await user.click(next);
+      await user.click(screen.getByRole("button", { name: /^Aggro/ }));
+    }
+    const blocker =
+      choice === "format" ? "Choose a format to continue." : "Pick a theme.";
+    const precedingButton =
+      choice === "format"
+        ? step("Format")
+        : screen.getByRole("button", { name: "Back" });
+    expect(screen.getByText(blocker)).toBeVisible();
+    expect(precedingButton).toBeEnabled();
+    precedingButton.focus();
+    await user.tab();
+    expect(document.activeElement).toBe(next);
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    expect(next).toHaveAccessibleDescription(blocker);
+    await user.keyboard("{Enter} ");
+    expect(
+      step(choice === "format" ? "Format" : "Style & theme").closest("li"),
+    ).toHaveAttribute("aria-current", "step");
+  },
+);
+
+it("labels a partial deck as a draft next to Create and creates it", async () => {
+  const user = userEvent.setup();
+  const onCreated = vi.fn();
+  const id = "cf88d760-f679-47df-96fe-bcd1688a0022";
+  const createDeck = vi
+    .spyOn(api, "createDeck")
+    .mockImplementation(async (draft) =>
+      deckSchema.parse({
+        ...draft,
+        id,
+        printSettings: {},
+        revision: 0,
+        createdAt: "2026-06-01T00:00:00Z",
+        updatedAt: "2026-06-01T00:00:00Z",
+      }),
+    );
+  await buildRedDraft(user, onCreated);
+  const create = screen.getByRole("button", { name: "Create deck" });
+  const draft = screen.getByText("Draft · 2 of 60 cards");
+  expect(draft).toBeVisible();
+  expect(draft.parentElement).toBe(create.parentElement);
+  expect(create).toHaveAccessibleDescription("Draft · 2 of 60 cards");
+  await user.click(create);
+  expect(createDeck).toHaveBeenCalledWith(
+    expect.objectContaining({
+      entries: [expect.objectContaining({ quantity: 2 })],
+    }),
+  );
+  expect(onCreated).toHaveBeenCalledWith(id);
+});
 
 /** Commander with Radha, Aggro / Burn, then one Lightning Bolt on Cards. */
 async function buildRadhaDraft(user: ReturnType<typeof userEvent.setup>) {
@@ -531,11 +638,15 @@ it("keeps Tab inside the dialog and returns focus to the control that opened it"
   const user = userEvent.setup();
   await buildRedDraft(user);
   await user.click(step("Colours"));
+  expect(document.activeElement).toBe(
+    screen.getByRole("heading", { name: "Which colours?" }),
+  );
   const red = screen.getByRole("button", { name: /Red/ });
   await user.click(red);
   const dialog = screen.getByRole("dialog", { name: "Remove picked cards?" });
   const close = within(dialog).getByRole("button", { name: "Close dialog" });
   const apply = within(dialog).getByRole("button", { name: "Apply change" });
+  expect(document.activeElement).toBe(close);
 
   apply.focus();
   await user.tab();
@@ -555,4 +666,5 @@ it("keeps Tab inside the dialog and returns focus to the control that opened it"
     }),
   );
   expect(red).toHaveFocus();
+  expect(document.activeElement).toBe(red);
 });

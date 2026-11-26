@@ -126,6 +126,7 @@ beforeEach(() => {
   vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(
     function (this: HTMLDialogElement) {
       this.setAttribute("open", "");
+      this.querySelector<HTMLElement>("[autofocus]")?.focus();
     },
   );
   vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(function (
@@ -607,6 +608,26 @@ it.each([
     expect(target.textContent?.trim()).toBe(announcement);
   },
 );
+
+it("focuses Deck name when New deck opens and returns to the opener on cancel", async () => {
+  const user = userEvent.setup();
+  mockIPC((cmd) => {
+    if (cmd === "list_decks") return [];
+    throw new Error(`Unexpected command: ${cmd}`);
+  });
+  renderWithClient(<App />);
+  const opener = await screen.findByRole("button", {
+    name: "Start an empty deck",
+  });
+  await user.click(opener);
+  const dialog = screen.getByRole("dialog", { name: "New deck" });
+  expect(document.activeElement).toBe(
+    within(dialog).getByLabelText("Deck name"),
+  );
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog", { name: "New deck" })).toBeNull();
+  expect(document.activeElement).toBe(opener);
+});
 
 it("creates a deck, imports resolved cards, and reopens the saved project", async () => {
   const user = userEvent.setup();

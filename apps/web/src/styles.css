@@ -3046,6 +3046,7 @@ progress::-webkit-progress-value {
   text-transform: uppercase;
 }
 .builder-intro-title {
+  width: fit-content;
   font-size: 30px;
   line-height: 1.1;
   margin-bottom: 6px;
@@ -3054,8 +3055,18 @@ progress::-webkit-progress-value {
   max-width: 560px;
   font-size: 13px;
 }
-.builder-blocker {
-  margin-top: 16px;
+.toolbar-trail > .builder-action-note {
+  flex-shrink: 1;
+  max-width: 20ch;
+  line-height: 1.15;
+  text-align: end;
+}
+.builder-action-note:empty {
+  display: none;
+}
+.builder-next[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 .builder-progress {
   display: flex;
