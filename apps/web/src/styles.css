@@ -79,7 +79,7 @@ button.primary:hover,
 }
 button.danger {
   color: var(--danger-text);
-  border-color: color-mix(in srgb, var(--danger-text) 45%, var(--danger-bg));
+  border-color: var(--danger-line);
 }
 button.icon-button,
 .button.icon-button {
@@ -1616,7 +1616,7 @@ dd {
   gap: 5px;
 }
 .personal-tags input {
-  width: 175px;
+  width: calc(28ch + 2 * var(--space-2));
 }
 
 .art-browser {
@@ -1846,6 +1846,18 @@ dd {
 }
 .settings-panel[hidden] {
   display: none;
+}
+.scm-template-details > div {
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: var(--type-meta);
+  line-height: var(--leading-meta);
+}
+.settings-panel .external-link {
+  align-self: flex-start;
+  min-height: var(--control-size);
+  font-size: var(--type-meta);
+  line-height: var(--leading-meta);
 }
 .setting-row {
   display: flex;
@@ -2159,7 +2171,7 @@ progress::-webkit-progress-value {
 .style-option.keep {
   padding: 5px 9px;
   min-height: 31px;
-  border-color: var(--line-subtle);
+  border-color: var(--line-control);
   font-size: 11.5px;
   color: var(--text-muted);
 }
@@ -2463,9 +2475,6 @@ progress::-webkit-progress-value {
   }
   .comparison-controls {
     gap: 9px;
-  }
-  .personal-tags input {
-    width: 155px;
   }
   .job {
     flex-wrap: wrap;
@@ -2996,7 +3005,7 @@ progress::-webkit-progress-value {
   white-space: normal;
   border-radius: 10px;
   background: var(--panel);
-  border-color: var(--line-subtle);
+  border-color: var(--line-control);
   font-weight: 400;
 }
 .builder-option:hover {
@@ -3061,7 +3070,7 @@ progress::-webkit-progress-value {
   padding: 16px 10px 12px;
   border-radius: 10px;
   background: var(--panel);
-  border-color: var(--line-subtle);
+  border-color: var(--line-control);
   color: var(--text-muted);
   font-weight: 400;
 }
@@ -3123,6 +3132,9 @@ progress::-webkit-progress-value {
   background: var(--panel);
   font-weight: 400;
 }
+.builder-commander {
+  border-color: var(--line-control);
+}
 .builder-commander[aria-pressed="true"] {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
@@ -3174,7 +3186,7 @@ progress::-webkit-progress-value {
   background: color-mix(
     in oklab,
     var(--accent) calc(var(--score) * 1%),
-    var(--raised)
+    var(--score-low-fill)
   );
 }
 .builder-stage {

@@ -379,7 +379,11 @@ export function PrintSetup({
                 {layout?.scm && (
                   <>
                     <h3>Fixed by template</h3>
-                    <dl className="my-0" aria-live="polite" aria-atomic="true">
+                    <dl
+                      className="scm-template-details my-0"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
                       <div>
                         <dt>Paper & orientation</dt>
                         <dd>
@@ -417,12 +421,12 @@ export function PrintSetup({
                     {template.variant === "borderless" &&
                       (template.paper === "a3" ||
                         template.paper === "arch_b") && (
-                        <p className="hint">
+                        <p className="my-0 text-meta text-warning-ink">
                           SCM does not publish a cut file for this borderless
                           layout.
                         </p>
                       )}
-                    <p className="hint">
+                    <p className="my-0 text-meta text-muted">
                       Registration marks replace crop guides. Template spacing
                       replaces free margins and gaps. Duplex uses long-edge
                       alignment.

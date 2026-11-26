@@ -10,9 +10,11 @@
   --line-control: #747e8c;
   --accent: #e2b25a;
   --on-accent: #191610;
+  --score-low-fill: #a58a59;
   --focus: #8dc1ee;
   --focus-on-accent: #191610;
   --danger-text: #f2b0a4;
+  --danger-line: #b2766d;
   --danger-bg: #301e1c;
   --warning-text: #f2cd89;
   --warning-bg: #32281b;
