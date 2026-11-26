@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -112,6 +112,15 @@ jobs:
           # Cargo >=1.100's build-dir layout: https://github.com/pykeio/ort/issues/674
           toolchain: ${{ runner.os == 'Windows' && '1.99.0' || 'stable' }}
           targets: ${{ matrix.target }}
+
+      # ort-sys rc.15 no longer links Clang's runtime, and Rust LTO can drop
+      # the availability symbol needed by CoreML: https://github.com/pykeio/ort/issues/681
+      - name: Link Clang runtime for CoreML
+        if: runner.os == 'macOS'
+        run: |
+          runtime="$(xcrun --sdk macosx clang --print-resource-dir)/lib/darwin/libclang_rt.osx.a"
+          test -f "$runtime"
+          printf 'CARGO_ENCODED_RUSTFLAGS=-C\037link-arg=%s\n' "$runtime" >> "$GITHUB_ENV"
 
       - uses: Swatinem/rust-cache@v2
         with:
