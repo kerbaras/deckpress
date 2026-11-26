@@ -33,9 +33,10 @@ export function Library({
   createRequest = 0,
   onCreateHandled,
   onBuild,
+  openImported,
 }: {
   open: (id: string) => void;
-  openImported: (id: string) => void;
+  openImported: (id: string, importedCards?: number) => void;
   /** Bumped by the title bar's "New deck" action; opens the create dialog. */
   createRequest?: number;
   onCreateHandled?: () => void;
@@ -213,7 +214,7 @@ export function Library({
             {...(onBuild ? { onBuild } : {})}
             onSaved={async (deck) => {
               await refresh();
-              openImported(deck.id);
+              openImported(deck.id, countCards(deck.entries));
             }}
           />
         ) : (

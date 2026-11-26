@@ -22,6 +22,7 @@ import { api, confirmAction, fetchHealth, type ModelStatus } from "./api.ts";
 import type { PrintJob } from "./core/index.ts";
 import { DeckBuilder } from "./deck-builder.tsx";
 import { DeckSearch } from "./deck-search.tsx";
+import { importStatus } from "./import-review.tsx";
 import { Library } from "./library.tsx";
 import {
   PageToolbar,
@@ -58,6 +59,7 @@ const confirmDiscard = () =>
     "Discard changes",
   );
 const deckRoute = (route: string) => /^decks\/([\da-f-]{36})$/.exec(route)?.[1];
+type ImportAnnouncement = { id: string; text: string };
 
 function readSidebar(): boolean {
   try {
@@ -72,6 +74,11 @@ export function App() {
   const [importedDeckId, setImportedDeckId] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(readSidebar);
   const [newDeckRequest, setNewDeckRequest] = useState(0);
+  const [pendingImport, setPendingImport] = useState<ImportAnnouncement | null>(
+    null,
+  );
+  const [importAnnouncement, setImportAnnouncement] =
+    useState<ImportAnnouncement | null>(null);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const window_ = useWindowState();
   const routeRef = useRef(route);
@@ -104,8 +111,11 @@ export function App() {
     window.location.hash = `/${next}`;
     return true;
   };
-  const openImportedDeck = async (id: string) => {
-    if (await navigate(`decks/${id}`)) setImportedDeckId(id);
+  const openImportedDeck = async (id: string, importedCards?: number) => {
+    if (!(await navigate(`decks/${id}`))) return;
+    setImportedDeckId(id);
+    if (importedCards !== undefined)
+      setPendingImport({ id, text: importStatus(null, importedCards) });
   };
   useEffect(() => {
     const change = async () => {
@@ -163,6 +173,11 @@ export function App() {
     return () => window.removeEventListener("keydown", shortcut);
   });
   const deckId = deckRoute(route);
+  useEffect(() => {
+    if (!pendingImport || pendingImport.id !== deckId) return;
+    setImportAnnouncement(pendingImport);
+    setPendingImport(null);
+  }, [deckId, pendingImport]);
   const recent = (decks.data ?? [])
     .slice()
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -186,9 +201,24 @@ export function App() {
         Skip to content
       </button>
       <StatusRegion label="Print job announcements">
-        {announcements.map(({ key, text }) => (
+        {announcements.status.map(({ key, text }) => (
           <span key={key}>{text} </span>
         ))}
+      </StatusRegion>
+      <p
+        className="sr-only"
+        role="alert"
+        aria-label="Print job failures"
+        aria-atomic="true"
+      >
+        {announcements.alert.map(({ key, text }) => (
+          <span key={key}>{text} </span>
+        ))}
+      </p>
+      <StatusRegion label="Import announcements">
+        {importAnnouncement && (
+          <span key={importAnnouncement.id}>{importAnnouncement.text}</span>
+        )}
       </StatusRegion>
       <aside className="sidebar" aria-hidden={!sidebarOpen}>
         <div className="sidebar-head" data-tauri-drag-region>
@@ -337,33 +367,50 @@ export function App() {
   );
 }
 
+type JobAnnouncement = { key: string; text: string };
+
 function usePrintJobAnnouncements(jobs: PrintJob[] | undefined) {
   const seen = useRef(new Map<string, Set<PrintJob["status"]>>());
   const initialized = useRef(false);
   const [announcements, setAnnouncements] = useState<
-    { key: string; text: string }[]
-  >([]);
+    Record<"status" | "alert", JobAnnouncement[]>
+  >({ status: [], alert: [] });
   const announceJobs = useCallback((snapshot: PrintJob[], initial = false) => {
-    const next = [];
+    const polite: JobAnnouncement[] = [];
+    const failures: JobAnnouncement[] = [];
     for (const { id, status, deckName, message } of snapshot) {
       let statuses = seen.current.get(id);
       if (!statuses) {
         statuses = new Set();
         seen.current.set(id, statuses);
       }
-      if (statuses.has(status)) continue;
+      if (
+        statuses.has(status) ||
+        statuses.has("completed") ||
+        statuses.has("failed") ||
+        statuses.has("cancelled") ||
+        (status === "queued" && statuses.has("running"))
+      )
+        continue;
       statuses.add(status);
       if (status === "cancelled") continue;
-      if (initial && (status === "completed" || status === "failed")) continue;
-      next.push({
+      const finished = status === "completed" || status === "failed";
+      if (initial && finished && statuses.size === 1) continue;
+      const phase =
+        finished && !statuses.has("running") ? `started and ${status}` : status;
+      (status === "failed" ? failures : polite).push({
         key: `${id}:${status}`,
         text:
           status === "failed"
-            ? `Print job for ${deckName} failed: ${message}`
-            : `Print job for ${deckName} ${status}.`,
+            ? `Print job for ${deckName} ${phase}: ${message}`
+            : `Print job for ${deckName} ${phase}.`,
       });
     }
-    if (next.length) setAnnouncements(next);
+    if (polite.length || failures.length)
+      setAnnouncements((previous) => ({
+        status: polite.length ? polite : previous.status,
+        alert: failures.length ? failures : previous.alert,
+      }));
   }, []);
   useEffect(() => {
     if (!jobs) return;

@@ -368,9 +368,9 @@ it("asks for an MPC back instead of opening the save dialog for a front-only dec
   await user.click(
     screen.getByRole("button", { name: "Export MPC Autofill XML" }),
   );
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Choose an MPC Autofill back",
-  );
+  expect(
+    await within(screen.getByRole("main")).findByRole("alert"),
+  ).toHaveTextContent("Choose an MPC Autofill back");
   expect(saveDialog).not.toHaveBeenCalled();
   expect(saveMpcXml).not.toHaveBeenCalled();
 });
@@ -474,10 +474,12 @@ it("announces print job phases once, leaving polling ticks in the progress contr
   const status = screen.getByRole("status", {
     name: "Print job announcements",
   });
+  const alert = screen.getByRole("alert", { name: "Print job failures" });
   const progress = await screen.findByRole("progressbar", {
     name: "Export progress for Burn",
   });
   expect(status).toHaveTextContent(/^Print job for Burn queued\.$/);
+  expect(alert).toBeEmptyDOMElement();
   expect(screen.getByText("Old error")).toBeVisible();
   const refresh = screen.getByRole("button", { name: "Refresh print jobs" });
 
@@ -519,8 +521,9 @@ it("announces print job phases once, leaving polling ticks in the progress contr
   jobs = [completed, secondJob, oldJob];
   await user.click(refresh);
   expect(await screen.findByText("1 page ready")).toBeVisible();
-  expect(status).toHaveTextContent(
-    "Print job for Burn completed. Print job for Second deck failed: Disk full",
+  expect(status).toHaveTextContent(/^Print job for Burn completed\.$/);
+  expect(alert).toHaveTextContent(
+    "Print job for Second deck started and failed: Disk full",
   );
   expect(progress).not.toBeInTheDocument();
   const completedAnnouncement = status.firstChild;
@@ -539,6 +542,69 @@ it("announces print job phases once, leaving polling ticks in the progress contr
     expect(exportStatus).toHaveTextContent("Export for Burn saved."),
   );
 });
+
+it.each([
+  {
+    terminal: "completed",
+    role: "status",
+    name: "Print job announcements",
+    ending: "completed.",
+  },
+  {
+    terminal: "failed",
+    role: "alert",
+    name: "Print job failures",
+    ending: "failed: Disk full",
+  },
+] as const)(
+  "announces start with $terminal when polling skips running",
+  async ({ terminal, role, name, ending }) => {
+    const user = userEvent.setup();
+    const queued: PrintJob = {
+      id,
+      deckId: id,
+      deckName: "Burn",
+      status: "queued",
+      completed: 0,
+      total: 4,
+      message: "Queued",
+      createdAt: deck.createdAt,
+      fileName: "burn.pdf",
+      bytes: 0,
+      pages: 0,
+    };
+    let job = queued;
+    mockIPC((cmd) => (cmd === "list_jobs" ? [job] : []));
+    window.history.replaceState(null, "", "#/jobs");
+    renderWithClient(<App />);
+    const status = screen.getByRole("status", {
+      name: "Print job announcements",
+    });
+    const target = screen.getByRole(role, { name });
+    await waitFor(() =>
+      expect(status).toHaveTextContent("Print job for Burn queued."),
+    );
+
+    const refresh = screen.getByRole("button", { name: "Refresh print jobs" });
+    job = {
+      ...queued,
+      status: terminal,
+      message: terminal === "failed" ? "Disk full" : "PDF ready",
+    };
+    await user.click(refresh);
+    expect(await screen.findByText(job.message)).toBeVisible();
+    const announcement = `Print job for Burn started and ${ending}`;
+    expect(target.textContent?.trim()).toBe(announcement);
+    if (role === "alert") expect(status).not.toHaveTextContent(announcement);
+
+    const terminalMessage = target.firstChild;
+    job = { ...job, bytes: 1024 ** 2 };
+    await user.click(refresh);
+    expect(await screen.findByText("1.0 MB")).toBeVisible();
+    expect(target.firstChild).toBe(terminalMessage);
+    expect(target.textContent?.trim()).toBe(announcement);
+  },
+);
 
 it("creates a deck, imports resolved cards, and reopens the saved project", async () => {
   const user = userEvent.setup();
@@ -1565,7 +1631,7 @@ it("keeps a failed library request visible and lets the user retry", async () =>
     .mockResolvedValue([]);
   mockIPC(() => ({ status: "ok", service: "@deckpress/desktop" }));
   renderWithClient(<App />);
-  const error = await screen.findByRole("alert");
+  const error = await within(screen.getByRole("main")).findByRole("alert");
   expect(error).toHaveTextContent("Local storage unavailable");
   await user.click(within(error).getByRole("button", { name: "Retry" }));
   expect(

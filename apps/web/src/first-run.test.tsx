@@ -162,6 +162,10 @@ it("saves an imported list with the chosen name and format", async () => {
   vi.spyOn(api, "deck").mockResolvedValue(deck);
   const create = vi.spyOn(api, "createDeck").mockResolvedValue(deck);
   renderApp();
+  const announcement = screen.getByRole("status", {
+    name: "Import announcements",
+  });
+  expect(announcement).toBeEmptyDOMElement();
   await user.click(
     await screen.findByRole("button", { name: "Import a list" }),
   );
@@ -186,6 +190,7 @@ it("saves an imported list with the chosen name and format", async () => {
     "Name the deck before adding the cards.",
   );
   expect(create).not.toHaveBeenCalled();
+  expect(announcement).toBeEmptyDOMElement();
   await user.type(nameField, " Burn ");
   expect(nameError).not.toBeInTheDocument();
   expect(within(dialog).queryByRole("alert")).toBeNull();
@@ -205,6 +210,14 @@ it("saves an imported list with the chosen name and format", async () => {
     level: 1,
   });
   expect(document.activeElement).toBe(heading);
+  expect(
+    await screen.findByRole("button", { name: "Back to decks" }),
+  ).toBeVisible();
+  expect(dialog).not.toBeInTheDocument();
+  expect(screen.getByRole("status", { name: "Import announcements" })).toBe(
+    announcement,
+  );
+  expect(announcement).toHaveTextContent("Saved 4 cards to this deck.");
 });
 
 it("keeps the focused Add button in view when the import dialog resizes", async () => {
