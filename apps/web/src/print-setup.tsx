@@ -37,7 +37,7 @@ import {
   sheetLabel,
 } from "./core/index.ts";
 import { DuplexCalibration } from "./duplex-calibration.tsx";
-import { ErrorNotice, ExternalLink, useTask } from "./ui.tsx";
+import { ErrorNotice, ExternalLink, StatusRegion, useTask } from "./ui.tsx";
 
 const paperNames = {
   a4: "A4",
@@ -106,6 +106,7 @@ export function PrintSetup({
   });
   const task = useTask();
   const cutTemplateTask = useTask();
+  const [cutTemplatePath, setCutTemplatePath] = useState("");
   const [page, setPage] = useState(0);
   const [trim, setTrim] = useState(false);
   const [presetMessage, setPresetMessage] = useState("");
@@ -247,7 +248,10 @@ export function PrintSetup({
             type="button"
             disabled={!layout || cutTemplateTask.busy}
             onClick={() =>
-              void cutTemplateTask.run(() => downloadCutTemplate(deck))
+              void cutTemplateTask.run(async () => {
+                setCutTemplatePath("");
+                setCutTemplatePath((await downloadCutTemplate(deck)) ?? "");
+              })
             }
           >
             Export cut template (SVG)
@@ -265,6 +269,12 @@ export function PrintSetup({
       </div>
       <ErrorNotice error={task.error ?? layoutError} />
       <ErrorNotice error={cutTemplateTask.error} />
+      <StatusRegion
+        className={cutTemplatePath ? "notice success" : "sr-only"}
+        label="Cut template export status"
+      >
+        {cutTemplatePath && `Cut template saved to ${cutTemplatePath}`}
+      </StatusRegion>
       <div className="print-layout">
         <div className="print-controls">
           <div className="panel presets">
