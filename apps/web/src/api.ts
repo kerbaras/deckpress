@@ -598,9 +598,9 @@ const IMAGE_SCHEME = "dpimg";
 export function imageSrc(url: string): string {
   return convertFileSrc(`image/${url}`, IMAGE_SCHEME);
 }
-export function uploadTrimSrc({ imageUrl, bleedMm }: Art) {
+export function uploadTrimSrc({ imageUrl, bleedMm }: Art, thumbnail = false) {
   return convertFileSrc(
-    `upload-trim/${JSON.stringify({ imageUrl, bleedMm })}`,
+    `upload-trim/${JSON.stringify({ imageUrl, bleedMm, ...(thumbnail && { thumbnail }) })}`,
     IMAGE_SCHEME,
   );
 }

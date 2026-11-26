@@ -6,7 +6,7 @@
 //! - `preview/<json {art, settings}>`: the 150 DPI print preview of one face
 //!   (no upscaling), rendered with the same pipeline as the export.
 //! - `comparison-thumbnail/<json {art, settings}>`: the trimmed comparison face.
-//! - `upload-trim/<json {imageUrl, bleedMm}>`: the cropped original of a saved upload.
+//! - `upload-trim/<json {imageUrl, bleedMm, thumbnail?}>`: cropped upload or its thumbnail.
 
 use std::sync::Arc;
 
@@ -38,14 +38,22 @@ struct PreviewRequest {
 struct UploadTrimRequest {
     image_url: String,
     bleed_mm: f64,
+    #[serde(default)]
+    thumbnail: bool,
 }
 
 async fn upload_trim(images: &Images, payload: &str) -> AppResult<Vec<u8>> {
     let request: UploadTrimRequest =
         serde_json::from_str(payload).map_err(|_| AppError::user("Invalid upload trim request"))?;
-    images
-        .trimmed_upload(&request.image_url, request.bleed_mm)
-        .await
+    if request.thumbnail {
+        images
+            .upload_thumbnail(&request.image_url, request.bleed_mm)
+            .await
+    } else {
+        images
+            .trimmed_upload(&request.image_url, request.bleed_mm)
+            .await
+    }
 }
 
 /// Origins allowed to read `dpimg://` bodies with CORS: the packaged webview

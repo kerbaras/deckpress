@@ -17,7 +17,7 @@ import { type ReactNode, useState } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
 import legacyBackup from "../../../packages/core/tests/fixtures/deck-backup-before-board-names.json";
 import printPageCounts from "../../../packages/core/tests/fixtures/print-page-counts.json";
-import { api, type StyleReport } from "./api.ts";
+import { api, imageSrc, type StyleReport, uploadTrimSrc } from "./api.ts";
 import { App } from "./app.tsx";
 import { ArtPicker, filterArt } from "./art-picker.tsx";
 import {
@@ -2453,6 +2453,7 @@ it("backs up fresh upload bleed even if the Library list still has the old value
     ...community,
     id: "upload:1",
     imageUrl: "upload://a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+    source: "My uploads",
     provider: "upload",
     bleedMm: 3.048,
   });
@@ -2464,14 +2465,15 @@ it("backs up fresh upload bleed even if the Library list still has the old value
   const updated = { ...uploaded, bleedMm: 3.175 };
   let stored = cached;
   const saveText = vi.fn();
+  const mpc = { ...community, thumbnailUrl: community.imageUrl, bleedMm: 3 };
   const list = vi.spyOn(api, "decks").mockResolvedValue([cached]);
   const read = vi.spyOn(api, "deck").mockImplementation(async () => stored);
-  vi.spyOn(api, "art").mockResolvedValue({
-    items: [],
+  vi.spyOn(api, "art").mockImplementation(async (provider) => ({
+    items: provider === "mpc" ? [mpc] : [],
     page: 1,
     hasMore: false,
     total: 0,
-  });
+  }));
   vi.spyOn(api, "uploads").mockResolvedValue([uploaded]);
   vi.spyOn(api, "preferences").mockResolvedValue({
     preferences: {},
@@ -2490,11 +2492,23 @@ it("backs up fresh upload bleed even if the Library list still has the old value
   });
   renderWithClient(<App />);
   await user.click(await screen.findByRole("button", { name: "Open Burn" }));
-  await user.click(
-    await screen.findByRole("button", {
-      name: "Choose art for Lightning Bolt",
-    }),
+  const openTile = await screen.findByRole("button", {
+    name: "Choose art for Lightning Bolt",
+  });
+  expect(within(openTile).getByRole("img")).toHaveAttribute(
+    "src",
+    uploadTrimSrc(uploaded, true),
   );
+  await user.click(openTile);
+  const gridOption = () =>
+    screen.getByRole("img", { name: `${uploaded.name}, ${uploaded.source}` });
+  expect(
+    await screen.findByRole("img", { name: `${mpc.name}, ${mpc.source}` }),
+  ).toHaveAttribute("src", imageSrc(mpc.thumbnailUrl));
+  expect(
+    screen.getByRole("img", { name: `${original.name}, ${original.source}` }),
+  ).toHaveAttribute("src", imageSrc(original.thumbnailUrl));
+  expect(gridOption()).toHaveAttribute("src", uploadTrimSrc(uploaded, true));
   const preview = within(screen.getByRole("region", { name: "Preview art" }));
   await user.click(preview.getByRole("button", { name: "Edit source bleed" }));
   const dialog = within(
@@ -2507,7 +2521,17 @@ it("backs up fresh upload bleed even if the Library list still has the old value
   const listCalls = list.mock.calls.length;
   await user.click(dialog.getByRole("button", { name: "Save bleed" }));
   expect(await preview.findByText("3.175 mm")).toBeVisible();
+  expect(gridOption()).toHaveAttribute("src", uploadTrimSrc(updated, true));
+  expect(gridOption().getAttribute("src")).not.toBe(
+    uploadTrimSrc(uploaded, true),
+  );
   expect(list.mock.calls.length).toBeGreaterThan(listCalls);
+  await user.click(screen.getByRole("button", { name: "Deck editor" }));
+  expect(
+    within(
+      screen.getByRole("button", { name: "Choose art for Lightning Bolt" }),
+    ).getByRole("img"),
+  ).toHaveAttribute("src", uploadTrimSrc(updated, true));
   await user.click(screen.getByRole("button", { name: "Back to decks" }));
   read.mockClear();
   await user.click(await screen.findByRole("button", { name: "Back up Burn" }));
@@ -2525,6 +2549,7 @@ it("shows restored source bleed on the first reopen of a cached deck", async () 
     ...community,
     id: "upload:1",
     imageUrl: `upload://${id}`,
+    source: "My uploads",
     provider: "upload",
     bleedMm: 3.048,
   });
@@ -2553,22 +2578,30 @@ it("shows restored source bleed on the first reopen of a cached deck", async () 
     hasMore: false,
     total: 0,
   });
-  vi.spyOn(api, "uploads").mockResolvedValue([]);
+  vi.spyOn(api, "uploads").mockImplementation(async () =>
+    stored.entries.flatMap(({ selectedArt }) =>
+      selectedArt ? [selectedArt] : [],
+    ),
+  );
   vi.spyOn(api, "preferences").mockResolvedValue({
     preferences: {},
     usage: {},
   });
   renderWithClient(<App />, client);
-  const openArt = async () => {
-    await user.click(await screen.findByRole("button", { name: "Open Burn" }));
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Choose art for Lightning Bolt",
-      }),
-    );
+  const openArt = async (bleedMm: number) => {
+    const tile = await screen.findByRole("button", {
+      name: "Choose art for Lightning Bolt",
+    });
+    const src = uploadTrimSrc({ ...uploaded, bleedMm }, true);
+    expect(within(tile).getByRole("img")).toHaveAttribute("src", src);
+    await user.click(tile);
+    expect(
+      screen.getByRole("img", { name: `${uploaded.name}, ${uploaded.source}` }),
+    ).toHaveAttribute("src", src);
     return within(screen.getByRole("region", { name: "Preview art" }));
   };
-  expect((await openArt()).getByText("3.048 mm")).toBeVisible();
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  expect((await openArt(3.048)).getByText("3.048 mm")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Back to decks" }));
   expect(client.getQueryData(["deck", id])).toEqual(stored);
 
@@ -2583,8 +2616,10 @@ it("shows restored source bleed on the first reopen of a cached deck", async () 
     await screen.findByRole("heading", { name: "Restored Burn" }),
   ).toBeVisible();
   expect(client.getQueryData(["deck", id])).toEqual(updated);
+  expect((await openArt(3.175)).getByText("3.175 mm")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Back to decks" }));
-  const preview = await openArt();
+  await user.click(await screen.findByRole("button", { name: "Open Burn" }));
+  const preview = await openArt(3.175);
   expect(preview.getByText("3.175 mm")).toBeVisible();
   expect(preview.queryByText("3.048 mm")).not.toBeInTheDocument();
 

@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { ZodError } from "zod";
-import { imageSrc } from "./api.ts";
+import { imageSrc, uploadTrimSrc } from "./api.ts";
 import type { Art, DeckEntry } from "./core/index.ts";
 
 export const zoneNames = {
@@ -167,6 +167,27 @@ export function SearchField({
         onChange={(event) => onChange(event.target.value)}
       />
     </Container>
+  );
+}
+
+export function ArtThumbnail({
+  art,
+  url = art.thumbnailUrl,
+  ...props
+}: Omit<Parameters<typeof CardImage>[0], "url" | "src"> & {
+  art: Art;
+  url?: string;
+}) {
+  return (
+    <CardImage
+      {...props}
+      url={url}
+      src={
+        art.provider === "upload" && art.bleedMm > 0
+          ? uploadTrimSrc(art, true)
+          : undefined
+      }
+    />
   );
 }
 

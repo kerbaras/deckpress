@@ -206,6 +206,9 @@ async fn changing_saved_upload_bleed_retrims_preview_export_and_restored_deck() 
     let before = export(&store);
     let initial = images.trimmed_upload(url, art.bleed_mm).await.unwrap();
     assert_eq!(image::load_from_memory(&initial).unwrap().to_rgb8(), source);
+    assert_eq!(images.upload_thumbnail(url, 0.0).await.unwrap(), initial);
+    let thumbnail_dir = dir.path().join("preview/upload-thumbnails");
+    assert!(!thumbnail_dir.exists());
     assert!(images.update_upload_bleed(url, Some(10.1)).is_err());
     assert!(images
         .update_upload_bleed("https://cards.scryfall.io/a.png", None)
@@ -219,6 +222,20 @@ async fn changing_saved_upload_bleed_retrims_preview_export_and_restored_deck() 
     let trimmed = image::load_from_memory(&trimmed).unwrap().to_rgb8();
     assert_eq!(trimmed.dimensions(), (746, 1046));
     assert!(trimmed.pixels().all(|pixel| *pixel == Rgb([24, 140, 224])));
+    let thumbnail_bytes = images.upload_thumbnail(url, edited.bleed_mm).await.unwrap();
+    let thumbnail = image::load_from_memory(&thumbnail_bytes).unwrap().to_rgb8();
+    assert_eq!(thumbnail.dimensions(), (342, 480));
+    assert!(thumbnail
+        .pixels()
+        .all(|pixel| *pixel == Rgb([24, 140, 224])));
+    let edited_key = std::fs::read_dir(&thumbnail_dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert_eq!(std::fs::read(&edited_key).unwrap(), thumbnail_bytes);
+    assert_eq!(std::fs::read_dir(&thumbnail_dir).unwrap().count(), 1);
     assert_eq!(images.read(url).await.unwrap(), initial);
     assert_eq!(images.uploads_for("o").unwrap(), vec![edited.clone()]);
     drop(images);
@@ -268,6 +285,18 @@ async fn changing_saved_upload_bleed_retrims_preview_export_and_restored_deck() 
     }
     let detected = images.update_upload_bleed(url, None).unwrap();
     assert!(detected.bleed_mm > 0.0);
+    let auto_thumbnail = images
+        .upload_thumbnail(url, detected.bleed_mm)
+        .await
+        .unwrap();
+    assert_ne!(auto_thumbnail, thumbnail_bytes);
+    assert_eq!(std::fs::read_dir(&thumbnail_dir).unwrap().count(), 2);
+    assert_eq!(std::fs::read(edited_key).unwrap(), thumbnail_bytes);
+    assert_eq!(
+        images.upload_thumbnail(url, edited.bleed_mm).await.unwrap(),
+        thumbnail_bytes
+    );
+    assert_eq!(images.read(url).await.unwrap(), initial);
     assert_eq!(images.upload_bleed(url).unwrap(), None);
 }
 

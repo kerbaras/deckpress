@@ -22,7 +22,7 @@ import {
 import { FirstRun } from "./first-run.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import {
-  CardImage,
+  ArtThumbnail,
   countCards,
   ErrorNotice,
   Loading,
@@ -142,6 +142,11 @@ export function Library({
                         queryKey: ["deck"],
                         refetchType: "all",
                       }),
+                    updatedUploads > 0 &&
+                      client.invalidateQueries({
+                        queryKey: ["uploads"],
+                        refetchType: "all",
+                      }),
                   ]);
                   openImported(deck.id, undefined, updatedUploads);
                 });
@@ -249,7 +254,8 @@ export function Library({
               return (
                 <article className="deck-tile" key={deck.id}>
                   {cover ? (
-                    <CardImage
+                    <ArtThumbnail
+                      art={cover}
                       className={`deck-cover ${cover.artCropUrl ? "" : "scan-cover"}`}
                       url={cover.artCropUrl || cover.imageUrl}
                       name=""
