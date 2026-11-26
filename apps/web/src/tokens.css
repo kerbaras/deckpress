@@ -86,6 +86,10 @@
   background: var(--panel);
 }
 
+.main-content:has(> .workspace-edit) {
+  scroll-padding-block: var(--space-2);
+}
+
 .import-file-name {
   overflow-wrap: anywhere;
 }
