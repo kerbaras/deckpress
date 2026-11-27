@@ -29,6 +29,7 @@ async fn a_single_page_is_singular_when_queued_and_ready() {
                     name: "Test".into(),
                     artist: String::new(),
                     bleed_mm: Some(0.0),
+                    filename: None,
                 },
             )
             .unwrap(),
@@ -184,6 +185,7 @@ async fn png_jobs_name_the_faces_skipped_for_missing_art() {
                 name: "Lightning Bolt".into(),
                 artist: String::new(),
                 bleed_mm: Some(0.0),
+                filename: None,
             },
         )
         .unwrap();

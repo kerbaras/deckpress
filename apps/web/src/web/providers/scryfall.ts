@@ -20,6 +20,15 @@ type Identifier =
   | { name: string; set?: string }
   | { set: string; collector_number: string };
 
+export class ScryfallHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`Scryfall returned ${status}. Try again.`);
+    this.status = status;
+  }
+}
+
 export interface Scryfall {
   collection(ids: Identifier[]): Promise<Record<string, unknown>[]>;
   exact(
@@ -32,6 +41,7 @@ export interface Scryfall {
   search(
     query: string,
     page: number,
+    unique?: "cards" | "prints",
   ): Promise<{
     cards: Record<string, unknown>[];
     hasMore: boolean;
@@ -165,7 +175,7 @@ export function scryfallClient(
         }
         const missing = response.status === 404 && allowMissing;
         if (!missing && !response.ok) {
-          throw new Error(`Scryfall returned ${response.status}. Try again.`);
+          throw new ScryfallHttpError(response.status);
         }
         const value: unknown = missing
           ? null
@@ -216,10 +226,10 @@ export function scryfallClient(
         }),
       );
     },
-    async search(query, page) {
+    async search(query, page, unique = "prints") {
       const params = new URLSearchParams({
         q: query,
-        unique: "prints",
+        unique,
         include_multilingual: "true",
         order: "released",
         dir: "desc",

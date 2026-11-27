@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { api, downloadMpcXml, isWebPreview } from "./api.ts";
+import { api, downloadMpcXml } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import { ArtPreviewDialog } from "./art-policy.tsx";
 import {
@@ -281,7 +281,6 @@ function DeckWorkspace({
         <DeckLanguageControl
           language={deck.printLanguage}
           disabled={dirty || isSaving || task.busy || artTask.busy}
-          web={isWebPreview()}
           onSelect={previewLanguage}
           onUndo={canUndoArt && undoLanguage ? undoArt : undefined}
         />
@@ -369,6 +368,7 @@ function DeckWorkspace({
           deck={deck}
           language={artPreview.language}
           preview={artPreview.result}
+          progress={artPreview.progress}
           busy={artTask.busy}
           error={artPreview.error}
           onKeep={keepArt}

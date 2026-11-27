@@ -485,17 +485,6 @@ pub async fn update_upload_bleed(
     tokio::task::spawn_blocking(move || images.update_upload_bleed(&image_url, bleed_mm)).await?
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UploadMeta {
-    pub oracle_id: String,
-    pub name: String,
-    #[serde(default)]
-    pub artist: String,
-    #[serde(default)]
-    pub bleed_mm: Option<f64>,
-}
-
 /// The image travels as the raw IPC body; metadata is a percent-encoded JSON
 /// header so large uploads never pass through JSON number arrays.
 #[tauri::command]
@@ -512,25 +501,11 @@ pub async fn upload_art(
         .get("x-deckpress-upload")
         .and_then(|value| value.to_str().ok())
         .ok_or_else(|| AppError::user("Upload metadata is missing"))?;
-    let meta: UploadMeta =
+    let input: UploadInput =
         serde_json::from_str(&percent_encoding::percent_decode_str(header).decode_utf8_lossy())
             .map_err(|_| AppError::user("Upload metadata is invalid"))?;
-    if meta.name.trim().is_empty() || meta.name.chars().count() > 300 {
-        return Err(AppError::user("Card name is required"));
-    }
     let images = Arc::clone(&state.images);
-    tokio::task::spawn_blocking(move || {
-        images.upload(
-            &bytes,
-            UploadInput {
-                oracle_id: meta.oracle_id,
-                name: meta.name,
-                artist: meta.artist,
-                bleed_mm: meta.bleed_mm,
-            },
-        )
-    })
-    .await?
+    tokio::task::spawn_blocking(move || images.upload(&bytes, input)).await?
 }
 
 #[tauri::command]

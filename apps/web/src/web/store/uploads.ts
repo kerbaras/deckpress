@@ -71,7 +71,11 @@ export function uploadStore(
       new Date(updatedAt).toISOString(),
     );
     const upload = parse(metadata);
-    const art = { ...upload.art, contentHash, ...(filename && { filename }) };
+    const art = {
+      ...upload.art,
+      contentHash,
+      ...(filename && { filename: artSchema.shape.filename.parse(filename) }),
+    };
     const json = JSON.stringify({ ...upload, art });
     return { row: { kind, id, json, updatedAt }, art, png };
   }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::Art;
+use crate::models::{Art, DeckEntry, PrintLanguagePolicy};
 
 #[cfg(feature = "native")]
 use std::{
@@ -12,17 +12,19 @@ use std::{
 use crate::{
     error::{AppError, AppResult},
     language_deck,
-    language_switch::LanguageTier,
-    models::{new_id, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences},
+    models::{new_id, Deck},
     providers::{validate_language, Providers},
     store::Store,
 };
 
+mod change;
 #[cfg(feature = "native")]
 mod preview;
 pub(crate) mod selection;
+pub use change::{plan_change, ArtChange, ArtChangeKind};
 #[cfg(feature = "native")]
-pub use preview::{ArtChange, ArtChangeKind, ArtPreview, ArtPreviewProgress};
+pub use preview::{ArtPreview, ArtPreviewProgress};
+pub use selection::{choose_printing, PolicySelection};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -93,7 +95,8 @@ pub enum Treatment {
     Showcase,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Printing {
     pub id: String,
     pub oracle_id: String,
@@ -112,8 +115,7 @@ pub struct Printing {
     pub scans: Option<Vec<Art>>,
 }
 
-#[cfg(feature = "native")]
-pub(crate) fn policy_can_change(entry: &DeckEntry) -> bool {
+pub fn policy_can_change(entry: &DeckEntry) -> bool {
     !entry.is_art_pinned()
         && entry
             .card
@@ -122,11 +124,22 @@ pub(crate) fn policy_can_change(entry: &DeckEntry) -> bool {
             .all(|art| art.provider == crate::models::Provider::Scryfall)
 }
 
-#[cfg(feature = "native")]
-fn languages(preferences: &PrintLanguagePreferences) -> impl Iterator<Item = &str> {
-    preferences.languages.iter().map(String::as_str).chain(
-        (preferences.policy == PrintLanguagePolicy::FallbackToEnglish
-            && !preferences.languages.iter().any(|lang| lang == "en"))
+pub fn requested_languages<'a>(
+    entry: &'a DeckEntry,
+    deck_language: Option<&'a String>,
+    defaults: &'a [String],
+) -> &'a [String] {
+    if !entry.requested_languages.is_empty() {
+        &entry.requested_languages
+    } else {
+        deck_language.map_or(defaults, std::slice::from_ref)
+    }
+}
+
+pub fn languages(preferred: &[String], policy: PrintLanguagePolicy) -> impl Iterator<Item = &str> {
+    preferred.iter().map(String::as_str).chain(
+        (policy == PrintLanguagePolicy::FallbackToEnglish
+            && !preferred.iter().any(|lang| lang == "en"))
         .then_some("en"),
     )
 }
@@ -269,11 +282,12 @@ impl ArtPolicies {
         art_id: &str,
     ) -> AppResult<ArtChange> {
         let before = self.at_revision(deck_id, revision)?;
-        let original = before
+        let index = before
             .entries
             .iter()
-            .find(|entry| entry.id == entry_id)
+            .position(|entry| entry.id == entry_id)
             .ok_or_else(|| AppError::not_found("Card not found"))?;
+        let original = &before.entries[index];
         if language_deck::protected(original) {
             return Err(AppError::user("Manual art is protected."));
         }
@@ -291,22 +305,11 @@ impl ArtPolicies {
             .ok_or_else(|| {
                 AppError::user("This language preview expired. Preview the changes again.")
             })?;
-        let (print_id, scans) = printing
-            .as_ref()
-            .and_then(|print| {
-                let scans = language_deck::choice_scans(print, original, language)?;
-                Some((print.id.parse().ok()?, scans))
-            })
-            .ok_or_else(|| AppError::user("Choose a usable printing in the requested language."))?;
-        let next = next.get_or_insert_with(|| before.clone());
-        let entry = next
-            .entries
-            .iter_mut()
-            .find(|entry| entry.id == entry_id)
-            .ok_or_else(|| AppError::not_found("Card not found"))?;
-        entry.language_choices.insert(language.to_owned(), print_id);
-        language_deck::set_faces(entry, scans, false);
-        Ok(language_deck::row(original, entry, LanguageTier::Override))
+        let proposed = &next.as_ref().unwrap_or(&before).entries[index];
+        let (entry, change) =
+            language_deck::override_print(original, proposed, printing.as_ref(), language)?;
+        next.get_or_insert(before).entries[index] = entry;
+        Ok(change)
     }
 
     pub fn apply(&self, deck_id: &str, revision: u64, preview_id: &str) -> AppResult<Deck> {

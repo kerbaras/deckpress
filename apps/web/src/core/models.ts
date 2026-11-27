@@ -22,6 +22,16 @@ export const formats = [
   "Casual",
 ] as const;
 
+const maxFilenameLength = 255;
+const uploadFilenameSchema = z.string().transform((filename) => {
+  // If a surrogate pair crosses the limit, drop the whole character.
+  const last = filename.codePointAt(maxFilenameLength - 1) ?? 0;
+  return filename.slice(
+    0,
+    last > 0xffff ? maxFilenameLength - 1 : maxFilenameLength,
+  );
+});
+
 export const artSchema = z.object({
   id: z.string().min(1).max(160),
   englishFallback: z.boolean().optional(),
@@ -46,7 +56,7 @@ export const artSchema = z.object({
   bleedMm: z.number().min(0).max(10).default(0),
   backImageUrl: z.string().max(2048).default(""),
   backThumbnailUrl: z.string().max(2048).default(""),
-  filename: z.string().max(255).optional(),
+  filename: uploadFilenameSchema.optional(),
   contentHash: z
     .string()
     .regex(/^[a-f\d]{64}$/i)
