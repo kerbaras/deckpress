@@ -208,7 +208,6 @@ function DeckWorkspace({
       mode === "toolbar" ? { toolbarDeck: next } : undefined,
     );
   const dirty = deck !== saved;
-  const supportsSetFamilies = !isWebPreview();
   const art = useWorkspaceArt({
     deck,
     dirty,
@@ -319,10 +318,9 @@ function DeckWorkspace({
           canLocalize={!dirty && !isSaving && !artTask.busy}
           onLocalize={previewLocalization}
           canUseSet={!dirty && !isSaving && !artTask.busy}
-          {...(supportsSetFamilies && {
-            onUseSet: (set: string, opener: HTMLButtonElement) =>
-              previewPolicy({ kind: "matchSet", set, family: true }, opener),
-          })}
+          onUseSet={(set, opener) =>
+            previewPolicy({ kind: "matchSet", set, family: true }, opener)
+          }
           onEditionsLoading={onEditionsLoading}
           onPreviewChange={onPreviewChange}
           onUploadEdited={(art) => {
@@ -352,7 +350,6 @@ function DeckWorkspace({
         <DeckSettings
           deck={deck}
           setDeck={setDeck}
-          supportsSetFamilies={supportsSetFamilies}
           dirty={dirty}
           isSaving={isSaving}
           busy={task.busy}

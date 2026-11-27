@@ -7,6 +7,7 @@ import {
   searchSets,
   suggestedSets,
 } from "./core/sets.ts";
+import { scryfallRetryMessage, useScryfallRetry } from "./scryfall-status.ts";
 import { useSetCatalog } from "./set-catalog.ts";
 import { StatusRegion } from "./ui.tsx";
 import "./set-picker.css";
@@ -58,6 +59,8 @@ export function SetPicker({
     staleTime: 86_400_000,
     retry: false,
   });
+  const retry = useScryfallRetry();
+  const findingSuggestions = showSuggestions && coverage.isFetching;
   const suggestions = showSuggestions ? suggestedSets(coverage.data ?? []) : [];
   const suggested = new Set(suggestions.map(({ set }) => set.code));
   const results = searchSets(catalog.data ?? [], query).filter(
@@ -173,18 +176,29 @@ export function SetPicker({
       />
       {expanded && (
         <>
-          {showSuggestions && coverage.isFetching && (
+          {retry !== undefined && (findingSuggestions || catalog.isFetching) ? (
             <StatusRegion className="hint">
-              Finding suggested sets for this deck…
+              {scryfallRetryMessage(retry)}
             </StatusRegion>
+          ) : (
+            <>
+              {findingSuggestions && (
+                <StatusRegion className="hint">
+                  Finding suggested sets for this deck…
+                </StatusRegion>
+              )}
+              {catalog.isFetching && (
+                <StatusRegion className="hint">
+                  Loading Scryfall sets…
+                </StatusRegion>
+              )}
+            </>
           )}
-          {showSuggestions && coverage.isError && (
+          {showSuggestions && coverage.isError && !coverage.isFetching && (
             <p className="hint" role="alert">
-              Could not load suggested sets. You can still search.
+              Could not load suggested sets. {coverage.error.message} You can
+              still search.
             </p>
-          )}
-          {catalog.isFetching && (
-            <StatusRegion className="hint">Loading Scryfall sets…</StatusRegion>
           )}
           {catalog.isError && (
             <p className="hint" role="alert">

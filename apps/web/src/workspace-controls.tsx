@@ -187,7 +187,6 @@ export function WorkspaceToolbar({
 export function DeckSettings({
   deck,
   setDeck,
-  supportsSetFamilies,
   dirty,
   isSaving,
   busy,
@@ -198,7 +197,6 @@ export function DeckSettings({
 }: {
   deck: Deck;
   setDeck: (deck: Deck) => void;
-  supportsSetFamilies: boolean;
   dirty: boolean;
   isSaving: boolean;
   busy: boolean;
@@ -281,7 +279,6 @@ export function DeckSettings({
           key={JSON.stringify(deck.artPolicy)}
           deckId={deck.id}
           revision={deck.revision}
-          supportsSetFamilies={supportsSetFamilies}
           current={deck.artPolicy}
           disabled={dirty || isSaving}
           busy={artTask.busy}
