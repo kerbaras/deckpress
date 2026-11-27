@@ -49,3 +49,16 @@ it("keeps the raised card's copy, language, and print-status badges clickable", 
   );
   expect(controls?.style.getPropertyValue("pointer-events")).toBe("auto");
 });
+
+it("bridges the raised strip to the print-status badge without covering the whole card", () => {
+  const selector = `${nonLastCard}:is(:hover, :focus-visible):has(> .card-status)::before`;
+  const bridge = rules.find(
+    (rule) =>
+      rule.selectorText.replace(/\s+/g, "") === selector.replace(/\s+/g, ""),
+  )?.style;
+  expect(bridge?.getPropertyValue("content")).toBe('""');
+  expect(bridge?.getPropertyValue("position")).toBe("absolute");
+  expect(bridge?.getPropertyValue("inset")).toBe("0 auto 8px 30px");
+  expect(bridge?.getPropertyValue("width")).toBe("26px");
+  expect(bridge?.getPropertyValue("pointer-events")).toBe("auto");
+});

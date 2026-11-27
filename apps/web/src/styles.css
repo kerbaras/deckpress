@@ -1671,6 +1671,16 @@ button.first-run-empty {
   height: calc(var(--card-stack-step) + 8px);
   pointer-events: auto;
 }
+.card-stack
+  > .playing-card:not(:last-child):is(:hover, :focus-visible):has(
+    > .card-status
+  )::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 8px 30px;
+  width: 26px;
+  pointer-events: auto;
+}
 .quantity {
   position: absolute;
   top: 5px;
