@@ -48,7 +48,7 @@ function ReviewIssueList({
           {showLines && issue.line > 0 && (
             <span className="import-line">Line {issue.line}</span>
           )}
-          <code>{issue.input}</code>
+          <code className="import-input">{issue.input}</code>
           <ImportIssueDetails issue={issue} />
         </li>
       ))}

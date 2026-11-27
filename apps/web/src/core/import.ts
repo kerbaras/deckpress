@@ -123,6 +123,7 @@ export function parseDecklist(input: string): ParsedDecklist {
   const leadingLines =
     /^(?:[ \t]*(?:(?:\/\/|#)[^\r\n]*)?(?:\r\n|\r|\n))*/.exec(text)?.[0] ?? "";
   const csvText = text.slice(leadingLines.length);
+  const xmlText = csvText.trimStart();
   const csvHeaderDelimiter = /^(?:.*[;,])?(?:name|card name)([;,])/i.exec(
     csvText.split(/\r?\n/, 1)[0] ?? "",
   )?.[1];
@@ -145,11 +146,11 @@ export function parseDecklist(input: string): ParsedDecklist {
         ...(result.format === "CSV" ? { category: "csv" } : {}),
       });
   };
-  if (text.startsWith("<")) {
+  if (xmlText.startsWith("<")) {
     result.format = "MTGO XML";
     if (
       /<!DOCTYPE|<!ENTITY/i.test(text) ||
-      XMLValidator.validate(text) !== true
+      XMLValidator.validate(xmlText) !== true
     )
       throw new Error("Invalid or unsafe MTGO XML");
     const record = z.object({
@@ -161,7 +162,7 @@ export function parseDecklist(input: string): ParsedDecklist {
       ignoreAttributes: false,
       attributeNamePrefix: "",
       parseAttributeValue: false,
-    }).parse(text);
+    }).parse(xmlText);
     const document = z
       .object({ Deck: z.object({ Cards: z.union([record, z.array(record)]) }) })
       .safeParse(parsed);

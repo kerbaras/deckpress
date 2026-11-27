@@ -664,6 +664,59 @@ describe("decklist import", () => {
     ).toThrow();
   });
 
+  it.each([
+    ["LF comments and blank lines", "// Exported from MTGO\n\n# deck\n", ""],
+    ["CRLF comments", "// Exported from MTGO\r\n\r\n", "\r\n"],
+    ["a BOM and an indented XML declaration", "\uFEFF\n// MTGO\n", "  "],
+  ])("detects MTGO XML after %s", (_case, preamble, gap) => {
+    const result = parseDecklist(
+      `${preamble}${gap}<?xml version="1.0" encoding="utf-8"?>\n<Deck>\n  <Cards CatID="1" Quantity="4" Sideboard="false" Name="Opt" />\n  <Cards CatID="2" Quantity="2" Sideboard="true" Name="Fire &amp; Ice" />\n</Deck>`,
+    );
+    expect(result.format).toBe("MTGO XML");
+    expect(result.entries).toMatchObject([
+      { name: "Opt", quantity: 4, zone: "main" },
+      { name: "Fire & Ice", quantity: 2, zone: "side" },
+    ]);
+    expect(result.lines).toEqual([1, 2]);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("rejects unsafe or invalid MTGO XML after a leading comment", () => {
+    expect(() =>
+      parseDecklist(
+        '// x\n<!DOCTYPE x [<!ENTITY a SYSTEM "file:///etc/passwd">]><Deck/>',
+      ),
+    ).toThrow("Invalid or unsafe MTGO XML");
+    expect(() => parseDecklist("// x\n<Deck><Cards></Deck>")).toThrow(
+      "Invalid or unsafe MTGO XML",
+    );
+  });
+
+  it("keeps plain MTGO XML, commented Text and CSV detection unchanged", () => {
+    const xml = parseDecklist(
+      '\uFEFF  <Deck>\n<Cards Quantity="1" Name="Opt" />\n<Cards Quantity="3" Sideboard="1" Name="Shock" />\n</Deck>',
+    );
+    expect(xml.format).toBe("MTGO XML");
+    expect(xml.entries).toMatchObject([
+      { name: "Opt", quantity: 1, zone: "main" },
+      { name: "Shock", quantity: 3, zone: "side" },
+    ]);
+    expect(xml.lines).toEqual([1, 2]);
+    const text = parseDecklist(
+      "// Exported\n# <Deck> notes\n\nDeck\n4 Opt\n\nSideboard\n2 Shock",
+    );
+    expect(text.format).toBe("Text / Arena");
+    expect(text.entries).toMatchObject([
+      { name: "Opt", quantity: 4, zone: "main" },
+      { name: "Shock", quantity: 2, zone: "side" },
+    ]);
+    expect(text.lines).toEqual([5, 8]);
+    const csv = parseDecklist("// <Deck>\n\nName,Quantity\nOpt,1");
+    expect(csv.format).toBe("CSV");
+    expect(csv.entries).toMatchObject([{ name: "Opt", quantity: 1 }]);
+    expect(csv.lines).toEqual([4]);
+  });
+
   it("merges repeated entries without merging different printings or zones", () => {
     const result = parseDecklist(
       "2 Island\n3 Island\n1 Island (M21) 265\nSideboard\n1 Island",
