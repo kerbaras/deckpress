@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Upscale proof | Deckpress</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="imprint">Deckpress / print bench</p>
+        <h1>Upscale proof</h1>
+        <p>Enlarge card art 4× in this browser. Your image is not uploaded.</p>
+      </header>
+      <form>
+        <label class="drop-zone" id="drop-zone">
+          <span>Drop an image here or choose a file</span>
+          <input id="file" type="file" accept="image/*">
+        </label>
+        <label class="model-control">
+          Model
+          <select id="model" name="model"></select>
+        </label>
+        <button type="submit" id="run" disabled>Upscale</button>
+        <button type="button" id="cancel" disabled>Cancel</button>
+      </form>
+      <div class="readout">
+        <dl>
+          <div><dt>Backend</dt><dd id="backend">—</dd></div>
+          <div><dt>WASM threads</dt><dd id="threads">—</dd></div>
+          <div><dt>Inference / tile</dt><dd id="timing">—</dd></div>
+        </dl>
+        <progress id="progress" aria-label="Upscale progress" hidden></progress>
+        <p id="status" role="status">Choose an image to start.</p>
+      </div>
+      <section class="plates" aria-label="Image comparison">
+        <figure>
+          <div class="plate"><img id="original" alt="Original card art" hidden></div>
+          <figcaption><span>Original</span><span id="original-size"></span></figcaption>
+        </figure>
+        <figure>
+          <div class="plate"><img id="result" alt="Upscaled card art" hidden></div>
+          <figcaption><span>4× proof</span><span id="result-size"></span></figcaption>
+        </figure>
+      </section>
+      <a id="download" download="deckpress-upscaled.png" hidden>Download PNG</a>
+    </main>
+    <script type="module" src="/src/web/upscale/demo/main.ts"></script>
+  </body>
+</html>
