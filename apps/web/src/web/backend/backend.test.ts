@@ -1,7 +1,6 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, expect, it, vi } from "vitest";
 import { api, fetchHealth, imageSrc, UrlImportError } from "../../api.ts";
-import { NotAvailableOnWebError } from "./web.ts";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -22,7 +21,10 @@ it("uses the web backend when Tauri internals are missing", async () => {
   vi.stubEnv("VITE_TARGET", "");
   vi.stubGlobal("__TAURI_INTERNALS__", undefined);
 
-  await expect(fetchHealth()).rejects.toBeInstanceOf(NotAvailableOnWebError);
+  await expect(fetchHealth()).resolves.toEqual({
+    status: "ok",
+    service: "@deckpress/desktop",
+  });
   expect(imageSrc("art.png")).toBe("about:blank");
   const cdnUrl = "https://cards.scryfall.io/normal/art.jpg";
   expect(imageSrc(cdnUrl)).toBe(cdnUrl);

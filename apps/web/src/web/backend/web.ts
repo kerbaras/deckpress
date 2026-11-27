@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   artPolicySchema,
   artSchema,
+  type HealthResponse,
   importLineSchema,
 } from "../../core/index.ts";
 import { betterScan, searchArt } from "../providers/art.ts";
@@ -45,6 +46,11 @@ const index = z.number().int().nonnegative();
 export const webBackend: Backend = {
   async call(name, args = {}) {
     switch (name) {
+      case "health":
+        return {
+          status: "ok",
+          service: "@deckpress/desktop",
+        } satisfies HealthResponse;
       case "list_decks":
         return decks.list();
       case "get_deck":
