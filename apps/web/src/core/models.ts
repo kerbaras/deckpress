@@ -92,6 +92,7 @@ export const entrySchema = z.object({
   artPinned: z.boolean().optional(),
   policyArt: z.array(artSchema).min(1).max(2).optional(),
   languageAnchor: z.string().optional(),
+  languageChoices: z.record(z.string(), z.uuid()).optional(),
   excluded: z.boolean().default(false),
   requestedLanguages: z.array(z.string()).optional(),
 });
@@ -375,6 +376,8 @@ export function mergeImport(
           old.card.id === entry.card.id && old.policyArt?.every(permitsArt)
             ? old.policyArt
             : undefined,
+        languageAnchor: old.languageAnchor ?? entry.languageAnchor,
+        languageChoices: old.languageChoices ?? entry.languageChoices,
         excluded: old.excluded,
       });
       used.add(old.id);

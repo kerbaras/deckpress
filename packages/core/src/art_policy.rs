@@ -692,32 +692,29 @@ impl ArtPolicies {
             .lock()
             .map_err(|_| AppError::user("Art previews are unavailable."))?;
         self.at_revision(deck_id, revision)?;
-        let pending = history
+        let (next, language) = history
             .pending
             .get_mut(deck_id)
-            .filter(|pending| pending.id == preview_id && pending.language.is_some())
+            .filter(|pending| pending.id == preview_id)
+            .and_then(|pending| Some((&mut pending.next, pending.language.as_deref()?)))
             .ok_or_else(|| {
                 AppError::user("This language preview expired. Preview the changes again.")
             })?;
-        let language = pending.language.as_deref();
-        let scans = printing
-            .filter(|print| {
-                print.paper
-                    && print.oracle_id == original.card.oracle_id
-                    && Some(print.language.as_str()) == language
+        let (print_id, scans) = printing
+            .as_ref()
+            .and_then(|print| {
+                let scans = language_deck::choice_scans(print, original, language)?;
+                Some((print.id.parse().ok()?, scans))
             })
-            .and_then(|print| print.scans)
-            .filter(|faces| faces.len() == original.card.faces.len())
             .ok_or_else(|| AppError::user("Choose a usable printing in the requested language."))?;
-        let next = pending.next.get_or_insert(before.clone());
+        let next = next.get_or_insert_with(|| before.clone());
         let entry = next
             .entries
             .iter_mut()
             .find(|entry| entry.id == entry_id)
             .ok_or_else(|| AppError::not_found("Card not found"))?;
-        entry.selected_art = scans.first().cloned();
-        entry.selected_back = scans.get(1).cloned();
-        entry.art_pinned = true;
+        entry.language_choices.insert(language.to_owned(), print_id);
+        language_deck::set_faces(entry, scans, false);
         Ok(language_deck::row(original, entry, LanguageTier::Override))
     }
 

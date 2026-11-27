@@ -98,7 +98,7 @@ fn variant(raw: &Value, set: &str, number: &str, language: &str) -> Value {
 }
 
 #[tokio::test]
-async fn ranks_batched_prints_keeps_both_faces_and_restores_the_source_prints() {
+async fn ranks_batched_prints_restores_both_faces_and_keeps_pins_through_the_round_trip() {
     let bolts: Vec<Value> =
         serde_json::from_str(include_str!("fixtures/scryfall-art-policy.json")).unwrap();
     let delvers: Vec<Value> =
@@ -141,7 +141,8 @@ async fn ranks_batched_prints_keeps_both_faces_and_restores_the_source_prints() 
     input.entries = sources.iter().map(entry).collect();
     input.entries[4].zone = Zone::Tokens;
     let mut pinned = entry(bolt);
-    pinned.selected_art = Some(pinned.front_art().clone());
+    let pinned_print = variant(bolt, "m10", "146", "es");
+    pinned.selected_art = Some(normalize_scryfall(&pinned_print).unwrap().faces.remove(0));
     input.entries.push(pinned.clone());
     let deck = store.create_deck(input).unwrap();
     let preview = service
@@ -179,7 +180,10 @@ async fn ranks_batched_prints_keeps_both_faces_and_restores_the_source_prints() 
         .preview_language(&deck.id, 1, "en".into())
         .await
         .unwrap();
+    assert_eq!(english.changes[5].tier, Some(LanguageTier::Pinned));
     let restored = service.apply(&deck.id, 1, &english.preview_id).unwrap();
+    assert_eq!(restored.entries[5], pinned);
+    assert_eq!(restored.entries[5].front_art().language, "es");
     for (before, after) in deck.entries.iter().zip(&restored.entries) {
         assert_eq!(before.front_art(), after.front_art());
         assert_eq!(
@@ -205,7 +209,7 @@ async fn ranks_batched_prints_keeps_both_faces_and_restores_the_source_prints() 
 }
 
 #[tokio::test]
-async fn exact_set_limits_candidates_and_a_staged_manual_override_takes_precedence() {
+async fn exact_set_limits_candidates_and_a_preview_override_applies_only_to_its_language() {
     let cards: Vec<Value> =
         serde_json::from_str(include_str!("fixtures/scryfall-art-policy.json")).unwrap();
     let source = variant(&cards[1], "fdc", "80", "en");
@@ -219,6 +223,13 @@ async fn exact_set_limits_candidates_and_a_staged_manual_override_takes_preceden
         "es",
         &[std::slice::from_ref(&spanish)],
     );
+    search(
+        &store,
+        std::slice::from_ref(&source),
+        "en",
+        &[std::slice::from_ref(&source)],
+    );
+    collection(&store, &[source.clone(), spanish.clone()]);
     record(
         &store,
         &format!(
@@ -229,7 +240,7 @@ async fn exact_set_limits_candidates_and_a_staged_manual_override_takes_preceden
         &spanish,
     );
     let providers = Arc::new(Providers::new(store.clone()).unwrap());
-    let service = ArtPolicies::new(store.clone(), providers);
+    let service = ArtPolicies::new(store.clone(), providers.clone());
     let mut input = common::new_deck("Exact set");
     input.art_policy = Some(ArtPolicy::MatchSet {
         set: "fdc".into(),
@@ -256,8 +267,29 @@ async fn exact_set_limits_candidates_and_a_staged_manual_override_takes_preceden
     assert_eq!(override_row.tier, Some(LanguageTier::Override));
     assert_eq!(store.deck(&deck.id).unwrap(), deck);
     let applied = service.apply(&deck.id, 0, &preview.preview_id).unwrap();
-    assert!(applied.entries[0].is_art_pinned());
+    assert!(!applied.entries[0].is_art_pinned());
     assert_eq!(applied.entries[0].front_art(), &art);
+    assert_eq!(
+        applied.entries[0].language_anchor.as_deref(),
+        Some(deck.entries[0].front_art().id.as_str())
+    );
+
+    let service = ArtPolicies::new(store.clone(), providers);
+    let english = service
+        .preview_language(&deck.id, applied.revision, "en".into())
+        .await
+        .unwrap();
+    assert_eq!(english.changes[0].tier, Some(LanguageTier::SamePrinting));
+    let restored = service
+        .apply(&deck.id, applied.revision, &english.preview_id)
+        .unwrap();
+    assert_eq!(restored.entries[0].front_art(), deck.entries[0].front_art());
+    let spanish_again = service
+        .preview_language(&deck.id, restored.revision, "es".into())
+        .await
+        .unwrap();
+    assert_eq!(spanish_again.changes[0].tier, Some(LanguageTier::Override));
+    assert_eq!(spanish_again.changes[0].after.as_ref(), Some(&art));
 
     let adjusted = store
         .update_deck(deckpress_core::models::Deck {
@@ -266,7 +298,7 @@ async fn exact_set_limits_candidates_and_a_staged_manual_override_takes_preceden
                 family: true,
             }),
             entries: deck.entries,
-            ..applied
+            ..restored
         })
         .unwrap();
     let preview = service

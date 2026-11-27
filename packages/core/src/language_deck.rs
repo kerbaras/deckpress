@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     art_policy::{ArtChange, ArtChangeKind, ArtPolicy, Printing},
     language_switch::{choose_printing, LanguageTier},
-    models::{DeckEntry, PrintLanguagePolicy, Provider},
+    models::{Art, DeckEntry, PrintLanguagePolicy, Provider},
     providers::{scryfall_art_id, Providers},
     set_family::family,
     AppResult,
@@ -46,7 +46,20 @@ fn source_id(entry: &DeckEntry) -> &str {
         .unwrap_or(&entry.front_art().id)
 }
 
-fn set_faces(entry: &mut DeckEntry, scans: &[crate::models::Art], fallback: bool) {
+pub(crate) fn choice_scans<'a>(
+    print: &'a Printing,
+    entry: &DeckEntry,
+    language: &str,
+) -> Option<&'a [Art]> {
+    print.scans.as_deref().filter(|scans| {
+        print.paper
+            && print.oracle_id == entry.card.oracle_id
+            && print.language == language
+            && scans.len() == entry.card.faces.len()
+    })
+}
+
+pub(crate) fn set_faces(entry: &mut DeckEntry, scans: &[Art], fallback: bool) {
     entry.policy_art = Some(
         scans
             .iter()
@@ -93,11 +106,15 @@ pub(crate) async fn plan(
         Some(ArtPolicy::MatchSet { set, family: true }) => family(set, &sets).into_iter().collect(),
         _ => HashMap::new(),
     };
-    let anchors = providers
+    let printings_by_id = providers
         .language_anchors(
             eligible
                 .iter()
-                .filter_map(|entry| scryfall_art_id(source_id(entry)))
+                .flat_map(|entry| {
+                    scryfall_art_id(source_id(entry))
+                        .into_iter()
+                        .chain(entry.language_choices.get(language).copied())
+                })
                 .collect(),
         )
         .await?;
@@ -114,8 +131,16 @@ pub(crate) async fn plan(
     let proposals: HashMap<_, _> = eligible
         .iter()
         .filter_map(|entry| {
+            if let Some(scans) = entry
+                .language_choices
+                .get(language)
+                .and_then(|id| printings_by_id.get(&id.to_string()))
+                .and_then(|print| choice_scans(print, entry, language))
+            {
+                return Some((entry.id.clone(), (LanguageTier::Override, scans)));
+            }
             let id = scryfall_art_id(source_id(entry))?;
-            let anchor = anchors.get(&id.to_string())?;
+            let anchor = printings_by_id.get(&id.to_string())?;
             if anchor.oracle_id != entry.card.oracle_id {
                 return None;
             }

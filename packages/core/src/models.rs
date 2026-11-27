@@ -2,6 +2,8 @@
 //! everything with zod before it reaches a command, so these types apply the
 //! same defaults but stay lenient about unknown fields.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::art_quality::ScanQuality;
@@ -112,6 +114,9 @@ pub struct DeckEntry {
     /// The original printing before a deck-wide language change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language_anchor: Option<String>,
+    /// Manually chosen Scryfall printing IDs, keyed by print language.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub language_choices: BTreeMap<String, uuid::Uuid>,
     #[serde(default)]
     pub excluded: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

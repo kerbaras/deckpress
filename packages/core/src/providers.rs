@@ -732,6 +732,7 @@ impl Providers {
                         art_pinned: false,
                         policy_art: None,
                         language_anchor: None,
+                        language_choices: Default::default(),
                         excluded: false,
                         requested_languages: if english_only { Vec::new() } else { languages.clone() },
                     }),
@@ -835,6 +836,7 @@ impl Providers {
                 art_pinned: false,
                 policy_art: None,
                 language_anchor: None,
+                language_choices: Default::default(),
                 excluded: false,
                 requested_languages: Vec::new(),
             })
