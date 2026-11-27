@@ -8,10 +8,18 @@ import {
   recordList,
   usableCard,
 } from "./scryfall-card.ts";
+import { searchBatches } from "./search-batches.ts";
 
 const collectionBatch = 75;
 
 type NumberedPrint = NonNullable<ReturnType<typeof printNumber>>;
+
+type ImportResolution = {
+  line: ImportLine;
+  original: Card | undefined;
+  number: NumberedPrint | undefined;
+  card: Card | undefined;
+};
 
 function identifier(line: ImportLine) {
   if (line.set && line.collectorNumber) {
@@ -60,55 +68,67 @@ export function resolvedEntry(
   };
 }
 
-async function localizedPrint(
+async function resolveImportLanguage(
   api: Scryfall,
-  line: ImportLine,
-  original: Card | undefined,
+  resolutions: ImportResolution[],
   lang: string,
-  checked: { number: NumberedPrint | undefined },
+  englishOnly: boolean,
 ) {
-  if (original?.faces[0]?.language === lang) return original;
-  const matchesOracle = (raw: Record<string, unknown>) =>
-    !original || (raw.oracle_id ?? raw.id) === original.oracleId;
-
-  if (line.set && line.collectorNumber) {
-    const raw = await api.exact(line.set, line.collectorNumber, lang);
-    const number = printNumber(raw);
-    if (
-      number?.set === line.set &&
-      number.collectorNumber === line.collectorNumber &&
-      raw.lang === lang &&
-      matchesOracle(raw)
-    ) {
-      checked.number ??= number;
-      return usableCard(raw);
-    }
-    return undefined;
-  }
-
-  const escaped = line.name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  let query = original ? `oracleid:${original.oracleId}` : `!"${escaped}"`;
-  if (!original && line.set) {
-    if (!/^[a-z\d]+$/i.test(line.set)) return undefined;
-    query += ` set:${line.set}`;
-  }
-  const wanted = foldName(line.name);
-  for (let page = 1; page <= 100; page++) {
-    const result = await api.search(`${query} game:paper lang:${lang}`, page);
-    for (const raw of result.cards) {
+  const pending = new Map<string, ImportResolution[]>();
+  for (const result of resolutions) {
+    const { line, original } = result;
+    if (result.card || (englishOnly && !original)) continue;
+    if (original?.faces[0]?.language === lang) {
+      result.card = original;
+    } else if (line.set && line.collectorNumber) {
+      const raw = await api.exact(line.set, line.collectorNumber, lang);
       const number = printNumber(raw);
-      if (!number || raw.lang !== lang) continue;
-      const matches = original
-        ? matchesOracle(raw)
-        : (!line.set || number.set === line.set) && nameMatches(raw, wanted);
-      if (!matches) continue;
-      checked.number ??= number;
-      const card = usableCard(raw);
-      if (card) return card;
+      if (
+        number?.set === line.set &&
+        number.collectorNumber === line.collectorNumber &&
+        raw.lang === lang &&
+        (!original || (raw.oracle_id ?? raw.id) === original.oracleId)
+      ) {
+        result.number ??= number;
+        result.card = usableCard(raw);
+      }
+    } else {
+      const escaped = line.name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      let query = original ? `oracleid:${original.oracleId}` : `!"${escaped}"`;
+      if (!original && line.set) {
+        if (!/^[a-z\d]+$/i.test(line.set)) continue;
+        query += ` set:${line.set}`;
+      }
+      const group = pending.get(query);
+      if (group) group.push(result);
+      else pending.set(query, [result]);
     }
-    if (!result.hasMore) break;
   }
-  return undefined;
+
+  await searchBatches(
+    api,
+    pending.keys(),
+    ["game:paper", `lang:${lang}`],
+    (cards, batch) => {
+      const candidates = batch.flatMap((term) => pending.get(term) ?? []);
+      for (const raw of cards) {
+        const number = printNumber(raw);
+        if (!number || raw.lang !== lang) continue;
+        for (const result of candidates) {
+          if (result.card) continue;
+          const { line, original } = result;
+          const matches = original
+            ? (raw.oracle_id ?? raw.id) === original.oracleId
+            : (!line.set || number.set === line.set) &&
+              nameMatches(raw, foldName(line.name));
+          if (!matches) continue;
+          result.number ??= number;
+          result.card = usableCard(raw);
+        }
+      }
+      return candidates.every(({ card }) => card);
+    },
+  );
 }
 
 export async function resolveCards(
@@ -132,25 +152,24 @@ export async function resolveCards(
     const batch = lines.slice(offset, offset + collectionBatch);
     const collection = await api.collection(batch.map(identifier));
     const cards = collection.map((raw) => ({ raw, card: usableCard(raw) }));
-    for (const [index, line] of batch.entries()) {
+    const resolutions = batch.map((line): ImportResolution => {
       const wanted = foldName(line.name);
       const candidates = cards.filter(({ raw }) =>
         matchesLine(raw, line, wanted),
       );
       const candidate =
         candidates.find(({ card }) => card !== undefined) ?? candidates[0];
-      const original = candidate?.card;
-      const checked = { number: candidate && printNumber(candidate.raw) };
-      let card: Card | undefined;
-      if (englishOnly && !original) {
-        card = undefined;
-      } else {
-        for (const lang of attempted) {
-          card = await localizedPrint(api, line, original, lang, checked);
-          if (card) break;
-        }
-      }
-
+      return {
+        line,
+        original: candidate?.card,
+        number: candidate && printNumber(candidate.raw),
+        card: undefined,
+      };
+    });
+    for (const lang of attempted) {
+      await resolveImportLanguage(api, resolutions, lang, englishOnly);
+    }
+    for (const [index, { line, card, number }] of resolutions.entries()) {
       if (card) {
         entries.push(
           resolvedEntry(newId(), card, line, englishOnly ? [] : languages),
@@ -160,13 +179,13 @@ export async function resolveCards(
 
       const input = importLabel(line);
       const position = offset + index + 1;
-      if (checked.number) {
+      if (number) {
         issues.push({
           line: position,
           input,
           kind: "noUsableScan",
           message: `No usable scan found in ${attempted.join(", ")}.`,
-          printLookup: { ...checked.number, languages: attempted },
+          printLookup: { ...number, languages: attempted },
         });
         missingPrints.push({ input, languages });
       } else {

@@ -3915,7 +3915,8 @@ progress::-webkit-progress-value {
   padding: 0;
   list-style: none;
 }
-.modal-panel:has(> .art-change-list) > .modal-actions {
+.modal-panel:has(> .art-change-list) > .modal-actions,
+.modal-panel > .language-preview-actions {
   position: sticky;
   inset-block-end: calc(-1 * var(--space-6));
   margin-block-end: calc(-1 * var(--space-6));

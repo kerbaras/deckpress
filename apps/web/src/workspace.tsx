@@ -1,78 +1,35 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  Check,
-  CircleAlert,
-  Download,
-  FileCode,
-  Image,
-  LayoutGrid,
-  List,
-  LoaderCircle,
-  Printer,
-  Save,
-  SlidersHorizontal,
-  Trash2,
-} from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  type ArtPreview,
-  type ArtPreviewProgress,
-  api,
-  confirmAction,
-  downloadJson,
-  downloadMpcXml,
-  importedDeckFields,
-  isWebPreview,
-} from "./api.ts";
+import { useEffect, useRef, useState } from "react";
+import { api, downloadMpcXml, isWebPreview } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
-import { ArtPolicyFields, ArtPreviewDialog } from "./art-policy.tsx";
+import { ArtPreviewDialog } from "./art-policy.tsx";
 import {
   type Art,
-  type ArtPolicy,
   type Deck,
   type DeckEntry,
   deckSchema,
-  formatCount,
-  formats,
-  frontArt,
-  hasChosenArt,
-  mergeImport,
-  mpcXmlFormat,
   type PrintJob,
-  zones,
 } from "./core/index.ts";
 import { DeckLanguageControl, DeckLanguagePreview } from "./deck-language.tsx";
-import { ImportPanel } from "./import-panel.tsx";
-import {
-  DeckLanguageSummary,
-  entryLanguageLabel,
-  languageList,
-} from "./print-language.tsx";
 import { PrintSetup } from "./print-setup.tsx";
 import { PageToolbar } from "./titlebar.tsx";
-import { TokenSuggestions } from "./token-suggestions.tsx";
+import { ErrorNotice, StatusRegion, UnkeyedLoading, useTask } from "./ui.tsx";
 import {
-  ArtThumbnail,
-  countCards,
-  ErrorNotice,
-  ManaPips,
-  Modal,
-  SearchField,
-  StatusRegion,
-  UnkeyedLoading,
-  useTask,
-  zoneLabel,
-  zoneNames,
-} from "./ui.tsx";
+  type RegisterPolicyPreview,
+  useWorkspaceArt,
+} from "./use-workspace-art.ts";
+import { WorkspaceEditor } from "./workspace-cards.tsx";
+import {
+  BackButton,
+  DeckSettings,
+  WorkspaceToolbar,
+  type WorkspaceView,
+} from "./workspace-controls.tsx";
 
 type PrintSetupRequest = {
   failure: Pick<PrintJob, "failureTarget" | "message"> | undefined;
 };
 
-type RegisterPolicyPreview = (
-  preview: { discard: () => void; canDiscard: () => boolean } | null,
-) => void;
 const ignoreEditionsLoading = () => {};
 
 export function Workspace({
@@ -132,33 +89,6 @@ export function Workspace({
   );
 }
 
-function BackButton({
-  onBack,
-  disabled,
-}: {
-  onBack: (trigger: HTMLButtonElement) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className="icon-button quiet"
-      aria-label="Back to decks"
-      title="Back to decks"
-      disabled={disabled}
-      onClick={(event) => onBack(event.currentTarget)}
-    >
-      <ArrowLeft size={16} />
-    </button>
-  );
-}
-
-const views = [
-  { id: "edit", name: "Deck editor", icon: List },
-  { id: "art", name: "Art studio", icon: Image },
-  { id: "print", name: "Print setup", icon: Printer },
-] as const;
-
 function withEditedUpload(deck: Deck, upload: Art): Deck {
   const refresh = (art: Art | null) =>
     art?.provider === "upload" && art.id === upload.id
@@ -206,29 +136,16 @@ function DeckWorkspace({
   const [deck, setDeck] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [previousServerDeck, setPreviousServerDeck] = useState(initial);
-  const [view, setView] = useState<"edit" | "art" | "print">(
+  const [view, setView] = useState<WorkspaceView>(
     printSetup ? "print" : "edit",
   );
   const [selectedId, setSelectedId] = useState(initial.entries[0]?.id ?? "");
   const [metadata, setMetadata] = useState(false);
-  const [artPreview, setArtPreview] = useState<{
-    result?: ArtPreview;
-    error?: unknown;
-    language?: string | undefined;
-    progress?: ArtPreviewProgress;
-  } | null>(null);
   const [preserveStudioPreview, setPreserveStudioPreview] = useState(false);
-  const [canUndoArt, setCanUndoArt] = useState(false);
-  const [undoLanguage, setUndoLanguage] = useState(false);
-  const [artStatus, setArtStatus] = useState("");
   const [mpcExportStatus, setMpcExportStatus] = useState("");
   const task = useTask();
-  const artTask = useTask();
   const heading = useRef<HTMLHeadingElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
-  const previewButton = useRef<HTMLButtonElement>(null);
-  const previewRequest = useRef<symbol | null>(null);
-  const restorePreviewFocus = useRef<(() => HTMLElement | null) | null>(null);
   const exportMpc = async () => {
     const exported = await task.run(() => {
       setMpcExportStatus("Preparing MPC Autofill XML…");
@@ -291,142 +208,29 @@ function DeckWorkspace({
       mode === "toolbar" ? { toolbarDeck: next } : undefined,
     );
   const dirty = deck !== saved;
-  const saveStatus = isSaving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
-  const SaveStatusIcon = isSaving ? LoaderCircle : dirty ? CircleAlert : Check;
-  useEffect(() => {
-    if (artPreview || isSaving) return;
-    const opener = restorePreviewFocus.current?.();
-    restorePreviewFocus.current = null;
-    if (opener?.isConnected) opener.focus();
-  }, [artPreview, isSaving]);
-  useEffect(
-    () => () => {
-      previewRequest.current = null;
-      registerPolicyPreview(null);
-    },
-    [registerPolicyPreview],
-  );
-  const keepArt = useCallback(() => {
-    previewRequest.current = null;
-    registerPolicyPreview(null);
-    setArtPreview(null);
-  }, [registerPolicyPreview]);
-  const previewArt = async (
-    request: (
-      onProgress: (progress: ArtPreviewProgress) => void,
-    ) => Promise<ArtPreview>,
-    opener: () => HTMLElement | null,
-    language?: string,
-  ) => {
-    if (dirty || saving.current || previewRequest.current) return;
-    const id = Symbol();
-    previewRequest.current = id;
-    registerPolicyPreview({
-      discard: keepArt,
-      canDiscard: () => !saving.current,
-    });
-    restorePreviewFocus.current = opener;
-    setArtStatus("");
-    setArtPreview({ language });
-    try {
-      const result = await request((progress) =>
-        setArtPreview((current) =>
-          previewRequest.current === id &&
-          current &&
-          !current.result &&
-          !current.error
-            ? { ...current, progress }
-            : current,
-        ),
-      );
-      if (previewRequest.current === id) setArtPreview({ result, language });
-    } catch (error) {
-      if (previewRequest.current === id) setArtPreview({ error, language });
-    }
-  };
-  const previewPolicy = (policy: ArtPolicy, opener?: HTMLButtonElement) =>
-    void previewArt(
-      (onProgress) =>
-        api.previewArtPolicy(deck.id, deck.revision, policy, onProgress),
-      () => opener ?? previewButton.current,
-    );
-  const previewLanguage = (language: string, opener: HTMLSelectElement) =>
-    void previewArt(
-      () => api.previewDeckLanguage(deck.id, deck.revision, language),
-      () => opener,
-      language,
-    );
-  const overrideLanguage = async (entryId: string, artId: string) => {
-    const result = artPreview?.result;
-    if (!result) return;
-    const change = await api.overrideLanguagePrint(
-      deck.id,
-      deck.revision,
-      result.previewId,
-      entryId,
-      artId,
-    );
-    setArtPreview((current) =>
-      current?.result?.previewId === result.previewId
-        ? {
-            ...current,
-            result: {
-              ...result,
-              canApply: true,
-              changes: result.changes.map((item) =>
-                item.entryId === entryId ? change : item,
-              ),
-            },
-          }
-        : current,
-    );
-  };
-  const previewLocalization = (
-    entryId: string,
-    artId: string,
-    opener: HTMLButtonElement,
-  ) =>
-    void previewArt(
-      () => api.previewArtLocalization(deck.id, deck.revision, entryId, artId),
-      () => opener,
-    );
-  const applyArt = () =>
-    void artTask.run(async () => {
-      const result = artPreview?.result;
-      if (!result || dirty) return;
-      const language = artPreview.language;
-      setArtPreview({ result, language });
-      try {
-        await writeDeck(
-          () => api.applyArtPreview(deck.id, deck.revision, result.previewId),
-          { preservePreview: metadata },
-        );
-      } catch (error) {
-        setArtPreview({ result, error, language });
-        return;
-      }
-      setCanUndoArt(true);
-      setUndoLanguage(!!language);
-      keepArt();
-      setArtStatus(
-        language
-          ? `Deck language set to ${languageList([language])}.`
-          : "Art changes applied.",
-      );
-    });
-  const undoArt = () =>
-    void artTask.run(async () => {
-      if (dirty) return;
-      setArtStatus("");
-      await writeDeck(() => api.undoArtChange(deck.id, deck.revision), {
-        preservePreview: true,
-      });
-      setCanUndoArt(false);
-      setArtStatus(
-        undoLanguage ? "Language change undone." : "Art changes undone.",
-      );
-      setUndoLanguage(false);
-    });
+  const art = useWorkspaceArt({
+    deck,
+    dirty,
+    isSaving,
+    saving,
+    metadata,
+    registerPolicyPreview,
+    writeDeck,
+  });
+  const {
+    artPreview,
+    artTask,
+    canUndoArt,
+    undoLanguage,
+    artStatus,
+    previewPolicy,
+    previewLanguage,
+    previewLocalization,
+    overrideLanguage,
+    keepArt,
+    applyArt,
+    undoArt,
+  } = art;
   const saveChanges = () =>
     void task.run(async () => {
       await commit(deck, "toolbar");
@@ -458,110 +262,21 @@ function DeckWorkspace({
       className={`workspace workspace-${view}`}
       disabled={saveMode === "editor"}
     >
-      <PageToolbar
-        title={deck.name}
-        titleRef={heading}
-        subtitle={
-          <>
-            <span className="badge" data-tauri-drag-region>
-              {deck.format}
-            </span>
-            <span className="mono" data-tauri-drag-region>
-              {formatCount(countCards(deck.entries), "card")}
-            </span>
-          </>
-        }
-        leading={<BackButton onBack={onBack} disabled={isSaving} />}
-        center={
-          <nav
-            className="segmented workspace-views"
-            aria-label="Deck workspace"
-          >
-            {views.map(({ id, name, icon: Icon }) => (
-              <button
-                type="button"
-                key={id}
-                disabled={isSaving || (id !== "edit" && !deck.entries.length)}
-                aria-current={view === id ? "page" : undefined}
-                title={name}
-                onClick={async (event) => {
-                  if (id !== view) {
-                    const exit = confirmArtExit(event.currentTarget);
-                    if (exit === false || (exit !== true && !(await exit)))
-                      return;
-                  }
-                  setView(id);
-                }}
-              >
-                <Icon size={15} aria-hidden="true" />
-                <span>{name}</span>
-              </button>
-            ))}
-          </nav>
-        }
-      >
-        <span
-          className={`save-state${isSaving ? " saving" : dirty ? " unsaved" : ""}`}
-          role="status"
-          aria-label={saveStatus}
-          title={saveStatus}
-          data-tauri-drag-region
-        >
-          <SaveStatusIcon
-            className={isSaving ? "spin" : undefined}
-            aria-hidden="true"
-          />
-          <span className="save-state-label" data-tauri-drag-region>
-            <span data-tauri-drag-region>{saveStatus}</span>
-          </span>
-        </span>
-        <button
-          ref={saveButton}
-          type="button"
-          className={dirty ? "primary" : "quiet"}
-          disabled={isSaving || task.busy || !dirty}
-          aria-keyshortcuts="Control+S Meta+S"
-          title="Save changes (Ctrl+S)"
-          onClick={saveChanges}
-        >
-          <Save size={15} />
-          Save changes
-        </button>
-        <button
-          type="button"
-          className="icon-button quiet"
-          aria-label="Back up deck as JSON"
-          title="Back up deck as JSON"
-          disabled={isSaving}
-          onClick={() => void downloadJson(deck)}
-        >
-          <Download size={16} />
-        </button>
-        <button
-          type="button"
-          className="icon-button quiet"
-          aria-label="Export MPC Autofill XML"
-          title={
-            isWebPreview()
-              ? "MPC Autofill requires the desktop app"
-              : "Export MPC Autofill XML"
-          }
-          disabled={isWebPreview() || task.busy || !deck.entries.length}
-          onClick={() => void exportMpc()}
-        >
-          <FileCode size={16} />
-        </button>
-        <button
-          type="button"
-          className="icon-button quiet"
-          aria-label="Deck settings"
-          title="Deck settings"
-          disabled={isSaving}
-          onClick={() => setMetadata(true)}
-        >
-          <SlidersHorizontal size={16} />
-        </button>
-      </PageToolbar>
+      <WorkspaceToolbar
+        deck={deck}
+        view={view}
+        setView={setView}
+        onBack={onBack}
+        confirmArtExit={confirmArtExit}
+        isSaving={isSaving}
+        dirty={dirty}
+        busy={task.busy}
+        heading={heading}
+        saveButton={saveButton}
+        saveChanges={saveChanges}
+        onExportMpc={() => void exportMpc()}
+        onSettings={() => setMetadata(true)}
+      />
       {view !== "art" && (
         <DeckLanguageControl
           language={deck.printLanguage}
@@ -584,27 +299,15 @@ function DeckWorkspace({
       )}
       <ErrorNotice error={task.error} />
       {view === "edit" && (
-        <div className="editor-layout">
-          <ImportPanel
-            key={deck.printLanguage ?? "default"}
-            deckId={deck.printLanguage ? deck.id : undefined}
-            existing={countCards(deck.entries)}
-            onApply={async (result, replace) => {
-              const { entries, missingPrints = [] } =
-                importedDeckFields(result);
-              await commit({
-                ...deck,
-                entries:
-                  result.format === mpcXmlFormat
-                    ? [...(replace ? [] : deck.entries), ...entries]
-                    : mergeImport(deck.entries, entries, replace),
-                missingPrints,
-              });
-              heading.current?.focus();
-            }}
-          />
-          <DeckCards deck={deck} onChange={setDeck} onArt={selectArt} />
-        </div>
+        <WorkspaceEditor
+          deck={deck}
+          onChange={setDeck}
+          onArt={selectArt}
+          onCommit={async (next) => {
+            await commit(next);
+            heading.current?.focus();
+          }}
+        />
       )}
       {view === "art" && selected && (
         <ArtPicker
@@ -644,101 +347,22 @@ function DeckWorkspace({
         />
       )}
       {metadata && (
-        <Modal
-          title="Deck settings"
-          busy={task.busy || artTask.busy}
+        <DeckSettings
+          deck={deck}
+          setDeck={setDeck}
+          dirty={dirty}
+          isSaving={isSaving}
+          busy={task.busy}
+          error={task.error}
+          art={art}
           onClose={() => setMetadata(false)}
-        >
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void task.run(async () => {
-                await commit(deck);
-                setMetadata(false);
-              });
-            }}
-          >
-            <label className="field">
-              Deck name
-              <input
-                required
-                maxLength={100}
-                value={deck.name}
-                onChange={(event) =>
-                  setDeck({ ...deck, name: event.target.value })
-                }
-              />
-            </label>
-            <label className="field">
-              Format
-              <select
-                value={deck.format}
-                onChange={(event) =>
-                  setDeck({
-                    ...deck,
-                    format: event.target.value as Deck["format"],
-                  })
-                }
-              >
-                {formats.map((value) => (
-                  <option key={value}>{value}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              Notes
-              <textarea
-                maxLength={5000}
-                rows={4}
-                value={deck.notes}
-                onChange={(event) =>
-                  setDeck({ ...deck, notes: event.target.value })
-                }
-                placeholder="Playgroup, theme, printing notes…"
-              />
-            </label>
-            <label className="field">
-              Cover card
-              <select
-                value={deck.coverEntryId}
-                onChange={(event) =>
-                  setDeck({ ...deck, coverEntryId: event.target.value })
-                }
-              >
-                <option value="">Automatic</option>
-                {deck.entries.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.card.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <ArtPolicyFields
-              key={JSON.stringify(deck.artPolicy)}
-              deckId={deck.id}
-              revision={deck.revision}
-              current={deck.artPolicy}
-              disabled={dirty || isSaving}
-              busy={artTask.busy}
-              previewButton={previewButton}
-              canUndo={canUndoArt}
-              onPreview={previewPolicy}
-              onUndo={undoArt}
-            />
-            <StatusRegion label="Art policy status">{artStatus}</StatusRegion>
-            {!artPreview && <ErrorNotice error={artTask.error} />}
-            <ErrorNotice error={task.error} />
-            <div className="modal-actions">
-              <button
-                type="submit"
-                className="primary"
-                disabled={task.busy || artTask.busy || !deck.name.trim()}
-              >
-                Save deck settings
-              </button>
-            </div>
-          </form>
-        </Modal>
+          onSave={() =>
+            void task.run(async () => {
+              await commit(deck);
+              setMetadata(false);
+            })
+          }
+        />
       )}
       {artPreview?.language ? (
         <DeckLanguagePreview
@@ -764,325 +388,5 @@ function DeckWorkspace({
         )
       )}
     </fieldset>
-  );
-}
-
-function boardKey(zone: DeckEntry["zone"], board?: string) {
-  return board === undefined || board === zoneNames[zone]
-    ? zone
-    : JSON.stringify([zone, board]);
-}
-
-function DeckCards({
-  deck,
-  onChange,
-  onArt,
-}: {
-  deck: Deck;
-  onChange: (deck: Deck) => void;
-  onArt: (entry: DeckEntry) => void;
-}) {
-  const [search, setSearch] = useState("");
-  const [selectedBoard, setSelectedBoard] = useState("main");
-  const [group, setGroup] = useState("mana");
-  const [display, setDisplay] = useState("stacks");
-  const [error, setError] = useState<unknown>(null);
-  const update = (id: string, change: Partial<DeckEntry>) => {
-    const next = {
-      ...deck,
-      entries: deck.entries.map((entry) =>
-        entry.id === id ? { ...entry, ...change } : entry,
-      ),
-    };
-    const parsed = deckSchema.safeParse(next);
-    if (parsed.success) {
-      setError(null);
-      onChange(parsed.data);
-    } else
-      setError(new Error(parsed.error.issues[0]?.message ?? "Invalid deck"));
-  };
-  const boards = new Map(
-    zones.map((zone) => [
-      boardKey(zone),
-      { zone, board: undefined as string | undefined, count: 0 },
-    ]),
-  );
-  for (const { zone, board, quantity } of deck.entries) {
-    const key = boardKey(zone, board);
-    const existing = boards.get(key);
-    if (existing) existing.count += quantity;
-    else boards.set(key, { zone, board, count: quantity });
-  }
-  const orderedBoards = [...boards].sort(
-    ([, left], [, right]) =>
-      zones.indexOf(left.zone) - zones.indexOf(right.zone),
-  );
-  const activeBoard = boards.has(selectedBoard) ? selectedBoard : "main";
-  const entries = deck.entries.filter(
-    (entry) =>
-      boardKey(entry.zone, entry.board) === activeBoard &&
-      entry.card.name.toLowerCase().includes(search.toLowerCase()),
-  );
-  const groups = new Map<string, DeckEntry[]>();
-  for (const entry of [...entries].sort(
-    (a, b) =>
-      a.card.manaValue - b.card.manaValue ||
-      a.card.name.localeCompare(b.card.name),
-  )) {
-    const label =
-      group === "art"
-        ? hasChosenArt(entry)
-          ? "Chosen art"
-          : "Original printing"
-        : group === "type"
-          ? (entry.card.typeLine.split(" — ")[0] ?? "Other")
-          : entry.card.typeLine.includes("Land")
-            ? "Lands"
-            : `${entry.card.manaValue} mana`;
-    groups.set(label, [...(groups.get(label) ?? []), entry]);
-  }
-  return (
-    <section className="deck-cards">
-      <TokenSuggestions
-        entries={deck.entries}
-        languageDeck={
-          deck.printLanguage
-            ? { id: deck.id, revision: deck.revision }
-            : undefined
-        }
-        onAdd={(entry) => {
-          const next = deckSchema.safeParse({
-            ...deck,
-            entries: [...deck.entries, entry],
-          });
-          if (!next.success) {
-            setError(
-              new Error(next.error.issues[0]?.message ?? "Invalid deck"),
-            );
-            return;
-          }
-          setError(null);
-          onChange(next.data);
-          setSelectedBoard("tokens");
-          setSearch("");
-        }}
-      />
-      <div className="toolbar zone-toolbar">
-        {orderedBoards.map(([key, { zone, board, count }]) => (
-          <button
-            type="button"
-            key={key}
-            className={key === activeBoard ? "chip active" : "chip"}
-            onClick={() => setSelectedBoard(key)}
-          >
-            {board ?? zoneLabel(zone, count)}
-            <span>{count}</span>
-          </button>
-        ))}
-      </div>
-      <div className="toolbar">
-        <SearchField value={search} onChange={setSearch} label="Find a card" />
-        <label className="inline-label">
-          Group
-          <select
-            aria-label="Group cards"
-            value={group}
-            onChange={(event) => setGroup(event.target.value)}
-          >
-            <option value="mana">Mana value</option>
-            <option value="type">Card type</option>
-            <option value="art">Art status</option>
-          </select>
-        </label>
-        <div className="spacer" />
-        <div className="segmented">
-          <button
-            type="button"
-            aria-label="Stacks view"
-            aria-pressed={display === "stacks"}
-            onClick={() => setDisplay("stacks")}
-          >
-            <List size={16} />
-          </button>
-          <button
-            type="button"
-            aria-label="Card grid"
-            aria-pressed={display === "grid"}
-            onClick={() => setDisplay("grid")}
-          >
-            <LayoutGrid size={16} />
-          </button>
-          <button
-            type="button"
-            aria-label="Edit card quantities"
-            aria-pressed={display === "list"}
-            onClick={() => setDisplay("list")}
-          >
-            <SlidersHorizontal size={16} />
-          </button>
-        </div>
-      </div>
-      <ErrorNotice error={error} />
-      <DeckLanguageSummary deck={deck} />
-      {!entries.length ? (
-        <div className="empty-state">
-          <Image size={35} />
-          <h2>
-            {deck.entries.length
-              ? "No cards here yet"
-              : "Your deck starts here"}
-          </h2>
-          <p>
-            {deck.entries.length
-              ? "Choose another board or import more cards."
-              : "Paste a list on the left, resolve it on Scryfall, then make it yours."}
-          </p>
-        </div>
-      ) : display === "list" ? (
-        <div className="entry-table">
-          <div className="entry-table-head">
-            <span>Card</span>
-            <span>Copies</span>
-            <span>Board</span>
-            <span>Print</span>
-            <span />
-          </div>
-          {entries.map((entry) => (
-            <div className="entry-row" key={entry.id}>
-              <button
-                type="button"
-                className="entry-name"
-                onClick={() => onArt(entry)}
-              >
-                <ArtThumbnail art={frontArt(entry)} name="" />
-                <span>
-                  {entry.card.name}
-                  <small>{frontArt(entry).source}</small>
-                  <span className="badge">{entryLanguageLabel(entry)}</span>
-                </span>
-              </button>
-              <input
-                type="number"
-                aria-label={`Copies of ${entry.card.name}`}
-                min={1}
-                max={250}
-                value={entry.quantity}
-                onChange={(event) =>
-                  update(entry.id, { quantity: Number(event.target.value) })
-                }
-              />
-              <select
-                aria-label={`Board for ${entry.card.name}`}
-                value={boardKey(entry.zone, entry.board)}
-                onChange={(event) => {
-                  const target = boards.get(event.target.value);
-                  if (target)
-                    update(entry.id, {
-                      zone: target.zone,
-                      board: target.board,
-                    });
-                }}
-              >
-                {orderedBoards.map(([key, { zone, board, count }]) => (
-                  <option value={key} key={key}>
-                    {board ?? zoneLabel(zone, count)}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="checkbox"
-                aria-label={`Print ${entry.card.name}`}
-                checked={!entry.excluded}
-                onChange={(event) =>
-                  update(entry.id, { excluded: !event.target.checked })
-                }
-              />
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={`Remove ${entry.card.name}`}
-                onClick={async () => {
-                  if (
-                    await confirmAction(
-                      `Remove ${entry.quantity > 1 ? "all " : ""}${formatCount(entry.quantity, "copy", "copies")} of ${entry.card.name}?`,
-                      "Remove",
-                    )
-                  )
-                    onChange({
-                      ...deck,
-                      entries: deck.entries.filter(
-                        (item) => item.id !== entry.id,
-                      ),
-                    });
-                }}
-              >
-                <Trash2 size={15} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div
-          className={
-            display === "stacks" ? "card-groups" : "card-groups grid-groups"
-          }
-        >
-          {[...groups].map(([label, cards]) => (
-            <section className="card-group" key={label}>
-              <div className="group-heading">
-                <h3>{label}</h3>
-                <span>{countCards(cards)}</span>
-              </div>
-              <div
-                className={display === "stacks" ? "card-stack" : "card-grid"}
-              >
-                {cards.map((entry) => (
-                  <button
-                    type="button"
-                    key={entry.id}
-                    className={`playing-card ${hasChosenArt(entry) ? "custom-art" : ""} ${entry.excluded ? "excluded" : ""}`}
-                    aria-label={`Choose art for ${entry.card.name}`}
-                    aria-description={entryLanguageLabel(entry)}
-                    title={entryLanguageLabel(entry)}
-                    onClick={() => onArt(entry)}
-                  >
-                    <ArtThumbnail
-                      art={frontArt(entry)}
-                      name={entry.card.name}
-                    />
-                    <span className="quantity">{entry.quantity}</span>
-                    <span className="badge card-language">
-                      {entryLanguageLabel(entry)}
-                    </span>
-                    {entry.excluded && (
-                      <span className="card-status">Not printing</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
-      <div className="deck-summary">
-        <span className="status-dot" />
-        <div>
-          <strong>
-            Art chosen for {countCards(deck.entries.filter(hasChosenArt))} of{" "}
-            {formatCount(countCards(deck.entries), "card")}
-          </strong>
-          <p>
-            Cards without custom art use the image they were imported with.
-            Click any card to compare editions.
-          </p>
-        </div>
-        <div className="spacer" />
-        <ManaPips
-          colors={["W", "U", "B", "R", "G"].filter((color) =>
-            deck.entries.some((entry) => entry.card.colors.includes(color)),
-          )}
-        />
-      </div>
-    </section>
   );
 }

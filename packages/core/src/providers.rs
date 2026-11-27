@@ -2,7 +2,7 @@
 //! paced through a single rate limiter and JSON responses are cached in
 //! SQLite for 24 hours.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -26,7 +26,8 @@ use crate::store::Store;
 
 pub const USER_AGENT: &str = "Deckpress/0.1 (local playtest tool)";
 const SCRYFALL_INTERVAL: Duration = Duration::from_millis(550);
-const SCRYFALL_BACKOFF: Duration = Duration::from_secs(30);
+const SCRYFALL_BACKOFF: Duration = Duration::from_secs(15);
+const SCRYFALL_MAX_BACKOFF: Duration = Duration::from_secs(30);
 const SCRYFALL_RETRIES: u32 = 3;
 const COLLECTION_BATCH: usize = 75;
 const PRINT_SEARCH_BATCH: usize = 12;
@@ -322,6 +323,76 @@ fn print_search(query: &str, page: u32) -> Url {
     url
 }
 
+fn printing_queries<'a, T>(
+    clauses: &'a [(String, T)],
+    suffix: &'a str,
+    parenthesize_single: bool,
+) -> impl Iterator<Item = (String, &'a [(String, T)])> {
+    clauses.chunks(PRINT_SEARCH_BATCH).map(move |batch| {
+        let terms = batch
+            .iter()
+            .map(|(term, _)| term.as_str())
+            .collect::<Vec<_>>()
+            .join(" or ");
+        let query = if batch.len() > 1 || parenthesize_single {
+            format!("({terms}) {suffix}")
+        } else {
+            format!("{terms} {suffix}")
+        };
+        (query, batch)
+    })
+}
+
+struct ImportResolution<'a> {
+    line: &'a ImportLine,
+    original: Option<&'a Card>,
+    card: Option<Card>,
+    looked_up: Option<(String, String)>,
+}
+
+impl ImportResolution<'_> {
+    fn search_clause(&self) -> Option<String> {
+        if let Some(card) = self.original {
+            uuid::Uuid::parse_str(&card.oracle_id).ok()?;
+            return Some(format!("oracleid:{}", card.oracle_id));
+        }
+        let escaped = self.line.name.replace('\\', "\\\\").replace('"', "\\\"");
+        let mut clause = format!("!\"{escaped}\"");
+        if !self.line.set.is_empty() {
+            if !self
+                .line
+                .set
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric())
+            {
+                return None;
+            }
+            clause.push_str(&format!(" set:{}", self.line.set));
+        }
+        Some(clause)
+    }
+
+    fn consider(&mut self, raw: &Value, language: &str) {
+        let Some((set, collector)) = scryfall_print_number(raw) else {
+            return;
+        };
+        if self.card.is_none()
+            && raw["lang"] == language
+            && self.original.map_or_else(
+                || {
+                    (self.line.set.is_empty() || self.line.set == set)
+                        && scryfall_name_matches(raw, &fold_name(&self.line.name))
+                },
+                |card| scryfall_oracle_id(raw) == Some(&card.oracle_id),
+            )
+        {
+            self.looked_up
+                .get_or_insert_with(|| (set.to_owned(), collector.to_owned()));
+            self.card = normalize_scryfall(raw).ok();
+        }
+    }
+}
+
 fn cards_in(response: &Value) -> impl Iterator<Item = &Value> {
     response
         .get("data")
@@ -550,7 +621,7 @@ impl Providers {
                 return Err(AppError::RateLimited);
             };
             let now = Instant::now();
-            let fallback = SCRYFALL_BACKOFF * (1 << attempt);
+            let fallback = (SCRYFALL_BACKOFF * (1 << attempt)).min(SCRYFALL_MAX_BACKOFF);
             let delay = retry_after(&response)
                 .filter(|delay| now.checked_add(*delay).is_some())
                 .unwrap_or(fallback);
@@ -740,8 +811,8 @@ impl Providers {
             let cards: Vec<_> = cards_in(&response)
                 .map(|raw| (raw, normalize_scryfall(raw).ok()))
                 .collect();
-            for (index, line) in batch.iter().enumerate() {
-                let position = offset * COLLECTION_BATCH + index + 1;
+            let mut resolutions = Vec::with_capacity(batch.len());
+            for line in batch {
                 let wanted = fold_name(&line.name);
                 let mut candidates = cards.iter().filter(|(raw, _)| {
                     let Some((set, collector)) = scryfall_print_number(raw) else {
@@ -767,36 +838,31 @@ impl Providers {
                     .clone()
                     .find(|(_, card)| card.is_some())
                     .or_else(|| candidates.next());
-                let found = candidate.and_then(|(_, card)| card.as_ref());
-                let mut looked_up = candidate
-                    .and_then(|(raw, _)| scryfall_print_number(raw))
-                    .map(|(set, collector)| (set.to_owned(), collector.to_owned()));
-                let card = if english_only {
-                    match found {
-                        Some(card) if card.faces[0].language == "en" => Some(card.clone()),
-                        Some(_) => {
-                            self.localized_print(line, found, "en", &mut looked_up)
-                                .await?
-                        }
-                        None => None,
-                    }
-                } else {
-                    let mut localized = None;
-                    for language in languages {
-                        localized = self
-                            .localized_print(line, found, language, &mut looked_up)
-                            .await?;
-                        if localized.is_some() {
-                            break;
-                        }
-                    }
-                    if localized.is_none() && fallback_english {
-                        localized = self
-                            .localized_print(line, found, "en", &mut looked_up)
-                            .await?;
-                    }
-                    localized
-                };
+                resolutions.push(ImportResolution {
+                    line,
+                    original: candidate.and_then(|(_, card)| card.as_ref()),
+                    card: None,
+                    looked_up: candidate
+                        .and_then(|(raw, _)| scryfall_print_number(raw))
+                        .map(|(set, collector)| (set.to_owned(), collector.to_owned())),
+                });
+            }
+            let mut attempted = languages.clone();
+            if fallback_english {
+                attempted.push("en".into());
+            }
+            for language in &attempted {
+                self.resolve_import_language(&mut resolutions, language, english_only)
+                    .await?;
+            }
+            for (index, resolution) in resolutions.into_iter().enumerate() {
+                let position = offset * COLLECTION_BATCH + index + 1;
+                let ImportResolution {
+                    line,
+                    card,
+                    looked_up,
+                    ..
+                } = resolution;
                 match card {
                     Some(card) => entries.push(DeckEntry {
                         id: new_id(),
@@ -815,10 +881,6 @@ impl Providers {
                     }),
                     None if looked_up.is_some() => {
                         let input = import_label(line);
-                        let mut attempted = languages.clone();
-                        if fallback_english {
-                            attempted.push("en".into());
-                        }
                         issues.push(ImportIssue {
                             line: position as u32,
                             input: input.clone(),
@@ -827,7 +889,7 @@ impl Providers {
                             print_lookup: looked_up.map(|(set, collector_number)| ImportPrintLookup {
                                 set,
                                 collector_number,
-                                languages: attempted,
+                                languages: attempted.clone(),
                             }),
                         });
                         missing_prints.push(MissingPrint { input, languages: languages.clone() });
@@ -922,81 +984,91 @@ impl Providers {
         Ok(entries)
     }
 
-    async fn localized_print(
+    async fn resolve_import_language(
         &self,
-        line: &ImportLine,
-        original: Option<&Card>,
+        resolutions: &mut [ImportResolution<'_>],
         language: &str,
-        looked_up: &mut Option<(String, String)>,
-    ) -> AppResult<Option<Card>> {
-        if let Some(card) = original.filter(|card| card.faces[0].language == language) {
-            return Ok(Some(card.clone()));
-        }
-        if !line.set.is_empty() && !line.collector_number.is_empty() {
-            let mut url = Url::parse("https://api.scryfall.com/cards").expect("static URL");
-            url.path_segments_mut().expect("static URL").extend([
-                line.set.as_str(),
-                line.collector_number.as_str(),
-                language,
-            ]);
-            let raw = self.scryfall_json(url.as_str()).await?;
-            if scryfall_print_number(&raw)
-                == Some((line.set.as_str(), line.collector_number.as_str()))
-                && raw.get("lang").and_then(Value::as_str) == Some(language)
-                && original
-                    .is_none_or(|original| scryfall_oracle_id(&raw) == Some(&original.oracle_id))
+        english_only: bool,
+    ) -> AppResult<()> {
+        let mut clauses = BTreeMap::<_, Vec<_>>::new();
+        for (index, resolution) in resolutions.iter_mut().enumerate() {
+            if resolution.card.is_some() || (english_only && resolution.original.is_none()) {
+                continue;
+            }
+            if let Some(card) = resolution
+                .original
+                .filter(|card| card.faces[0].language == language)
             {
-                looked_up.get_or_insert_with(|| (line.set.clone(), line.collector_number.clone()));
-                return Ok(normalize_scryfall(&raw).ok());
+                resolution.card = Some(card.clone());
+            } else if !resolution.line.set.is_empty()
+                && !resolution.line.collector_number.is_empty()
+            {
+                let line = resolution.line;
+                let mut url = Url::parse("https://api.scryfall.com/cards").expect("static URL");
+                url.path_segments_mut().expect("static URL").extend([
+                    line.set.as_str(),
+                    line.collector_number.as_str(),
+                    language,
+                ]);
+                let raw = self.scryfall_json(url.as_str()).await?;
+                if scryfall_print_number(&raw)
+                    == Some((line.set.as_str(), line.collector_number.as_str()))
+                    && raw["lang"] == language
+                    && resolution
+                        .original
+                        .is_none_or(|card| scryfall_oracle_id(&raw) == Some(&card.oracle_id))
+                {
+                    resolution
+                        .looked_up
+                        .get_or_insert_with(|| (line.set.clone(), line.collector_number.clone()));
+                    resolution.card = normalize_scryfall(&raw).ok();
+                }
+            } else if let Some(clause) = resolution.search_clause() {
+                clauses.entry(clause).or_default().push(index);
             }
-            return Ok(None);
         }
-        let mut query = if let Some(card) = original {
-            if uuid::Uuid::parse_str(&card.oracle_id).is_err() {
-                return Ok(None);
-            }
-            format!("oracleid:{}", card.oracle_id)
-        } else {
-            let escaped = line.name.replace('\\', "\\\\").replace('"', "\\\"");
-            format!("!\"{escaped}\"")
-        };
-        if original.is_none() && !line.set.is_empty() {
-            if !line.set.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
-                return Ok(None);
-            }
-            query.push_str(&format!(" set:{}", line.set));
+        let clauses: Vec<_> = clauses.into_iter().collect();
+        let suffix = format!("game:paper lang:{language}");
+        for (query, batch) in printing_queries(&clauses, &suffix, false) {
+            let indices: Vec<_> = batch
+                .iter()
+                .flat_map(|(_, indices)| indices.iter().copied())
+                .collect();
+            self.visit_printing_pages(
+                &query,
+                |_| {},
+                |response| {
+                    for raw in cards_in(response) {
+                        for &index in &indices {
+                            resolutions[index].consider(raw, language);
+                        }
+                    }
+                    indices
+                        .iter()
+                        .all(|&index| resolutions[index].card.is_some())
+                },
+            )
+            .await?;
         }
-        query.push_str(&format!(" game:paper lang:{language}"));
-        let wanted = fold_name(&line.name);
+        Ok(())
+    }
+
+    async fn visit_printing_pages(
+        &self,
+        query: &str,
+        on_retry: impl Fn(Duration),
+        mut visit: impl FnMut(&Value) -> bool,
+    ) -> AppResult<bool> {
         for page in 1..=100 {
-            let url = print_search(&query, page);
-            let response = self.scryfall_json(url.as_str()).await?;
-            for raw in cards_in(&response) {
-                let Some((set, collector)) = scryfall_print_number(raw) else {
-                    continue;
-                };
-                if raw.get("lang").and_then(Value::as_str) != Some(language) {
-                    continue;
-                }
-                let matches = match original {
-                    Some(original) => scryfall_oracle_id(raw) == Some(&original.oracle_id),
-                    None => {
-                        (line.set.is_empty() || line.set == set)
-                            && scryfall_name_matches(raw, &wanted)
-                    }
-                };
-                if matches {
-                    looked_up.get_or_insert_with(|| (set.to_owned(), collector.to_owned()));
-                    if let Ok(card) = normalize_scryfall(raw) {
-                        return Ok(Some(card));
-                    }
-                }
-            }
-            if !has_more(&response) {
-                break;
+            let url = print_search(query, page);
+            let response = self
+                .scryfall_json_with_retry(url.as_str(), &on_retry)
+                .await?;
+            if visit(&response) || !has_more(&response) {
+                return Ok(true);
             }
         }
-        Ok(None)
+        Ok(false)
     }
 
     pub(crate) async fn policy_printing(&self, art_id: &str) -> AppResult<Option<Printing>> {
@@ -1056,7 +1128,7 @@ impl Providers {
                         cards.iter().filter_map(policy_printing).collect(),
                     );
                 }
-                _ => missing.push(oracle),
+                _ => missing.push((format!("oracleid:{oracle}"), oracle)),
             }
         }
         if total > 0 {
@@ -1065,42 +1137,38 @@ impl Providers {
                 total,
             });
         }
-        for batch in missing.chunks(PRINT_SEARCH_BATCH) {
-            let clauses = batch
+        let suffix = language.map_or_else(
+            || "game:paper".into(),
+            |lang| format!("lang:{lang} game:paper"),
+        );
+        for (query, batch) in printing_queries(&missing, &suffix, language.is_some()) {
+            let mut found: HashMap<_, Vec<Value>> = batch
                 .iter()
-                .map(|id| format!("oracleid:{id}"))
-                .collect::<Vec<_>>()
-                .join(" or ");
-            let query = match language {
-                Some(language) => format!("({clauses}) lang:{language} game:paper"),
-                None if batch.len() == 1 => format!("{clauses} game:paper"),
-                None => format!("({clauses}) game:paper"),
-            };
-            let mut found: HashMap<_, Vec<Value>> =
-                batch.iter().map(|&oracle| (oracle, Vec::new())).collect();
-            for page in 1..=100 {
-                let url = print_search(&query, page);
-                let response = self
-                    .scryfall_json_with_retry(url.as_str(), |delay| {
+                .map(|(_, oracle)| (*oracle, Vec::new()))
+                .collect();
+            let complete = self
+                .visit_printing_pages(
+                    &query,
+                    |delay| {
                         progress(PrintingLookupProgress::RateLimited(delay));
-                    })
-                    .await?;
-                for raw in cards_in(&response) {
-                    if let Some(bucket) = scryfall_oracle_id(raw)
-                        .and_then(|oracle| found.get_mut(oracle))
-                        .filter(|_| language.is_none_or(|language| raw["lang"] == language))
-                    {
-                        bucket.push(raw.clone());
-                    }
-                }
-                if !has_more(&response) {
-                    break;
-                }
-                if page == 100 {
-                    return Err(AppError::user(
-                        "Scryfall has too many printings for this deck.",
-                    ));
-                }
+                    },
+                    |response| {
+                        for raw in cards_in(response) {
+                            if let Some(bucket) = scryfall_oracle_id(raw)
+                                .and_then(|oracle| found.get_mut(oracle))
+                                .filter(|_| language.is_none_or(|language| raw["lang"] == language))
+                            {
+                                bucket.push(raw.clone());
+                            }
+                        }
+                        false
+                    },
+                )
+                .await?;
+            if !complete {
+                return Err(AppError::user(
+                    "Scryfall has too many printings for this deck.",
+                ));
             }
             for (oracle, cards) in found {
                 self.store.put("cache", &cache_key(oracle), &cards)?;

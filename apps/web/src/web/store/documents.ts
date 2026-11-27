@@ -9,6 +9,7 @@ export interface DocumentStore {
   get(kind: string, id: string): Promise<Document | undefined>;
   list(kind: string): Promise<Document[]>;
   put(document: Document): Promise<void>;
+  putMany(documents: Document[]): Promise<void>;
   remove(kind: string, id: string): Promise<void>;
   change(
     kind: string,

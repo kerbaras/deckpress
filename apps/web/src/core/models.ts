@@ -46,6 +46,11 @@ export const artSchema = z.object({
   bleedMm: z.number().min(0).max(10).default(0),
   backImageUrl: z.string().max(2048).default(""),
   backThumbnailUrl: z.string().max(2048).default(""),
+  filename: z.string().max(255).optional(),
+  contentHash: z
+    .string()
+    .regex(/^[a-f\d]{64}$/i)
+    .optional(),
 });
 export type Art = z.infer<typeof artSchema>;
 

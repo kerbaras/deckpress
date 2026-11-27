@@ -36,6 +36,12 @@ import type {
   UploadMetadata,
 } from "./web/backend/types.ts";
 import { NotAvailableOnWebError, webBackend } from "./web/backend/web.ts";
+import { storageQuotaError } from "./web/storage-quota.ts";
+import {
+  missingUploadSchema,
+  type UploadAttachment,
+} from "./web/store/backup-uploads.ts";
+import { checkUploadSize } from "./web/upload-hash.ts";
 
 /** Calls a backend command and validates the response shape. */
 export function command<T>(
@@ -53,7 +59,8 @@ async function parseResponse<T>(
   let data: unknown;
   try {
     data = await response;
-  } catch (error) {
+  } catch (cause) {
+    const error = await storageQuotaError(cause);
     if (error instanceof NotAvailableOnWebError) throw error;
     throw new Error(
       typeof error === "string"
@@ -438,14 +445,20 @@ export const api = {
         >
       >,
   ) => command("create_deck", deckSchema, { deck: value }),
-  restoreDeck: (contents: string) =>
+  inspectBackupUploads: (contents: string) =>
+    command("inspect_backup_uploads", z.array(missingUploadSchema), {
+      contents,
+    }),
+  restoreDeck: (contents: string, attachments?: UploadAttachment[]) =>
     command(
       "restore_deck",
       z.object({
         deck: deckSchema,
         updatedUploads: z.number().int().nonnegative(),
+        missingUploads: z.number().int().nonnegative().optional(),
+        reconnectedUploads: z.number().int().nonnegative().optional(),
       }),
-      { contents },
+      { contents, ...(attachments && { attachments }) },
     ),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
   listSets: () => command("scryfall_sets", z.array(setInfoSchema)),
@@ -683,13 +696,20 @@ export const api = {
     command("update_upload_bleed", artSchema, { imageUrl, bleedMm }),
   upload: async (file: File, meta: UploadMetadata) => {
     let data: unknown;
+    checkUploadSize(file.size);
+    const backend = getBackend();
     try {
-      data = await getBackend().uploadArt(
+      data = await backend.uploadArt(
         new Uint8Array(await file.arrayBuffer()),
         meta,
+        file.name,
       );
     } catch (error) {
       if (error instanceof NotAvailableOnWebError) throw error;
+      if (backend === webBackend) {
+        const detail = await storageQuotaError(error);
+        if (detail instanceof Error) throw detail;
+      }
       throw new Error(typeof error === "string" ? error : "Upload failed");
     }
     return artSchema.parse(data);
@@ -755,7 +775,7 @@ export function imageSrc(url: string): string {
   return getBackend().imageSrc(url);
 }
 export function uploadTrimSrc(art: Art, thumbnail = false) {
-  return getBackend().uploadTrimSrc(art, thumbnail);
+  return getBackend().uploadTrimSrc?.(art, thumbnail);
 }
 export function comparisonThumbnailSrc(art: Art, settings: PrintSettings) {
   return getBackend().comparisonThumbnailSrc(art, settings);

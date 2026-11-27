@@ -10,9 +10,15 @@ import {
   useState,
 } from "react";
 import { ZodError } from "zod";
-import { cardImageCrossOrigin, imageSrc, uploadTrimSrc } from "./api.ts";
+import {
+  cardImageCrossOrigin,
+  imageSrc,
+  isWebPreview,
+  uploadTrimSrc,
+} from "./api.ts";
 import type { Art, DeckEntry } from "./core/index.ts";
 import { ModalWindowChrome } from "./titlebar.tsx";
+import { useUploadImage } from "./web/use-upload-image.ts";
 
 export const zoneNames = {
   main: "Mainboard",
@@ -232,22 +238,35 @@ export function SearchField({
   );
 }
 
-export function ArtThumbnail({
+export function ArtThumbnail(
+  props: Omit<Parameters<typeof ArtImage>[0], "thumbnail">,
+) {
+  return <ArtImage {...props} thumbnail />;
+}
+
+export function ArtImage({
   art,
-  url = art.thumbnailUrl,
+  thumbnail = false,
+  url = thumbnail ? art.thumbnailUrl : art.imageUrl,
   ...props
 }: Omit<Parameters<typeof CardImage>[0], "url" | "src"> & {
   art: Art;
+  thumbnail?: boolean;
   url?: string;
 }) {
+  const upload = useUploadImage(art, thumbnail);
   return (
     <CardImage
       {...props}
       url={url}
       src={
-        art.provider === "upload" && art.bleedMm > 0
-          ? uploadTrimSrc(art, true)
-          : undefined
+        art.provider !== "upload"
+          ? undefined
+          : isWebPreview()
+            ? (upload ?? "about:blank")
+            : art.bleedMm > 0
+              ? uploadTrimSrc(art, thumbnail)
+              : undefined
       }
     />
   );

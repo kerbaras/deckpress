@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
-import { loadFixture, prepareFixture, scmSettings } from './fixture.mjs';
+import { loadFixture, prepareFixture, scmSettings } from './tests/fixture.mjs';
 
 const [command, dir, resolution] = process.argv.slice(2);
 assert.ok(dir, 'Usage: node measure.mjs prepare DIR [stress] | pdf DIR DPI');
@@ -13,8 +13,8 @@ if (command === 'prepare') {
   assert.equal(command, 'pdf');
   const dpi = Number(resolution);
   assert.ok(dpi === 600 || dpi === 800);
-  const { buildPdf, initSync } = await import('../dist/deckpress_core_wasm.js');
-  const wasm = readFileSync(new URL('../dist/deckpress_core_wasm_bg.wasm', import.meta.url));
+  const { buildPdf, initSync } = await import('./dist/deckpress_core_wasm.js');
+  const wasm = readFileSync(new URL('./dist/deckpress_core_wasm_bg.wasm', import.meta.url));
   const { memory } = initSync({ module: wasm });
   const { deckJson, images } = loadFixture(dir);
   const start = performance.now();

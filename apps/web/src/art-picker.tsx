@@ -14,7 +14,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { api, isWebPreview, type Preferences, uploadTrimSrc } from "./api.ts";
+import { api, isWebPreview, type Preferences } from "./api.ts";
 import { ScanQualityBadge, scanLabel } from "./art-quality.tsx";
 import {
   type Art,
@@ -35,8 +35,8 @@ import {
 import { useScryfallPrints } from "./scryfall-editions.ts";
 import { StyleMatch } from "./style-match.tsx";
 import {
+  ArtImage,
   ArtThumbnail,
-  CardImage,
   ErrorNotice,
   ExternalLink,
   LoadingIndicator,
@@ -328,7 +328,6 @@ function ArtSession({
   const uploads = useQuery({
     queryKey: ["uploads", entry.card.oracleId],
     queryFn: ({ signal }) => api.uploads(entry.card.oracleId, signal),
-    enabled: !web,
   });
   const items = [
     ...(original ? [original] : []),
@@ -885,9 +884,7 @@ function ArtSession({
                 ["mpc", "MPC Autofill"],
                 ["upload", "My uploads"],
               ]
-                .filter(
-                  ([value]) => !web || value === "all" || value === "scryfall",
-                )
+                .filter(([value]) => !web || value !== "mpc")
                 .map(([value, label]) => (
                   <button
                     type="button"
@@ -930,21 +927,19 @@ function ArtSession({
               Choose a better official scan when the illustration and language
               match.
             </span>
-            {!web && (
-              <button
-                type="button"
-                className="icon-button"
-                aria-label="Upload your own art"
-                title="Upload your own art"
-                disabled={busy}
-                onClick={() => setUpload(true)}
-              >
-                <Upload size={15} />
-              </button>
-            )}
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Upload your own art"
+              title="Upload your own art"
+              disabled={busy}
+              onClick={() => setUpload(true)}
+            >
+              <Upload size={15} />
+            </button>
             {web && (
               <span className="hint">
-                MPC Autofill and custom uploads require the desktop app.
+                MPC Autofill requires the desktop app.
               </span>
             )}
           </div>
@@ -1115,9 +1110,7 @@ function ArtSession({
             <div className="empty-state">
               <h3>No matching art</h3>
               <p>
-                {web
-                  ? "Clear a filter or load more results."
-                  : `Clear a filter, load more results, or upload an image for this ${face ? "back" : "front"}.`}
+                {`Clear a filter, load more results, or upload an image for this ${face ? "back" : "front"}.`}
               </p>
               <button
                 type="button"
@@ -1315,13 +1308,8 @@ function Monitor({
         <div className="monitor-picture">
           <div style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}>
             {art ? (
-              <CardImage
-                url={art.imageUrl}
-                src={
-                  art.provider === "upload" && art.bleedMm > 0
-                    ? uploadTrimSrc(art)
-                    : undefined
-                }
+              <ArtImage
+                art={art}
                 name={`${label}: ${art.name}`}
                 eager
                 onLoad={

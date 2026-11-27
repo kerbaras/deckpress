@@ -11,7 +11,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { api, downloadJson } from "./api.ts";
+import { api, downloadJson, isWebPreview } from "./api.ts";
 import {
   type Deck,
   deckSchema,
@@ -33,6 +33,11 @@ import {
   UnkeyedLoading,
   useTask,
 } from "./ui.tsx";
+import { ReconnectUploads } from "./web/reconnect-uploads.tsx";
+import type {
+  MissingUpload,
+  UploadAttachment,
+} from "./web/store/backup-uploads.ts";
 
 export function Library({
   open,
@@ -46,6 +51,7 @@ export function Library({
     id: string,
     importedCards?: number,
     updatedUploads?: number,
+    uploadStatus?: { reconnectedUploads: number; missingUploads: number },
   ) => void;
   /** Bumped by the title bar's "New deck" action; opens the create dialog. */
   createRequest?: number;
@@ -65,6 +71,10 @@ export function Library({
   const [list, setList] = useState(false);
   const [create, setCreate] = useState(false);
   const [remove, setRemove] = useState<Deck | null>(null);
+  const [reconnect, setReconnect] = useState<{
+    contents: string;
+    missing: MissingUpload[];
+  } | null>(null);
   const searchField = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (createRequest > 0) {
@@ -102,6 +112,21 @@ export function Library({
   const refresh = () => client.invalidateQueries({ queryKey: ["decks"] });
   const backup = (id: string) =>
     void task.run(async () => downloadJson(await api.deck(id)));
+  async function restore(contents: string, attachments?: UploadAttachment[]) {
+    const result = await api.restoreDeck(contents, attachments);
+    await Promise.all([
+      refresh(),
+      result.updatedUploads > 0 &&
+        client.invalidateQueries({ queryKey: ["deck"], refetchType: "all" }),
+      result.updatedUploads > 0 &&
+        client.invalidateQueries({ queryKey: ["uploads"], refetchType: "all" }),
+    ]);
+    setReconnect(null);
+    openImported(result.deck.id, undefined, result.updatedUploads, {
+      reconnectedUploads: result.reconnectedUploads ?? 0,
+      missingUploads: result.missingUploads ?? 0,
+    });
+  }
   return (
     <>
       <PageToolbar
@@ -134,22 +159,11 @@ export function Library({
                     throw new Error("Deck backup exceeds 16 MB");
                   const contents = await file.text();
                   deckSchema.parse(JSON.parse(contents));
-                  const { deck, updatedUploads } =
-                    await api.restoreDeck(contents);
-                  await Promise.all([
-                    refresh(),
-                    updatedUploads > 0 &&
-                      client.invalidateQueries({
-                        queryKey: ["deck"],
-                        refetchType: "all",
-                      }),
-                    updatedUploads > 0 &&
-                      client.invalidateQueries({
-                        queryKey: ["uploads"],
-                        refetchType: "all",
-                      }),
-                  ]);
-                  openImported(deck.id, undefined, updatedUploads);
+                  const missing = isWebPreview()
+                    ? await api.inspectBackupUploads(contents)
+                    : [];
+                  if (missing.length) setReconnect({ contents, missing });
+                  else await restore(contents);
                 });
               event.target.value = "";
             }}
@@ -164,6 +178,13 @@ export function Library({
           <span>New deck</span>
         </button>
       </PageToolbar>
+      {reconnect && (
+        <ReconnectUploads
+          missing={reconnect.missing}
+          onClose={() => setReconnect(null)}
+          onRestore={(attachments) => restore(reconnect.contents, attachments)}
+        />
+      )}
       <div className="page-content library-content">
         <ErrorNotice
           error={query.error ?? task.error}
