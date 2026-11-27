@@ -25,6 +25,7 @@ pub struct SetInfo {
 pub struct SetCoverage {
     pub set: SetInfo,
     pub count: usize,
+    pub exact: usize,
     pub total: usize,
 }
 
@@ -85,6 +86,7 @@ pub fn coverage(entry_sets: &[Vec<String>], sets: &[SetInfo]) -> Vec<SetCoverage
         .map(|set| (set.code.as_str(), roots[set.code.as_str()]))
         .collect();
     let mut exact_only_counts = HashMap::new();
+    let mut exact_counts = HashMap::new();
     let mut family_counts = HashMap::new();
     for codes in entry_sets {
         let covered: HashSet<_> = codes
@@ -92,6 +94,7 @@ pub fn coverage(entry_sets: &[Vec<String>], sets: &[SetInfo]) -> Vec<SetCoverage
             .filter_map(|code| member_roots.get(code.as_str()).copied())
             .collect();
         for code in codes.iter().map(String::as_str).collect::<HashSet<_>>() {
+            *exact_counts.entry(code).or_insert(0) += 1;
             if roots.get(code).is_some_and(|root| !covered.contains(root)) {
                 *exact_only_counts.entry(code).or_insert(0) += 1;
             }
@@ -102,7 +105,9 @@ pub fn coverage(entry_sets: &[Vec<String>], sets: &[SetInfo]) -> Vec<SetCoverage
     }
     let mut rows: Vec<_> = sets
         .iter()
-        .filter(|set| !set.digital && !matches!(set.set_type.as_str(), "memorabilia" | "alchemy"))
+        .filter(|set| {
+            !set.digital && !matches!(set.set_type.as_str(), "memorabilia" | "alchemy" | "token")
+        })
         .filter_map(|set| {
             let root = roots[set.code.as_str()];
             let count = family_counts.get(root).copied().unwrap_or(0)
@@ -113,6 +118,7 @@ pub fn coverage(entry_sets: &[Vec<String>], sets: &[SetInfo]) -> Vec<SetCoverage
             (count > 0).then(|| SetCoverage {
                 set: set.clone(),
                 count,
+                exact: exact_counts.get(set.code.as_str()).copied().unwrap_or(0),
                 total: entry_sets.len(),
             })
         })
@@ -120,6 +126,7 @@ pub fn coverage(entry_sets: &[Vec<String>], sets: &[SetInfo]) -> Vec<SetCoverage
     rows.sort_unstable_by(|a, b| {
         b.count
             .cmp(&a.count)
+            .then_with(|| b.exact.cmp(&a.exact))
             .then_with(|| b.set.released_at.cmp(&a.set.released_at))
             .then_with(|| a.set.code.cmp(&b.set.code))
     });

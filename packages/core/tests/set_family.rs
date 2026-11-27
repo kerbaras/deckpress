@@ -30,7 +30,7 @@ fn follows_parents_and_ranks_paper_family_members() {
 }
 
 #[test]
-fn counts_each_entry_once_and_orders_coverage_by_count_then_date() {
+fn counts_each_entry_once_and_orders_coverage_by_count_exact_then_date() {
     let sets = sets();
     let entries = [
         vec!["ecc", "ecc", "tecc", "pecl", "fdc"],
@@ -42,22 +42,36 @@ fn counts_each_entry_once_and_orders_coverage_by_count_then_date() {
     let results = coverage(&entries, &sets);
     let rows: Vec<_> = results
         .iter()
-        .map(|row| (row.set.code.as_str(), row.count, row.total))
+        .map(|row| (row.set.code.as_str(), row.count, row.exact, row.total))
         .collect();
     assert_eq!(
         rows,
         [
-            ("pecl", 3, 4),
-            ("j25", 3, 4),
-            ("tfdc", 2, 4),
-            ("ecc", 2, 4),
-            ("ecl", 2, 4),
-            ("tecc", 2, 4),
-            ("tecl", 2, 4),
-            ("fdc", 2, 4),
-            ("fdn", 2, 4),
-            ("tfdn", 2, 4),
+            ("pecl", 3, 2, 4),
+            ("j25", 3, 1, 4),
+            ("ecc", 2, 1, 4),
+            ("fdc", 2, 1, 4),
+            ("ecl", 2, 0, 4),
+            ("fdn", 2, 0, 4),
         ]
     );
     assert!(coverage(&[], &sets).is_empty());
+}
+
+#[test]
+fn foundations_commander_entries_prioritize_commander_then_main_set() {
+    let mut sets = sets();
+    let main = sets.iter_mut().find(|set| set.code == "fdn").unwrap();
+    main.released_at = "2024-11-16".into();
+    let entries = [vec!["fdc"], vec!["fdc", "fdn"], vec!["tfdc"]]
+        .map(|codes| codes.into_iter().map(String::from).collect());
+    let rows = coverage(&entries, &sets);
+    let ranked: Vec<_> = rows
+        .iter()
+        .filter(|row| row.set.code != "j25")
+        .map(|row| (row.set.code.as_str(), row.count, row.exact))
+        .collect();
+    assert_eq!(ranked, [("fdc", 3, 2), ("fdn", 3, 1)]);
+    assert_eq!(rows[0].set.code, "fdc");
+    assert_eq!(rows[1].set.code, "fdn");
 }
