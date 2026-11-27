@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { Channel } from "@tauri-apps/api/core";
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import { uploadTrimSrc } from "./api.ts";
+import { type ArtPreviewProgress, uploadTrimSrc } from "./api.ts";
 import {
   artSchema,
   backArt,
@@ -110,9 +111,11 @@ async function openPolicy() {
       },
     ],
   };
-  const preview = vi.fn<() => typeof result | Promise<typeof result>>(
-    () => result,
-  );
+  const preview = vi.fn<
+    (args: {
+      progress: Channel<ArtPreviewProgress>;
+    }) => typeof result | Promise<typeof result>
+  >(() => result);
   const apply = vi.fn(() => ({
     ...deck,
     revision: 1,
@@ -202,6 +205,31 @@ it("uses the trimmed upload thumbnail in a protected art preview row", async () 
     "src",
     uploadTrimSrc(upload, true),
   );
+});
+
+it("shows lookup and retry progress before opening the art preview results", async () => {
+  const { open, preview, result } = await openPolicy();
+  const pending = Promise.withResolvers<typeof result>();
+  preview.mockReturnValueOnce(pending.promise);
+  const dialog = await open();
+  const status = dialog.getByRole("status", { name: "Art preview status" });
+  const progress = preview.mock.calls[0]?.[0].progress;
+  if (!progress) throw new Error("Missing art preview progress channel.");
+  act(() =>
+    progress.onmessage({
+      kind: "printings",
+      language: null,
+      done: 12,
+      total: 66,
+    }),
+  );
+  expect(status).toHaveTextContent("Looked up 12 of 66 unique cards");
+  act(() => progress.onmessage({ kind: "rateLimited", retryAfterSeconds: 2 }));
+  expect(status).toHaveTextContent("Retrying in 2 s");
+  await act(async () => pending.resolve(result));
+  expect(
+    dialog.getByRole("button", { name: "Apply art changes" }),
+  ).toBeEnabled();
 });
 
 it("previews protected and unresolved art; Keep and Escape write nothing; Apply can be undone", async () => {

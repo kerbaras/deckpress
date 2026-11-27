@@ -53,7 +53,11 @@ function rateLimiter() {
   async function waitForSlot() {
     const delay = next - performance.now();
     if (delay > interval) reportRetry(Math.ceil(delay / 1000));
-    for (let wait = delay; wait > 0; wait = next - performance.now()) {
+    for (
+      let wait = next - performance.now();
+      wait > 0;
+      wait = next - performance.now()
+    ) {
       await new Promise((resolve) =>
         setTimeout(resolve, Math.min(Math.ceil(wait), 2_147_483_647)),
       );
@@ -136,20 +140,23 @@ export function scryfallClient(
           : { headers };
         let response: Response | undefined;
         for (let attempt = 0; ; attempt++) {
-          response = await fetcher(origin + path, {
-            ...init,
-            signal: AbortSignal.timeout(30_000),
-          }).catch((error: unknown) => {
+          try {
+            response = await fetcher(origin + path, {
+              ...init,
+              signal: AbortSignal.timeout(30_000),
+            });
+          } catch (error) {
             // Scryfall's throttled responses can omit CORS headers.
-            if (error instanceof TypeError) return undefined;
-            throw new Error("Could not reach api.scryfall.com. Try again.");
-          });
+            if (!(error instanceof TypeError))
+              throw new Error("Could not reach api.scryfall.com. Try again.");
+            response = undefined;
+          }
           if (response && response.status !== 429) break;
           defer(response ? retryDelay(response, attempt) : opaqueBackoff);
           if (attempt === retries) {
             throw new Error(
               response
-                ? "Scryfall is still rate limiting requests. Try again later."
+                ? "Scryfall is still rate-limiting requests. Try again later."
                 : "Scryfall could not be reached after retrying. It may be rate limiting requests. Try again later.",
             );
           }
