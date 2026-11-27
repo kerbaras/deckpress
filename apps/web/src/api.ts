@@ -740,7 +740,7 @@ export function imageSrc(url: string): string {
   return getBackend().imageSrc(url);
 }
 export function uploadTrimSrc(art: Art, thumbnail = false) {
-  return getBackend().uploadTrimSrc(art, thumbnail);
+  return getBackend().uploadTrimSrc?.(art, thumbnail);
 }
 export function comparisonThumbnailSrc(art: Art, settings: PrintSettings) {
   return getBackend().comparisonThumbnailSrc(art, settings);

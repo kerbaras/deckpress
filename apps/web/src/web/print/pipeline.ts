@@ -1,5 +1,6 @@
 import type { Art, PrintFailureTarget } from "../../core/index.ts";
 import { downloadImage } from "../store/image-cache.ts";
+import { readUploadImage } from "../store/upload-files.ts";
 import { decodeRgb, encodePng } from "../upscale/image.ts";
 import { loadModel } from "../upscale/model-store.ts";
 import { defaultWebModel, webModels } from "../upscale/models.ts";
@@ -49,6 +50,7 @@ export class PrintError extends Error {
 }
 
 function image(art: Art) {
+  if (art.provider === "upload") return readUploadImage(art.imageUrl);
   if (art.provider !== "scryfall")
     throw new Error(
       "This art source is unavailable on the web. Choose a Scryfall scan.",

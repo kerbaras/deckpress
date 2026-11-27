@@ -90,7 +90,7 @@ export interface Backend {
     onProgress?: (progress: StyleProgress) => void,
   ): Promise<unknown>;
   imageSrc(url: string): string;
-  uploadTrimSrc(art: Art, thumbnail?: boolean): string;
+  uploadTrimSrc?(art: Art, thumbnail?: boolean): string;
   comparisonThumbnailSrc(art: Art, settings: PrintSettings): string;
   previewSrc(art: unknown, settings: PreviewSettings): string;
   save(options: SaveDialogOptions): Promise<string | null>;

@@ -17,6 +17,7 @@ import { deckStore } from "../store/decks.ts";
 import { clearImageCache, imageSrc } from "../store/image-cache.ts";
 import { indexedDbDocuments } from "../store/indexed-db.ts";
 import { exportFileName, settingsStore } from "../store/settings.ts";
+import { uploadStore } from "../store/uploads.ts";
 import { isModelCached, MODEL_CACHE } from "../upscale/model-store.ts";
 import { defaultWebModel, webModels } from "../upscale/models.ts";
 import { artHistory } from "./art-history.ts";
@@ -41,7 +42,8 @@ function unsupportedSource(feature: string): Promise<never> {
 
 const placeholderImage = () => "about:blank";
 const documents = indexedDbDocuments();
-const decks = deckStore(documents);
+const uploads = uploadStore(documents);
+const decks = deckStore(documents, undefined, undefined, uploads);
 const settings = settingsStore(documents, decks.list);
 const scryfall = scryfallClient(documents);
 const art = artHistory(decks, policyProvider(scryfall), settings.printLanguage);
@@ -100,9 +102,14 @@ export const webBackend: Backend = {
           index.parse(args.expectedRevision),
         );
       case "list_uploads":
+        return uploads.list(text.parse(args.oracleId));
       case "upload_bleed":
+        return uploads.bleed(text.parse(args.imageUrl));
       case "update_upload_bleed":
-        return notAvailableYet("Art uploads");
+        return uploads.updateBleed(
+          text.parse(args.imageUrl),
+          z.number().nullable().parse(args.bleedMm),
+        );
       case "settings":
         return {
           ...(await settings.settings()),
@@ -274,10 +281,9 @@ export const webBackend: Backend = {
     }
     return notAvailableYet(name);
   },
-  uploadArt: () => notAvailableYet("Art upload"),
+  uploadArt: uploads.upload,
   matchArtStyle: () => notAvailableYet("Art style matching"),
   imageSrc,
-  uploadTrimSrc: placeholderImage,
   comparisonThumbnailSrc: (art) => imageSrc(art.thumbnailUrl),
   previewSrc: placeholderImage,
   async save({ defaultPath, filters }) {

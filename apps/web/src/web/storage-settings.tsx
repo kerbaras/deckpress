@@ -32,10 +32,12 @@ export function WebStorage({ onCleared }: { onCleared: () => void }) {
       </p>
       <p>
         Clear downloaded models, card scans, and cached Scryfall data. Your
-        decks, preferences, and offline app files stay in this browser.
+        decks, uploaded art, preferences, and offline app files stay in this
+        browser.
       </p>
       <p className="hint">
-        Backups with custom uploads or MPC art require the desktop app.
+        Deck backups reference uploads already in this browser; they do not
+        contain image files. Backups with MPC art require the desktop app.
       </p>
       <div className="toolbar">
         <button

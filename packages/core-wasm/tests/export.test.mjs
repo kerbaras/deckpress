@@ -13,12 +13,70 @@ import {
   buildPngZip,
   initSync,
   layoutJson,
+  prepareUpload,
   scmCuttingTemplatesJson,
   scmTemplatesJson,
+  setUploadBleed,
+  uploadPreview,
+  uploadSnapshot,
 } from '../dist/deckpress_core_wasm.js';
 import { loadFixture, prepareFixture, scmSettings } from './fixture.mjs';
 
 initSync({ module: readFileSync(new URL('../dist/deckpress_core_wasm_bg.wasm', import.meta.url)) });
+
+const id = 'd04f1cec-448c-4061-a849-5c998e365a4d';
+const input = { oracleId: 'card', name: ' My art ', artist: '' };
+const date = '2026-11-27T00:00:00.000Z';
+
+function prepare(bytes, meta = input) {
+  const prepared = prepareUpload(bytes, JSON.stringify(meta), id, date);
+  try {
+    return { metadata: prepared.metadata, png: prepared.png };
+  } finally {
+    prepared.free();
+  }
+}
+
+function pngDimensions(bytes) {
+  const png = Buffer.from(bytes);
+  assert.equal(png.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  return [png.readUInt32BE(16), png.readUInt32BE(20)];
+}
+
+test('WASM normalizes PNG and JPEG, edits bleed, and renders trim, thumbnails and print preview', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'deckpress-wasm-upload-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  prepareFixture(dir, 1, 691, 941);
+  const { images } = loadFixture(dir);
+  const [inputPng] = images.values();
+
+  const { metadata, png } = prepare(inputPng);
+  const { art, bleedAuto } = JSON.parse(metadata);
+  assert.deepEqual(pngDimensions(png), [691, 941]);
+  assert.equal(bleedAuto, true);
+  assert.equal(art.bleedMm, 3.048);
+  assert.equal(art.dpi, 254);
+  assert.equal(art.name, 'My art');
+  assert.equal(art.artist, 'My upload');
+  assert.equal(art.imageUrl, `upload://${id}`);
+
+  const artJson = JSON.stringify(art);
+  assert.deepEqual(pngDimensions(uploadSnapshot(png, artJson, false)), [631, 881]);
+  assert.equal(Math.max(...pngDimensions(uploadSnapshot(png, artJson, true))), 480);
+  const edited = JSON.parse(setUploadBleed(png, metadata, 0));
+  assert.equal(edited.bleedAuto, false);
+  assert.equal(edited.art.bleedMm, 0);
+  assert.equal(edited.art.dpi, 272);
+  assert.equal(JSON.parse(setUploadBleed(png, JSON.stringify(edited))).art.bleedMm, 3.048);
+
+  const jpeg = uploadPreview(png, artJson, JSON.stringify({ bleedMm: 1 }));
+  assert.equal(Buffer.from(jpeg.subarray(0, 2)).toString('hex'), 'ffd8');
+  const normalizedJpeg = prepare(jpeg, { ...input, bleedMm: 1 });
+  assert.ok(pngDimensions(normalizedJpeg.png)[0] > 300);
+  assert.equal(JSON.parse(normalizedJpeg.metadata).art.bleedMm, 1);
+  assert.throws(() => setUploadBleed(png, metadata, 11), /Bleed must be between 0 and 10 mm/);
+  assert.throws(() => prepare(new Uint8Array([1, 2, 3])), /Use PNG, JPEG or WebP/);
+});
 
 test('SCM A4 WASM export matches the native PDF geometry', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'deckpress-wasm-test-'));
