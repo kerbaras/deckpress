@@ -30,6 +30,7 @@ use crate::store::Store;
 use crate::upscaler::CancelToken;
 
 pub const UPLOAD_SCHEME: &str = "upload://";
+pub const SET_ICON_MIME: &str = "image/svg+xml";
 /// Art URL prefix the Node API wrote into decks; still present in migrated
 /// databases.
 pub const LEGACY_UPLOAD_PREFIX: &str = "/api/uploads/";
@@ -102,6 +103,28 @@ fn prune_thumbnail_files(dir: &Path, should_remove: impl Fn(&Path) -> bool) -> b
     complete
 }
 
+fn https_image_url(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none_or(|port| port == 443)
+}
+
+pub fn is_scryfall_set_icon(url: &Url) -> bool {
+    https_image_url(url)
+        && url.host_str() == Some("svgs.scryfall.io")
+        && url
+            .path()
+            .strip_prefix("/sets/")
+            .and_then(|file| file.strip_suffix(".svg"))
+            .is_some_and(|code| {
+                !code.is_empty()
+                    && code
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+            })
+}
+
 pub fn validate_image_url(input: &str) -> AppResult<Url> {
     let url = Url::parse(input).map_err(|_| AppError::user("Invalid image URL"))?;
     let host = url.host_str().unwrap_or_default();
@@ -112,13 +135,9 @@ pub fn validate_image_url(input: &str) -> AppResult<Url> {
             | "drive.google.com"
             | "drive.usercontent.google.com"
     ) || host.ends_with(".googleusercontent.com")
-        || (host == "storage.googleapis.com" && url.path().starts_with("/archidekt-card-images/"));
-    if url.scheme() != "https"
-        || !allowed
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.port().is_some_and(|port| port != 443)
-    {
+        || (host == "storage.googleapis.com" && url.path().starts_with("/archidekt-card-images/"))
+        || is_scryfall_set_icon(&url);
+    if !https_image_url(&url) || !allowed {
         return Err(AppError::user(
             "Only Scryfall, Archidekt and Google Drive image URLs are allowed",
         ));
@@ -312,6 +331,7 @@ impl Images {
 
     async fn download(&self, input: &str) -> AppResult<Vec<u8>> {
         let mut url = validate_image_url(input)?;
+        let set_icon = is_scryfall_set_icon(&url);
         for _ in 0..MAX_REDIRECTS {
             let response = self
                 .client
@@ -344,6 +364,11 @@ impl Images {
                     .join(location)
                     .map_err(|_| AppError::user("Image provider returned an invalid redirect"))?;
                 url = validate_image_url(next.as_str())?;
+                if set_icon != is_scryfall_set_icon(&url) {
+                    return Err(AppError::user(
+                        "Image provider returned an invalid redirect",
+                    ));
+                }
                 continue;
             }
             if !status.is_success() {
@@ -351,6 +376,16 @@ impl Images {
                     "Image download failed ({}). Google Drive may be rate limited; retry later or upload the file.",
                     status.as_u16()
                 )));
+            }
+            if set_icon
+                && !response
+                    .headers()
+                    .get(reqwest::header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.split(';').next())
+                    .is_some_and(|mime| mime.trim().eq_ignore_ascii_case(SET_ICON_MIME))
+            {
+                return Err(AppError::user("Scryfall returned an unsupported set icon."));
             }
             let mut stream = response.bytes_stream();
             let mut bytes = Vec::new();
@@ -360,6 +395,9 @@ impl Images {
                     return Err(AppError::user("Image exceeds 32 MB"));
                 }
                 bytes.extend_from_slice(&chunk);
+            }
+            if set_icon && !bytes.is_empty() {
+                return Ok(bytes);
             }
             if sniff(&bytes).is_none() {
                 return Err(AppError::user(

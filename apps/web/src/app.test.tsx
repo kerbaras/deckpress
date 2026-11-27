@@ -1965,9 +1965,12 @@ const secondArtDeck = {
   name: "Second deck",
 };
 
-async function openArtStudio(user: ReturnType<typeof userEvent.setup>) {
+async function openArtStudio(
+  user: ReturnType<typeof userEvent.setup>,
+  prints = [original, alternate],
+) {
   window.history.replaceState(null, "", `/#/decks/${id}`);
-  mockPickerArt([original, alternate]);
+  mockPickerArt(prints);
   vi.spyOn(api, "decks").mockResolvedValue([deck, secondArtDeck]);
   vi.spyOn(api, "deck").mockImplementation(async (deckId) =>
     deckId === id ? deck : secondArtDeck,
@@ -1976,6 +1979,76 @@ async function openArtStudio(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("button", { name: "Art studio" }));
   return screen.findByRole("button", previewButton);
 }
+
+it("uses the selected printing's set for a deck-wide family preview", async () => {
+  const user = userEvent.setup();
+  const previewId = crypto.randomUUID();
+  const picked = { ...alternate, set: "sta" };
+  vi.spyOn(api, "listSets").mockResolvedValue([
+    {
+      code: "sta",
+      name: "Strixhaven Mystical Archive",
+      setType: "masterpiece",
+      parentSetCode: "stx",
+      digital: false,
+      releasedAt: "2021-04-23",
+      iconSvgUri: "https://svgs.scryfall.io/sets/sta.svg",
+      cardCount: 63,
+    },
+  ]);
+  const preview = vi.spyOn(api, "previewArtPolicy").mockResolvedValue({
+    previewId,
+    canApply: true,
+    changes: [],
+  });
+  const pick = await openArtStudio(user, [original, picked, community]);
+  expect(
+    screen.getByRole("button", { name: "Use M10 for the whole deck" }),
+  ).toBeEnabled();
+  await user.click(pick);
+  const useSet = await screen.findByRole("button", {
+    name: "Use Strixhaven Mystical Archive for the whole deck",
+  });
+  await user.click(useSet);
+  expect(preview).toHaveBeenCalledWith(deck.id, deck.revision, {
+    kind: "matchSet",
+    set: "sta",
+    family: true,
+  });
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Preview art changes" }),
+  );
+  expect(
+    await dialog.findByText("0 matched, 0 kept current art"),
+  ).toBeVisible();
+  await user.click(
+    dialog.getByRole("button", { name: "Keep current choices" }),
+  );
+  expect(useSet).toHaveFocus();
+
+  await user.click(screen.getByRole("button", { name: "Deck editor" }));
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Edit card quantities" }),
+  );
+  fireEvent.change(
+    screen.getByRole("spinbutton", { name: "Copies of Lightning Bolt" }),
+    {
+      target: { value: "5" },
+    },
+  );
+  await user.click(screen.getByRole("button", { name: "Art studio" }));
+  const disabled = await screen.findByRole("button", {
+    name: "Use M10 for the whole deck",
+  });
+  expect(disabled).toBeDisabled();
+  await user.click(disabled);
+  expect(preview).toHaveBeenCalledTimes(1);
+});
 
 it("keeps an unapplied Art Studio pick guarded through policy Keep, Apply, and Undo", async () => {
   const user = userEvent.setup();
@@ -4562,6 +4635,116 @@ it("saves a cut template from the Other exports menu and explains it in SCM mode
   expect(
     screen.getByRole("menuitem", { name: "SVG cut template" }),
   ).not.toHaveAttribute("aria-disabled");
+});
+
+it("exports the selected SCM Studio file or falls back to DXF for unsupported and Free layouts", async () => {
+  const user = userEvent.setup();
+  const saveDialog = vi.fn();
+  const saveTemplate = vi.fn();
+  mockIPC((cmd, args) => {
+    if (cmd === "export_file_name") return exportFileName(args);
+    if (cmd === "plugin:dialog|save") return saveDialog(args);
+    if (cmd === "save_cut_template") return saveTemplate(args);
+  });
+  function PrintHarness() {
+    const [value, setValue] = useState(deck);
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  const mode = screen.getByRole("combobox", { name: "Layout mode" });
+  const menu = screen.getByRole("button", { name: "Other exports" });
+  await user.selectOptions(mode, "scm");
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "SCM registration marks" }),
+    "4",
+  );
+  await user.click(menu);
+  const studioLabel = "Silhouette Studio cut file (.studio3)";
+  const studio = screen.getByRole("menuitem", { name: studioLabel });
+  expect(studio).toHaveAccessibleDescription(
+    "Matches a4-standard-v5. Print the PDF at 100%. Select Cameo 5 Alpha in Silhouette Studio for 4 marks.",
+  );
+  expect(screen.queryByRole("menuitem", { name: "DXF cut lines" })).toBeNull();
+  saveDialog.mockReturnValueOnce("/chosen/Burn-a4-standard-v5.studio3");
+  await user.click(studio);
+  await waitFor(() =>
+    expect(saveTemplate).toHaveBeenCalledWith({
+      format: "studio3",
+      destination: "/chosen/Burn-a4-standard-v5.studio3",
+      settings: expect.objectContaining({
+        scmTemplate: {
+          paper: "a4",
+          card: "standard",
+          variant: "default",
+          marks: 4,
+        },
+      }),
+    }),
+  );
+  expect(saveDialog).toHaveBeenLastCalledWith({
+    options: expect.objectContaining({
+      defaultPath: "Burn-a4-standard-v5.studio3",
+      filters: [
+        { name: "Silhouette Studio cut file", extensions: ["studio3"] },
+      ],
+    }),
+  });
+  const picker = screen.getByRole("combobox", {
+    name: "Silhouette Cameo template",
+  });
+  await user.selectOptions(picker, "arch_b:borderless");
+  expect(picker).toHaveValue("arch_b:borderless");
+  await user.click(menu);
+  expect(screen.queryByRole("menuitem", { name: studioLabel })).toBeNull();
+  const dxf = screen.getByRole("menuitem", { name: "DXF cut lines" });
+  expect(dxf).toHaveAccessibleDescription(/sheet exceeds the 12×24 mat/);
+  saveDialog.mockReturnValueOnce("/chosen/borderless.dxf");
+  await user.click(dxf);
+  await waitFor(() =>
+    expect(saveTemplate).toHaveBeenLastCalledWith({
+      format: "dxf",
+      destination: "/chosen/borderless.dxf",
+      settings: expect.objectContaining({
+        scmTemplate: {
+          paper: "arch_b",
+          card: "standard",
+          variant: "borderless",
+          marks: 4,
+        },
+      }),
+    }),
+  );
+  expect(saveDialog).toHaveBeenLastCalledWith({
+    options: expect.objectContaining({
+      defaultPath: expect.stringMatching(
+        /^Burn-arch_b-standard-borderless-v\d+\.dxf$/,
+      ),
+      filters: [{ name: "DXF cut lines", extensions: ["dxf"] }],
+    }),
+  });
+  await user.selectOptions(mode, "free");
+  await user.click(menu);
+  expect(screen.queryByRole("menuitem", { name: studioLabel })).toBeNull();
+  saveDialog.mockReturnValueOnce("/chosen/free.dxf");
+  await user.click(screen.getByRole("menuitem", { name: "DXF cut lines" }));
+  await waitFor(() =>
+    expect(saveTemplate).toHaveBeenLastCalledWith({
+      format: "dxf",
+      destination: "/chosen/free.dxf",
+      settings: expect.objectContaining({ layoutMode: "free" }),
+    }),
+  );
+  expect(saveDialog).toHaveBeenLastCalledWith({
+    options: expect.objectContaining({ defaultPath: "Burn-cut-template.dxf" }),
+  });
 });
 
 it("mounts the print preset status before saving", async () => {

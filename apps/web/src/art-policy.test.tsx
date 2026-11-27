@@ -212,6 +212,13 @@ it("previews protected and unresolved art; Keep and Escape write nothing; Apply 
   expect(dialog.getByText("Unmatched — unchanged")).toBeVisible();
   expect(dialog.getByText("English fallback")).toBeVisible();
   expect(dialog.getByText("LEA #161 · EN")).toBeVisible();
+  expect(dialog.getByText("1 matched, 2 kept current art")).toBeVisible();
+  const kept = within(
+    dialog.getByRole("list", { name: "Cards that kept current art" }),
+  );
+  expect(kept.getAllByRole("listitem").map((item) => item.textContent)).toEqual(
+    ["Manual print", "Missing print"],
+  );
   await user.click(
     dialog.getByRole("button", { name: "Keep current choices" }),
   );

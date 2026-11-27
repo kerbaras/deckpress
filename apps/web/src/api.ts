@@ -27,6 +27,7 @@ import {
   parseDecklist,
   printerProfileSchema,
 } from "./core/index.ts";
+import { setCoverageSchema, setInfoSchema } from "./core/sets.ts";
 import { getBackend } from "./web/backend/index.ts";
 import type {
   CommandName,
@@ -443,6 +444,9 @@ export const api = {
       { contents },
     ),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
+  listSets: () => command("scryfall_sets", z.array(setInfoSchema)),
+  setCoverage: (deckId: string) =>
+    command("set_coverage", z.array(setCoverageSchema), { deckId }),
   previewArtPolicy: (
     deckId: string,
     expectedRevision: number,
@@ -783,16 +787,29 @@ export async function downloadJson(deck: Deck): Promise<boolean> {
   return true;
 }
 
-export async function downloadCutTemplate(deck: Deck): Promise<string | null> {
+export async function downloadCutTemplate(
+  deck: Deck,
+  format: "svg" | "dxf" | "studio3" = "svg",
+  templateName?: string,
+): Promise<string | null> {
+  const labels = {
+    svg: "SVG cut template",
+    dxf: "DXF cut lines",
+    studio3: "Silhouette Studio cut file",
+  };
   const destination = await saveFileDialog({
     title: "Save cut template",
-    defaultPath: await exportFileName(deck, "-cut-template.svg"),
-    filters: [{ name: "SVG cut template", extensions: ["svg"] }],
+    defaultPath: await exportFileName(
+      deck,
+      `-${templateName ?? "cut-template"}.${format}`,
+    ),
+    filters: [{ name: labels[format], extensions: [format] }],
   });
   if (!destination) return null;
   await command("save_cut_template", nothing, {
     destination,
     settings: deck.printSettings,
+    ...(format !== "svg" && { format }),
   });
   return destination;
 }

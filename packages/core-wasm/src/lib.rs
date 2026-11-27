@@ -1,6 +1,5 @@
 use std::io::Cursor;
 
-use deckpress_core::cut_svg;
 use deckpress_core::layout;
 use deckpress_core::models::{Deck, PrintSettings};
 use deckpress_core::pdf;
@@ -8,6 +7,7 @@ use deckpress_core::png_export;
 use deckpress_core::scm;
 use deckpress_core::upscaler::CancelToken;
 use deckpress_core::validate::validate_entries;
+use deckpress_core::{cut_dxf, cut_svg};
 use deckpress_core::{AppError, AppResult};
 use js_sys::{JsString, Map, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -90,6 +90,11 @@ pub fn build_png_zip(
 #[wasm_bindgen(js_name = buildCutSvg)]
 pub fn build_cut_svg(settings_json: &str) -> Result<String, JsError> {
     cut_svg::build_cut_svg(&settings(settings_json)?).map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = buildCutDxf)]
+pub fn build_cut_dxf(settings_json: &str) -> Result<String, JsError> {
+    cut_dxf::build_cut_dxf(&settings(settings_json)?).map_err(js_error)
 }
 
 /// Coordinates are in PDF points, measured from the top left.

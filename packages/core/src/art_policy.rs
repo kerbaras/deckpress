@@ -16,6 +16,7 @@ use crate::{
     language_switch::LanguageTier,
     models::{new_id, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences},
     providers::{validate_language, Providers},
+    set_family::family,
     store::Store,
 };
 
@@ -26,6 +27,8 @@ pub enum ArtPolicy {
     Latest,
     MatchSet {
         set: String,
+        #[serde(default)]
+        family: bool,
     },
     Style {
         frame: Option<Frame>,
@@ -109,7 +112,7 @@ pub struct Printing {
 impl ArtPolicy {
     fn validate(&self) -> AppResult<()> {
         match self {
-            Self::MatchSet { set }
+            Self::MatchSet { set, .. }
                 if set.is_empty()
                     || set.len() > 20
                     || !set
@@ -126,13 +129,25 @@ impl ArtPolicy {
             _ => Ok(()),
         }
     }
+}
 
+#[cfg(feature = "native")]
+struct PolicySelection<'a> {
+    policy: &'a ArtPolicy,
+    family_ranks: Option<HashMap<String, u8>>,
+}
+
+#[cfg(feature = "native")]
+impl PolicySelection<'_> {
     fn permits(&self, printing: &Printing) -> bool {
         printing.paper
             && !printing.promo
-            && match self {
-                Self::MatchSet { set } => printing.set == *set,
-                Self::Style { frame, border, .. } => {
+            && match self.policy {
+                ArtPolicy::MatchSet { set, .. } => self.family_ranks.as_ref().map_or_else(
+                    || printing.set == *set,
+                    |ranks| ranks.contains_key(&printing.set),
+                ),
+                ArtPolicy::Style { frame, border, .. } => {
                     frame.is_none_or(|frame| frame.code() == printing.frame)
                         && border.is_none_or(|border| border.code() == printing.border)
                 }
@@ -141,16 +156,16 @@ impl ArtPolicy {
     }
 
     fn treatment_matches(&self, printing: &Printing) -> bool {
-        match self {
-            Self::Style {
+        match self.policy {
+            ArtPolicy::Style {
                 treatment: Some(Treatment::None),
                 ..
             } => !printing.full_art && !printing.showcase,
-            Self::Style {
+            ArtPolicy::Style {
                 treatment: Some(Treatment::FullArt),
                 ..
             } => printing.full_art,
-            Self::Style {
+            ArtPolicy::Style {
                 treatment: Some(Treatment::Showcase),
                 ..
             } => printing.showcase,
@@ -159,13 +174,15 @@ impl ArtPolicy {
     }
 
     fn compare(&self, a: &Printing, b: &Printing, deck_policy: bool) -> Ordering {
-        let release = if matches!(self, Self::Original) {
+        let release = if matches!(self.policy, ArtPolicy::Original) {
             a.date.cmp(&b.date)
         } else {
             b.date.cmp(&a.date)
         };
-        self.treatment_matches(b)
-            .cmp(&self.treatment_matches(a))
+        self.family_ranks
+            .as_ref()
+            .map_or(Ordering::Equal, |ranks| ranks[&a.set].cmp(&ranks[&b.set]))
+            .then_with(|| self.treatment_matches(b).cmp(&self.treatment_matches(a)))
             .then_with(|| a.date.is_empty().cmp(&b.date.is_empty()))
             .then(release)
             .then_with(|| {
@@ -204,7 +221,7 @@ fn localized<'a>(
     anchor: &Printing,
     candidates: impl IntoIterator<Item = &'a Printing>,
     language: &str,
-    policy: Option<&ArtPolicy>,
+    selection: Option<&PolicySelection<'_>>,
 ) -> Option<&'a Printing> {
     candidates
         .into_iter()
@@ -213,20 +230,34 @@ fn localized<'a>(
                 && print.language == language
                 && print.scans.is_some()
                 && same_illustrations(anchor, print)
-                && policy.is_none_or(|policy| {
-                    policy.permits(print)
-                        && (!policy.treatment_matches(anchor) || policy.treatment_matches(print))
+                && selection.is_none_or(|selection| {
+                    selection.permits(print)
+                        && (!selection.treatment_matches(anchor)
+                            || selection.treatment_matches(print))
                 })
         })
         .min_by(|a, b| {
             let exact =
                 |print: &Printing| print.set == anchor.set && print.collector == anchor.collector;
             exact(b).cmp(&exact(a)).then_with(|| {
-                policy
-                    .unwrap_or(&ArtPolicy::Latest)
-                    .compare(a, b, policy.is_some())
+                selection
+                    .unwrap_or(&PolicySelection {
+                        policy: &ArtPolicy::Latest,
+                        family_ranks: None,
+                    })
+                    .compare(a, b, selection.is_some())
             })
         })
+}
+
+#[cfg(feature = "native")]
+pub(crate) fn policy_can_change(entry: &DeckEntry) -> bool {
+    !entry.is_art_pinned()
+        && entry
+            .card
+            .faces
+            .iter()
+            .all(|art| art.provider == crate::models::Provider::Scryfall)
 }
 
 #[cfg(feature = "native")]
@@ -475,19 +506,29 @@ impl ArtPolicies {
         policy.validate()?;
         let (before, preview_id) = self.begin_preview(deck_id, revision)?;
         let preferences = self.providers.preferences_for_deck(&before)?;
+        let family_ranks = match &policy {
+            ArtPolicy::MatchSet { set, family: true }
+                if before.entries.iter().any(policy_can_change) =>
+            {
+                Some(
+                    family(set, &self.providers.sets().await?)
+                        .into_iter()
+                        .collect(),
+                )
+            }
+            _ => None,
+        };
         let mut next = before.clone();
         next.art_policy = Some(policy.clone());
+        let selection = PolicySelection {
+            policy: &policy,
+            family_ranks,
+        };
         let mut inventory = HashMap::<String, Vec<Printing>>::new();
         let mut translations = HashMap::<(String, String), Vec<Printing>>::new();
         let mut changes = Vec::with_capacity(before.entries.len());
         for entry in &mut next.entries {
-            if entry.is_art_pinned()
-                || entry
-                    .card
-                    .faces
-                    .iter()
-                    .any(|art| art.provider != crate::models::Provider::Scryfall)
-            {
+            if !policy_can_change(entry) {
                 changes.push(ArtChange::new(
                     entry,
                     ArtChangeKind::Pinned,
@@ -506,13 +547,13 @@ impl ArtPolicies {
             let anchor = options
                 .iter()
                 .filter(|print| {
-                    policy.permits(print) && print.illustrations.len() == entry.card.faces.len()
+                    selection.permits(print) && print.illustrations.len() == entry.card.faces.len()
                 })
-                .min_by(|a, b| policy.compare(a, b, true));
+                .min_by(|a, b| selection.compare(a, b, true));
             let selected = if let Some(anchor) = anchor {
                 let mut selected = None;
                 for language in languages(&preferences) {
-                    let known = localized(anchor, options, language, Some(&policy));
+                    let known = localized(anchor, options, language, Some(&selection));
                     if let Some(print) = known.filter(|print| {
                         print.set == anchor.set && print.collector == anchor.collector
                     }) {
@@ -534,7 +575,7 @@ impl ArtPolicies {
                         anchor,
                         options.iter().chain(&translations[&key]),
                         language,
-                        Some(&policy),
+                        Some(&selection),
                     ) {
                         selected = Some(print.clone());
                         break;

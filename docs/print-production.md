@@ -149,10 +149,16 @@ flip. Calibration adjusts back artwork; it does not move cutter marks.
 In Print Setup, choose **Silhouette template (SCM)**, select a card size,
 then choose a layout under its paper size. Pick the 3- or 4-mark pattern
 for your cutter setup. The picker shows the fixed grid and the exact `.studio3`
-filename from SCM's cutting templates, and links to them. SCM does not publish
-borderless cut files for A3 or Arch B, so those layouts show a warning and a
-link to SCM's borderless docs instead of a filename. The sheet label includes the template
-name and version. SCM mode
+filename from SCM's cutting templates. Use **Other exports → Silhouette Studio
+cut file (.studio3)** and save the file beside your PDF. Print at **100% / actual
+size**. For 4 marks, select Cameo 5 Alpha in Silhouette Studio. The PDF sheet
+label and cut-file name include the same template version.
+
+SCM does not publish A3 or Arch B borderless Studio files because their virtual
+sheets exceed the 12×24 mat. For these layouts or Free mode, use **Other exports
+→ DXF cut lines** to import the rounded cuts in Silhouette Studio Basic Edition.
+DXF contains cut paths in millimeters, not a Studio document or its registration
+settings. SCM mode
 replaces crop marks with registration marks, caps bleed at **0.625 mm per
 side**, and uses long-edge alignment for backs. Switching modes does not
 overwrite your bleed or duplex settings. Arch B (12 × 18 in) is a paper

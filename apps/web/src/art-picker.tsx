@@ -46,6 +46,7 @@ import {
   StatusRegion,
   useTask,
 } from "./ui.tsx";
+import { type UseSet, UseSetAction } from "./use-set-action.tsx";
 
 const preferHighResKey = "deckpress.prefer-high-res";
 
@@ -59,6 +60,8 @@ export function ArtPicker(props: {
   onUploadEdited?: (art: Art) => void;
   preservePreview?: boolean;
   canLocalize?: boolean;
+  canUseSet?: boolean;
+  onUseSet?: UseSet;
   onLocalize?: (
     entryId: string,
     artId: string,
@@ -203,6 +206,8 @@ function ArtSession({
   onApply,
   onUploadEdited,
   canLocalize,
+  canUseSet,
+  onUseSet,
   onLocalize,
   face,
   activeFaceControl,
@@ -220,6 +225,8 @@ function ArtSession({
   onApply: (deck: Deck) => Promise<Deck>;
   onUploadEdited?: (art: Art) => void;
   canLocalize?: boolean;
+  canUseSet?: boolean;
+  onUseSet?: UseSet;
   onLocalize?: (
     entryId: string,
     artId: string,
@@ -656,6 +663,13 @@ function ArtSession({
           </button>
         </div>
         <div className="art-apply-toolbar">
+          {onUseSet && candidate?.provider === "scryfall" && candidate.set && (
+            <UseSetAction
+              set={candidate.set}
+              disabled={!canUseSet || busy}
+              onUseSet={onUseSet}
+            />
+          )}
           <div className="spacer" />
           <label className="inline-label">
             Apply to

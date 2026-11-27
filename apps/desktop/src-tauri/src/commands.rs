@@ -19,11 +19,12 @@ use deckpress_core::models::{
 };
 use deckpress_core::pdf::build_duplex_calibration_pdf;
 use deckpress_core::providers::MpcArtwork;
+use deckpress_core::set_family::{SetCoverage, SetInfo};
 use deckpress_core::style::{StyleReport, StyleRequest};
 use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
 use deckpress_core::upscaler::preview::{self, ModelCrop};
 use deckpress_core::upscaler::{CancelToken, UpscalerInfo};
-use deckpress_core::{art_quality, cut_svg::build_cut_svg};
+use deckpress_core::{art_quality, cut_dxf::build_cut_dxf, cut_svg::build_cut_svg, scm_cut};
 
 pub type AppState = deckpress_core::Core;
 pub type Comparisons = Mutex<HashMap<String, CancelToken>>;
@@ -185,6 +186,20 @@ pub async fn restore_deck(
 pub async fn save_deck(state: State<'_, AppState>, deck: Deck) -> AppResult<Deck> {
     let store = Arc::clone(&state.store);
     tokio::task::spawn_blocking(move || store.update_deck(deck)).await?
+}
+
+#[tauri::command]
+pub async fn scryfall_sets(state: State<'_, AppState>) -> AppResult<Vec<SetInfo>> {
+    state.providers.sets().await
+}
+
+#[tauri::command]
+pub async fn set_coverage(
+    state: State<'_, AppState>,
+    deck_id: String,
+) -> AppResult<Vec<SetCoverage>> {
+    let deck = state.store.deck(&deck_id)?;
+    state.providers.set_coverage(&deck.entries).await
 }
 
 #[tauri::command]
@@ -591,13 +606,25 @@ pub async fn save_pdf(
 }
 
 #[tauri::command]
-pub async fn save_cut_template(destination: String, settings: PrintSettings) -> AppResult<()> {
+pub async fn save_cut_template(
+    destination: String,
+    settings: PrintSettings,
+    format: Option<String>,
+) -> AppResult<()> {
     let destination = PathBuf::from(destination);
-    if destination.extension().and_then(|e| e.to_str()) != Some("svg") {
-        return Err(AppError::user("Save the cut template as an .svg file"));
+    let format = format.as_deref().unwrap_or("svg");
+    if destination.extension().and_then(|e| e.to_str()) != Some(format) {
+        return Err(AppError::user(format!(
+            "Save the cut template as a .{format} file"
+        )));
     }
-    let svg = build_cut_svg(&settings)?;
-    Ok(tokio::fs::write(destination, svg).await?)
+    let bytes = match format {
+        "svg" => build_cut_svg(&settings)?.into_bytes(),
+        "dxf" => build_cut_dxf(&settings)?.into_bytes(),
+        "studio3" => scm_cut::studio3(&settings)?,
+        _ => return Err(AppError::user("Unknown cut template format")),
+    };
+    Ok(tokio::fs::write(destination, bytes).await?)
 }
 
 #[tauri::command]

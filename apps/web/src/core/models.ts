@@ -67,7 +67,11 @@ export const artTreatments = ["none", "fullArt", "showcase"] as const;
 export const artPolicySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("original") }),
   z.object({ kind: z.literal("latest") }),
-  z.object({ kind: z.literal("matchSet"), set: z.string() }),
+  z.object({
+    kind: z.literal("matchSet"),
+    set: z.string(),
+    family: z.boolean().optional(),
+  }),
   z.object({
     kind: z.literal("style"),
     frame: z.enum(artFrames).nullable(),

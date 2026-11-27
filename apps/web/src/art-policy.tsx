@@ -8,9 +8,13 @@ import {
   artTreatments,
 } from "./core/index.ts";
 import { languageCode } from "./print-language.tsx";
+import { SetPicker } from "./set-picker.tsx";
 import { ArtThumbnail, ErrorNotice, Modal, StatusRegion } from "./ui.tsx";
 
 export function ArtPolicyFields({
+  deckId,
+  revision,
+  supportsSetFamilies = true,
   current,
   disabled,
   busy,
@@ -19,6 +23,9 @@ export function ArtPolicyFields({
   onPreview,
   onUndo,
 }: {
+  deckId: string;
+  revision: number;
+  supportsSetFamilies?: boolean;
   current: ArtPolicy | undefined;
   disabled: boolean;
   busy: boolean;
@@ -33,6 +40,9 @@ export function ArtPolicyFields({
   const [set, setSet] = useState(
     current?.kind === "matchSet" ? current.set : "",
   );
+  const [exact, setExact] = useState(
+    current?.kind === "matchSet" && current.family !== true,
+  );
   const [frame, setFrame] = useState<(typeof artFrames)[number] | "">(
     current?.kind === "style" ? (current.frame ?? "") : "",
   );
@@ -44,7 +54,11 @@ export function ArtPolicyFields({
   >(current?.kind === "style" ? (current.treatment ?? "") : "");
   const policy: ArtPolicy =
     kind === "matchSet"
-      ? { kind, set: set.trim().toLowerCase() }
+      ? {
+          kind,
+          set: set.trim().toLowerCase(),
+          family: supportsSetFamilies && !exact,
+        }
       : kind === "style"
         ? {
             kind,
@@ -72,17 +86,37 @@ export function ArtPolicyFields({
           <option value="style">Frame, border, or treatment</option>
         </select>
       </label>
-      {kind === "matchSet" && (
+      {kind === "matchSet" && !supportsSetFamilies && (
         <label className="field">
-          Set code
+          Set code (exact match)
           <input
             value={set}
             disabled={busy}
             maxLength={20}
-            placeholder="e.g. M11"
+            placeholder="e.g. FDC"
             onChange={(event) => setSet(event.target.value)}
           />
         </label>
+      )}
+      {kind === "matchSet" && supportsSetFamilies && (
+        <>
+          <SetPicker
+            deckId={deckId}
+            revision={revision}
+            value={set}
+            disabled={busy}
+            onChange={setSet}
+          />
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={exact}
+              disabled={busy}
+              onChange={(event) => setExact(event.target.checked)}
+            />
+            Only this exact set
+          </label>
+        </>
       )}
       {kind === "style" && (
         <>
@@ -208,6 +242,9 @@ export function ArtPreviewDialog({
   onKeep: () => void;
   onApply: () => void;
 }) {
+  const kept = preview?.changes.filter(
+    ({ kind }) => kind === "unmatched" || kind === "pinned",
+  );
   return (
     <Modal title="Preview art changes" wide busy={busy} onClose={onKeep}>
       <p>
@@ -217,6 +254,23 @@ export function ArtPreviewDialog({
       <StatusRegion className="hint" label="Art preview status">
         {!preview && !error && "Finding matching printings on Scryfall…"}
       </StatusRegion>
+      {preview && kept && (
+        <>
+          <p>
+            <strong>
+              {preview.changes.length - kept.length} matched, {kept.length} kept
+              current art
+            </strong>
+          </p>
+          {kept.length > 0 && (
+            <ul aria-label="Cards that kept current art">
+              {kept.map(({ entryId, name }) => (
+                <li key={entryId}>{name}</li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
       {preview && (
         <ul className="art-change-list" aria-label="Proposed print changes">
           {preview.changes.map((row) => (
