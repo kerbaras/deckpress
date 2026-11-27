@@ -15,6 +15,7 @@ use url::Url;
 
 use crate::art_policy::{policy_can_change, Printing};
 use crate::art_quality::{prefer_high_res, scryfall_quality, ScanQuality};
+use crate::card_names::{ampersand_card_alternative, canonical_card_name, card_lookup_name};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     new_id, Art, ArtPage, Card, Deck, DeckEntry, ImportIssue, ImportIssueKind, ImportLine,
@@ -406,6 +407,47 @@ fn scryfall_name_matches(raw: &Value, wanted: &str) -> bool {
     })
 }
 
+fn import_identifier(line: &ImportLine) -> Value {
+    if !line.set.is_empty() && !line.collector_number.is_empty() {
+        serde_json::json!({ "set": line.set, "collector_number": line.collector_number })
+    } else if !line.set.is_empty() {
+        serde_json::json!({ "name": card_lookup_name(&line.name), "set": line.set })
+    } else {
+        serde_json::json!({ "name": card_lookup_name(&line.name) })
+    }
+}
+
+fn import_candidate<'a, 'b>(
+    cards: &'a [(&'b Value, Option<Card>)],
+    line: &ImportLine,
+) -> Option<&'a (&'b Value, Option<Card>)> {
+    let wanted = fold_name(&line.name);
+    let mut candidates = cards.iter().filter(|(raw, _)| {
+        let Some((set, collector)) = scryfall_print_number(raw) else {
+            return false;
+        };
+        if !line.set.is_empty() && set != line.set {
+            return false;
+        }
+        if !line.collector_number.is_empty() {
+            return collector == line.collector_number;
+        }
+        scryfall_name_matches(raw, &wanted)
+            || raw
+                .get("card_faces")
+                .and_then(Value::as_array)
+                .is_some_and(|faces| {
+                    faces
+                        .iter()
+                        .any(|face| scryfall_name_matches(face, &wanted))
+                })
+    });
+    candidates
+        .clone()
+        .find(|(_, card)| card.is_some())
+        .or_else(|| candidates.next())
+}
+
 fn scryfall_oracle_id(raw: &Value) -> Option<&str> {
     raw.get("oracle_id")
         .and_then(Value::as_str)
@@ -632,7 +674,7 @@ impl Providers {
 
     async fn resolve_with_languages(
         &self,
-        lines: Vec<ImportLine>,
+        mut lines: Vec<ImportLine>,
         preferences: &PrintLanguagePreferences,
     ) -> AppResult<ResolvedCards> {
         let mut entries = Vec::new();
@@ -642,19 +684,11 @@ impl Providers {
         let english_only = languages.as_slice() == ["en"];
         let fallback_english = preferences.policy == PrintLanguagePolicy::FallbackToEnglish
             && !languages.iter().any(|lang| lang == "en");
-        for (offset, batch) in lines.chunks(COLLECTION_BATCH).enumerate() {
-            let identifiers: Vec<Value> = batch
-                .iter()
-                .map(|line| {
-                    if !line.set.is_empty() && !line.collector_number.is_empty() {
-                        serde_json::json!({ "set": line.set, "collector_number": line.collector_number })
-                    } else if !line.set.is_empty() {
-                        serde_json::json!({ "name": line.name, "set": line.set })
-                    } else {
-                        serde_json::json!({ "name": line.name })
-                    }
-                })
-                .collect();
+        for (offset, batch) in lines.chunks_mut(COLLECTION_BATCH).enumerate() {
+            for line in batch.iter_mut() {
+                line.name = canonical_card_name(&line.name);
+            }
+            let identifiers: Vec<_> = batch.iter().map(import_identifier).collect();
             let response = self
                 .json(
                     "https://api.scryfall.com/cards/collection",
@@ -664,33 +698,37 @@ impl Providers {
             let cards: Vec<_> = cards_in(&response)
                 .map(|raw| (raw, normalize_scryfall(raw).ok()))
                 .collect();
-            for (index, line) in batch.iter().enumerate() {
+            for (index, original_line) in batch.iter().enumerate() {
                 let position = offset * COLLECTION_BATCH + index + 1;
-                let wanted = fold_name(&line.name);
-                let mut candidates = cards.iter().filter(|(raw, _)| {
-                    let Some((set, collector)) = scryfall_print_number(raw) else {
-                        return false;
+                let mut line = original_line;
+                let mut candidate = import_candidate(&cards, line);
+                let (alternative, retry, retry_cards);
+                let alternative_name = if candidate.is_none()
+                    && (line.set.is_empty() || line.collector_number.is_empty())
+                {
+                    ampersand_card_alternative(&line.name)
+                } else {
+                    None
+                };
+                if let Some(name) = alternative_name {
+                    alternative = ImportLine {
+                        name,
+                        ..line.clone()
                     };
-                    if !line.set.is_empty() && set != line.set {
-                        return false;
+                    retry = self
+                        .json(
+                            "https://api.scryfall.com/cards/collection",
+                            Some(serde_json::json!({ "identifiers": [import_identifier(&alternative)] })),
+                        )
+                        .await?;
+                    retry_cards = cards_in(&retry)
+                        .map(|raw| (raw, normalize_scryfall(raw).ok()))
+                        .collect::<Vec<_>>();
+                    candidate = import_candidate(&retry_cards, &alternative);
+                    if candidate.is_some() {
+                        line = &alternative;
                     }
-                    if !line.collector_number.is_empty() {
-                        return collector == line.collector_number;
-                    }
-                    scryfall_name_matches(raw, &wanted)
-                        || raw
-                            .get("card_faces")
-                            .and_then(Value::as_array)
-                            .is_some_and(|faces| {
-                                faces
-                                    .iter()
-                                    .any(|face| scryfall_name_matches(face, &wanted))
-                            })
-                });
-                let candidate = candidates
-                    .clone()
-                    .find(|(_, card)| card.is_some())
-                    .or_else(|| candidates.next());
+                }
                 let found = candidate.and_then(|(_, card)| card.as_ref());
                 let mut looked_up = candidate
                     .and_then(|(raw, _)| scryfall_print_number(raw))

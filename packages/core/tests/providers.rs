@@ -468,6 +468,79 @@ async fn check_spanish_import(providers: &Providers) {
 }
 
 #[tokio::test]
+async fn resolves_front_face_identifiers_and_retries_unmatched_ampersands() {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let delver: Vec<Value> =
+        serde_json::from_str(include_str!("fixtures/scryfall-art-policy-dfc.json")).unwrap();
+    let mut fire = sample();
+    fire["name"] = json!("Fire // Ice");
+    fire["set"] = json!("mh2");
+    fire["lang"] = json!("en");
+    let mut krang = sample();
+    krang["name"] = json!("Krang & Shredder");
+    krang["lang"] = json!("en");
+    let collection = "https://api.scryfall.com/cards/collection";
+    record(
+        &store,
+        collection,
+        json!({"identifiers": [
+            {"name": "Delver of Secrets"},
+            {"name": "Fire & Ice", "set": "mh2"},
+            {"name": "Krang & Shredder"},
+            {"name": "Fire & Wrong Face"}
+        ]}),
+        &json!({"data": [delver[0], krang]}),
+    );
+    for identifier in [
+        json!({"name": "Fire", "set": "mh2"}),
+        json!({"name": "Fire"}),
+    ] {
+        record(
+            &store,
+            collection,
+            json!({"identifiers": [identifier]}),
+            &json!({"data": [fire]}),
+        );
+    }
+    let input = [
+        ("Delver of Secrets/Insectile Aberration", "", Zone::Main),
+        ("Fire & Ice", "mh2", Zone::Side),
+        ("Krang & Shredder", "", Zone::Main),
+        ("Fire & Wrong Face", "", Zone::Main),
+    ]
+    .into_iter()
+    .map(|(name, set, zone)| ImportLine {
+        name: name.into(),
+        set: set.into(),
+        collector_number: String::new(),
+        quantity: 2,
+        zone,
+        board: None,
+    })
+    .collect();
+    let resolved = Providers::new(store).unwrap().resolve(input).await.unwrap();
+    assert_eq!(
+        resolved
+            .entries
+            .iter()
+            .map(|entry| (entry.card.name.as_str(), entry.quantity, entry.zone))
+            .collect::<Vec<_>>(),
+        [
+            ("Delver of Secrets // Insectile Aberration", 2, Zone::Main),
+            ("Fire // Ice", 2, Zone::Side),
+            ("Krang & Shredder", 2, Zone::Main),
+        ]
+    );
+    assert_eq!(resolved.issues.len(), 1);
+    assert_eq!(resolved.issues[0].line, 4);
+    assert_eq!(resolved.issues[0].input, "2 Fire & Wrong Face");
+    assert_eq!(
+        resolved.issues[0].kind,
+        deckpress_core::models::ImportIssueKind::NotFound
+    );
+}
+
+#[tokio::test]
 async fn resolves_named_boards_without_changing_their_zones() {
     let mut input = lines();
     input[0].zone = Zone::Maybe;

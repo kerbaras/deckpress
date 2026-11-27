@@ -45,6 +45,56 @@ it("maps double-faced scans, Scryfall metadata and placeholder errors", () => {
   expect(() => normalizeScryfall({})).toThrow("Unexpected Scryfall card data");
 });
 
+it("uses the front face for lookup, validates the full name, and retries unmatched ampersands", async () => {
+  const [englishDelver] = delver;
+  if (!englishDelver) throw new Error("Missing English print in fixture");
+  const fire = { ...fixture.usable_exact_en, name: "Fire // Ice", set: "mh2" };
+  const krang = { ...fixture.usable_exact_en, name: "Krang & Shredder" };
+  const collection = vi
+    .fn<Scryfall["collection"]>()
+    .mockResolvedValueOnce([englishDelver, krang])
+    .mockResolvedValueOnce([fire])
+    .mockResolvedValueOnce([fire]);
+  const lines: ImportLine[] = (
+    [
+      ["Delver of Secrets/Insectile Aberration", "", "main"],
+      ["Fire & Ice", "mh2", "side"],
+      ["Krang & Shredder", "", "main"],
+      ["Fire & Wrong Face", "", "main"],
+    ] as const
+  ).map(([name, set, zone]) => ({
+    name,
+    set,
+    zone,
+    quantity: 2,
+    collectorNumber: "",
+  }));
+  const result = await resolveCards(mockScryfall({ collection }), lines, {
+    languages: ["en"],
+    policy: "strict",
+  });
+  expect(collection.mock.calls).toEqual([
+    [
+      [
+        { name: "Delver of Secrets" },
+        { name: "Fire & Ice", set: "mh2" },
+        { name: "Krang & Shredder" },
+        { name: "Fire & Wrong Face" },
+      ],
+    ],
+    [[{ name: "Fire", set: "mh2" }]],
+    [[{ name: "Fire" }]],
+  ]);
+  expect(result.entries).toMatchObject([
+    { card: { name: "Delver of Secrets // Insectile Aberration" } },
+    { card: { name: "Fire // Ice" }, quantity: 2, zone: "side" },
+    { card: { name: "Krang & Shredder" } },
+  ]);
+  expect(result.issues).toMatchObject([
+    { line: 4, input: "2 Fire & Wrong Face", kind: "notFound" },
+  ]);
+});
+
 it("reports a missing exact scan in strict mode and falls back to the English printing only when allowed", async () => {
   const exact = vi.fn(async (_set: string, _number: string, lang: string) =>
     lang === "es" ? fixture.placeholder_exact_es : fixture.usable_exact_en,

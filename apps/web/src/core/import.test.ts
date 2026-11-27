@@ -681,6 +681,35 @@ describe("decklist import", () => {
     expect(result.issues).toEqual([]);
   });
 
+  it.each([
+    [
+      "MTGO XML",
+      '<Deck><Cards CatID="1" Quantity="1" Name="Fire &amp; Ice" /><Cards CatID="2" Quantity="2" Name="Wear/Tear" /><Cards CatID="3" Quantity="1" Name="Bonecrusher Giant//Stomp" /><Cards CatID="4" Quantity="1" Name="Delver of Secrets / Insectile Aberration" /><Cards CatID="5" Quantity="1" Name="Commit//Memory" /></Deck>',
+    ],
+    [
+      "Text / Arena",
+      "1 Fire & Ice\n2 Wear // Tear\n1 Bonecrusher Giant/Stomp\n1 Delver of Secrets//Insectile Aberration\n1 Commit / Memory",
+    ],
+    [
+      "CSV",
+      "Name,Quantity\nFire & Ice,1\nWear/Tear,2\nBonecrusher Giant//Stomp,1\nDelver of Secrets / Insectile Aberration,1\nCommit//Memory,1",
+    ],
+  ])(
+    "canonicalizes split names and preserves literal ampersands in %s",
+    (format, input) => {
+      const result = parseDecklist(input);
+      expect(result.format).toBe(format);
+      expect(result.issues).toEqual([]);
+      expect(result.entries.map(({ name }) => name)).toEqual([
+        "Fire & Ice",
+        "Wear // Tear",
+        "Bonecrusher Giant // Stomp",
+        "Delver of Secrets // Insectile Aberration",
+        "Commit // Memory",
+      ]);
+    },
+  );
+
   it("rejects unsafe or invalid MTGO XML after a leading comment", () => {
     expect(() =>
       parseDecklist(

@@ -1,0 +1,20 @@
+[
+  { "input": "Fire & Ice", "canonical": "Fire & Ice", "lookup": "Fire & Ice", "alternative": "Fire // Ice" },
+  { "input": "Fire/Ice", "canonical": "Fire // Ice", "lookup": "Fire", "alternative": null },
+  { "input": "Fire // Ice", "canonical": "Fire // Ice", "lookup": "Fire", "alternative": null },
+  { "input": "  Fire  /\tIce  ", "canonical": "Fire // Ice", "lookup": "Fire", "alternative": null },
+  { "input": "Fire//Ice", "canonical": "Fire // Ice", "lookup": "Fire", "alternative": null },
+  { "input": "Wear // Tear", "canonical": "Wear // Tear", "lookup": "Wear", "alternative": null },
+  { "input": "Wear/Tear", "canonical": "Wear // Tear", "lookup": "Wear", "alternative": null },
+  { "input": "Bonecrusher Giant // Stomp", "canonical": "Bonecrusher Giant // Stomp", "lookup": "Bonecrusher Giant", "alternative": null },
+  { "input": "Bonecrusher Giant", "canonical": "Bonecrusher Giant", "lookup": "Bonecrusher Giant", "alternative": null },
+  { "input": "Delver of Secrets // Insectile Aberration", "canonical": "Delver of Secrets // Insectile Aberration", "lookup": "Delver of Secrets", "alternative": null },
+  { "input": "Commit // Memory", "canonical": "Commit // Memory", "lookup": "Commit", "alternative": null },
+  { "input": "Commit/Memory", "canonical": "Commit // Memory", "lookup": "Commit", "alternative": null },
+  { "input": "Krang & Shredder", "canonical": "Krang & Shredder", "lookup": "Krang & Shredder", "alternative": "Krang // Shredder" },
+  { "input": "Minsc & Boo, Timeless Heroes", "canonical": "Minsc & Boo, Timeless Heroes", "lookup": "Minsc & Boo, Timeless Heroes", "alternative": "Minsc // Boo, Timeless Heroes" },
+  { "input": "Who/What/When/Where/Why", "canonical": "Who // What // When // Where // Why", "lookup": "Who", "alternative": null },
+  { "input": "  Bonecrusher\t Giant  ", "canonical": "Bonecrusher Giant", "lookup": "Bonecrusher Giant", "alternative": null },
+  { "input": " ", "canonical": "", "lookup": "", "alternative": null },
+  { "input": "/Fire", "canonical": "/Fire", "lookup": "/Fire", "alternative": null }
+]

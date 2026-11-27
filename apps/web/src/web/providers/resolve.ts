@@ -1,4 +1,9 @@
 import type { PrintLanguagePreferences, ResolvedCards } from "../../api.ts";
+import {
+  ampersandCardAlternative,
+  canonicalCardName,
+  cardLookupName,
+} from "../../core/card-names.ts";
 import type { Card, DeckEntry, ImportLine } from "../../core/index.ts";
 import type { Scryfall } from "./scryfall.ts";
 import {
@@ -17,7 +22,8 @@ function identifier(line: ImportLine) {
   if (line.set && line.collectorNumber) {
     return { set: line.set, collector_number: line.collectorNumber };
   }
-  return line.set ? { name: line.name, set: line.set } : { name: line.name };
+  const name = cardLookupName(line.name);
+  return line.set ? { name, set: line.set } : { name };
 }
 
 function matchesLine(
@@ -39,6 +45,15 @@ function importLabel({ name, quantity, set, collectorNumber }: ImportLine) {
   return set
     ? `${quantity} ${name} (${set}) ${collectorNumber}`.trimEnd()
     : `${quantity} ${name}`;
+}
+
+function findCandidate(
+  cards: { raw: Record<string, unknown>; card: Card | undefined }[],
+  line: ImportLine,
+) {
+  const wanted = foldName(line.name);
+  const candidates = cards.filter(({ raw }) => matchesLine(raw, line, wanted));
+  return candidates.find(({ card }) => card !== undefined) ?? candidates[0];
 }
 
 export function resolvedEntry(
@@ -129,16 +144,26 @@ export async function resolveCards(
   const missingPrints: NonNullable<ResolvedCards["missingPrints"]> = [];
 
   for (let offset = 0; offset < lines.length; offset += collectionBatch) {
-    const batch = lines.slice(offset, offset + collectionBatch);
+    const batch = lines
+      .slice(offset, offset + collectionBatch)
+      .map((line) => ({ ...line, name: canonicalCardName(line.name) }));
     const collection = await api.collection(batch.map(identifier));
     const cards = collection.map((raw) => ({ raw, card: usableCard(raw) }));
-    for (const [index, line] of batch.entries()) {
-      const wanted = foldName(line.name);
-      const candidates = cards.filter(({ raw }) =>
-        matchesLine(raw, line, wanted),
-      );
-      const candidate =
-        candidates.find(({ card }) => card !== undefined) ?? candidates[0];
+    for (const [index, originalLine] of batch.entries()) {
+      let line = originalLine;
+      let candidate = findCandidate(cards, line);
+      if (!candidate && !(line.set && line.collectorNumber)) {
+        const name = ampersandCardAlternative(line.name);
+        if (name) {
+          const alternative = { ...line, name };
+          const retry = await api.collection([identifier(alternative)]);
+          candidate = findCandidate(
+            retry.map((raw) => ({ raw, card: usableCard(raw) })),
+            alternative,
+          );
+          if (candidate) line = alternative;
+        }
+      }
       const original = candidate?.card;
       const checked = { number: candidate && printNumber(candidate.raw) };
       let card: Card | undefined;
