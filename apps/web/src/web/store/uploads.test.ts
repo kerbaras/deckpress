@@ -195,6 +195,59 @@ it("restores existing upload bleed once per ID and retains missing backup refere
   ).toBe(4);
 });
 
+it("includes web upload filenames and hashes in backed-up deck references", async () => {
+  const { art, deck, entry, documents, store } = fixture();
+  const uploads = store();
+  const decks = deckStore(documents, undefined, undefined, uploads);
+  const filename = "Art α #1.png";
+  await uploads.upload(
+    bytes,
+    { oracleId, name: "Upload", artist: "" },
+    filename,
+  );
+  entry.selectedArt = art;
+  const saved = await decks.create(deck);
+  const contents = JSON.stringify(await decks.get(saved.id));
+  expect(JSON.parse(contents).entries[0].selectedArt).toEqual({
+    ...art,
+    filename,
+    contentHash,
+  });
+  const fresh = fixture();
+  const freshDecks = deckStore(
+    fresh.documents,
+    undefined,
+    undefined,
+    fresh.store(),
+  );
+  expect(await freshDecks.missingUploads(contents)).toEqual([
+    { id, name: art.name, filename, contentHash },
+  ]);
+});
+
+it("reconnects a legacy upload reference with no filename or hash", async () => {
+  const { art, deck, entry, documents, store } = fixture();
+  entry.selectedArt = art;
+  const contents = JSON.stringify(deck);
+  const decks = deckStore(documents, undefined, undefined, store());
+  expect(await decks.missingUploads(contents)).toEqual([
+    { id, name: art.name },
+  ]);
+  const file = new File([bytes], "original.jpg");
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => bytes.buffer,
+  });
+  expect(await decks.restore(contents, [{ id, file }])).toMatchObject({
+    reconnectedUploads: 1,
+    missingUploads: 0,
+    deck: {
+      entries: [
+        { selectedArt: { imageUrl: url, filename: file.name, contentHash } },
+      ],
+    },
+  });
+});
+
 it("does not mistake an omitted backup bleed for explicit zero", async () => {
   const { art, deck, entry, documents, processing, store } = fixture();
   const uploads = store();
@@ -262,7 +315,16 @@ it("reconnects under the backup ID and counts metadata with a missing file as un
     reconnectedUploads: 1,
     missingUploads: 0,
     deck: {
-      entries: [{ selectedArt: { imageUrl: url, bleedMm: 4, contentHash } }],
+      entries: [
+        {
+          selectedArt: {
+            imageUrl: url,
+            bleedMm: 4,
+            filename: "original.jpg",
+            contentHash,
+          },
+        },
+      ],
     },
   });
   expect([...directory.keys()]).toEqual([`${id}.png`]);
