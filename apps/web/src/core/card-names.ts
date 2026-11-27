@@ -1,26 +1,20 @@
 const faceSeparator = " // ";
 
-export function canonicalCardName(name: string): string {
+export function cardLookupName(name: string): string {
+  const separator = name.indexOf(faceSeparator);
+  return separator < 0 ? name : name.slice(0, separator).trimEnd();
+}
+
+export function splitCardAlternative(name: string): string | null {
   const compact = name.trim().replace(/\s+/g, " ");
-  if (
-    !compact.includes("/") ||
-    compact.startsWith("/") ||
-    compact.endsWith("/")
-  )
-    return compact;
-  return compact
+  const split = compact.includes("/")
+    ? compact
+    : compact.replaceAll(" & ", "/");
+  if (!split.includes("/") || split.startsWith("/") || split.endsWith("/"))
+    return null;
+  return split
     .split("/")
     .map((face) => face.trim())
     .filter(Boolean)
     .join(faceSeparator);
-}
-
-export function cardLookupName(canonicalName: string): string {
-  return canonicalName.split(faceSeparator, 1)[0] ?? canonicalName;
-}
-
-export function ampersandCardAlternative(canonicalName: string): string | null {
-  return canonicalName.includes(" & ") && !canonicalName.includes(faceSeparator)
-    ? canonicalName.replaceAll(" & ", faceSeparator)
-    : null;
 }

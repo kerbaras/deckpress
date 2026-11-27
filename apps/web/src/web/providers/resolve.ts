@@ -1,9 +1,5 @@
 import type { PrintLanguagePreferences, ResolvedCards } from "../../api.ts";
-import {
-  ampersandCardAlternative,
-  canonicalCardName,
-  cardLookupName,
-} from "../../core/card-names.ts";
+import { cardLookupName, splitCardAlternative } from "../../core/card-names.ts";
 import type { Card, DeckEntry, ImportLine } from "../../core/index.ts";
 import type { Scryfall } from "./scryfall.ts";
 import {
@@ -15,8 +11,11 @@ import {
 } from "./scryfall-card.ts";
 
 const collectionBatch = 75;
+const splitSearchBatch = 20;
 
 type NumberedPrint = NonNullable<ReturnType<typeof printNumber>>;
+type Candidate = { raw: Record<string, unknown>; card: Card | undefined };
+type ImportRow = { line: ImportLine; candidate: Candidate | undefined };
 
 function identifier(line: ImportLine) {
   if (line.set && line.collectorNumber) {
@@ -26,21 +25,6 @@ function identifier(line: ImportLine) {
   return line.set ? { name, set: line.set } : { name };
 }
 
-function matchesLine(
-  raw: Record<string, unknown>,
-  line: ImportLine,
-  wanted: string,
-) {
-  const number = printNumber(raw);
-  if (!number || (line.set && number.set !== line.set)) return false;
-  if (line.collectorNumber)
-    return number.collectorNumber === line.collectorNumber;
-  return (
-    nameMatches(raw, wanted) ||
-    recordList(raw.card_faces).some((face) => nameMatches(face, wanted))
-  );
-}
-
 function importLabel({ name, quantity, set, collectorNumber }: ImportLine) {
   return set
     ? `${quantity} ${name} (${set}) ${collectorNumber}`.trimEnd()
@@ -48,12 +32,80 @@ function importLabel({ name, quantity, set, collectorNumber }: ImportLine) {
 }
 
 function findCandidate(
-  cards: { raw: Record<string, unknown>; card: Card | undefined }[],
+  cards: Candidate[],
   line: ImportLine,
+  allowFaces: boolean,
 ) {
   const wanted = foldName(line.name);
-  const candidates = cards.filter(({ raw }) => matchesLine(raw, line, wanted));
-  return candidates.find(({ card }) => card !== undefined) ?? candidates[0];
+  let best: Candidate | undefined;
+  let bestRank = -1;
+  for (const candidate of cards) {
+    const { raw, card } = candidate;
+    const number = printNumber(raw);
+    if (
+      !number ||
+      (line.set && number.set !== line.set) ||
+      (line.collectorNumber && number.collectorNumber !== line.collectorNumber)
+    )
+      continue;
+    const full =
+      Boolean(line.set && line.collectorNumber) || nameMatches(raw, wanted);
+    if (
+      !full &&
+      (!allowFaces ||
+        cardLookupName(line.name) !== line.name ||
+        !recordList(raw.card_faces).some((face) => nameMatches(face, wanted)))
+    )
+      continue;
+    const rank = (full ? 2 : 0) + (card ? 1 : 0);
+    if (rank <= bestRank) continue;
+    best = candidate;
+    bestRank = rank;
+  }
+  return best;
+}
+
+function exactNameQuery(name: string) {
+  const escaped = name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `!"${escaped}"`;
+}
+
+async function resolveSplitNames(api: Scryfall, rows: ImportRow[]) {
+  const queries = new Map<string, { row: ImportRow; line: ImportLine }[]>();
+  for (const row of rows) {
+    const { line } = row;
+    if (row.candidate || (line.set && line.collectorNumber)) continue;
+    const name = splitCardAlternative(line.name);
+    if (!name || (line.set && !/^[a-z\d]+$/i.test(line.set))) continue;
+    const clause = `(${exactNameQuery(name)}${line.set ? ` set:${line.set}` : ""})`;
+    const lookup = { row, line: { ...line, name } };
+    const group = queries.get(clause);
+    if (group) group.push(lookup);
+    else queries.set(clause, [lookup]);
+  }
+  const clauses = [...queries.entries()];
+  for (let offset = 0; offset < clauses.length; offset += splitSearchBatch) {
+    const chunk = clauses.slice(offset, offset + splitSearchBatch);
+    const lookups = chunk.flatMap(([, group]) => group);
+    const query = `(${chunk.map(([clause]) => clause).join(" or ")}) include:extras`;
+    const unique = lookups.some(({ line }) => line.set || line.collectorNumber)
+      ? "prints"
+      : "cards";
+    for (let page = 1; page <= 100; page++) {
+      const result = await api.search(query, page, unique);
+      const cards = result.cards.map((raw) => ({ raw, card: usableCard(raw) }));
+      for (const { row, line } of lookups) {
+        if (row.candidate?.card) continue;
+        const candidate = findCandidate(cards, line, false);
+        if (candidate?.card || (!row.candidate && candidate)) {
+          row.line = line;
+          row.candidate = candidate;
+        }
+      }
+      if (!result.hasMore || lookups.every(({ row }) => row.candidate?.card))
+        break;
+    }
+  }
 }
 
 export function resolvedEntry(
@@ -101,8 +153,9 @@ async function localizedPrint(
     return undefined;
   }
 
-  const escaped = line.name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  let query = original ? `oracleid:${original.oracleId}` : `!"${escaped}"`;
+  let query = original
+    ? `oracleid:${original.oracleId}`
+    : exactNameQuery(line.name);
   if (!original && line.set) {
     if (!/^[a-z\d]+$/i.test(line.set)) return undefined;
     query += ` set:${line.set}`;
@@ -143,66 +196,58 @@ export async function resolveCards(
   const issues: ResolvedCards["issues"] = [];
   const missingPrints: NonNullable<ResolvedCards["missingPrints"]> = [];
 
+  const rows: ImportRow[] = [];
   for (let offset = 0; offset < lines.length; offset += collectionBatch) {
-    const batch = lines
-      .slice(offset, offset + collectionBatch)
-      .map((line) => ({ ...line, name: canonicalCardName(line.name) }));
+    const batch = lines.slice(offset, offset + collectionBatch);
     const collection = await api.collection(batch.map(identifier));
     const cards = collection.map((raw) => ({ raw, card: usableCard(raw) }));
-    for (const [index, originalLine] of batch.entries()) {
-      let line = originalLine;
-      let candidate = findCandidate(cards, line);
-      if (!candidate && !(line.set && line.collectorNumber)) {
-        const name = ampersandCardAlternative(line.name);
-        if (name) {
-          const alternative = { ...line, name };
-          const retry = await api.collection([identifier(alternative)]);
-          candidate = findCandidate(
-            retry.map((raw) => ({ raw, card: usableCard(raw) })),
-            alternative,
-          );
-          if (candidate) line = alternative;
-        }
+    rows.push(
+      ...batch.map((line) => ({
+        line,
+        candidate: findCandidate(cards, line, true),
+      })),
+    );
+  }
+  await resolveSplitNames(api, rows);
+  for (const [index, { line, candidate }] of rows.entries()) {
+    const original = candidate?.card;
+    const checked = { number: candidate && printNumber(candidate.raw) };
+    let card: Card | undefined;
+    if (englishOnly && !original) {
+      card = undefined;
+    } else {
+      for (const lang of attempted) {
+        card = await localizedPrint(api, line, original, lang, checked);
+        if (card) break;
       }
-      const original = candidate?.card;
-      const checked = { number: candidate && printNumber(candidate.raw) };
-      let card: Card | undefined;
-      if (englishOnly && !original) {
-        card = undefined;
-      } else {
-        for (const lang of attempted) {
-          card = await localizedPrint(api, line, original, lang, checked);
-          if (card) break;
-        }
-      }
+    }
 
-      if (card) {
-        entries.push(
-          resolvedEntry(newId(), card, line, englishOnly ? [] : languages),
-        );
-        continue;
-      }
+    if (card) {
+      entries.push(
+        resolvedEntry(newId(), card, line, englishOnly ? [] : languages),
+      );
+      continue;
+    }
 
-      const input = importLabel(line);
-      const position = offset + index + 1;
-      if (checked.number) {
-        issues.push({
-          line: position,
-          input,
-          kind: "noUsableScan",
-          message: `No usable scan found in ${attempted.join(", ")}.`,
-          printLookup: { ...checked.number, languages: attempted },
-        });
-        missingPrints.push({ input, languages });
-      } else {
-        issues.push({
-          line: position,
-          input,
-          kind: "notFound",
-          message:
-            "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.",
-        });
-      }
+    const input = importLabel(line);
+    const position = index + 1;
+    if (checked.number) {
+      issues.push({
+        line: position,
+        input,
+        kind: "noUsableScan",
+        message: `No usable scan found in ${attempted.join(", ")}.`,
+        printLookup: { ...checked.number, languages: attempted },
+      });
+      missingPrints.push({ input, languages });
+    } else {
+      issues.push({
+        line: position,
+        input,
+        kind: "notFound",
+        message:
+          "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.",
+      });
     }
   }
   return { entries, issues, missingPrints };

@@ -467,58 +467,69 @@ async fn check_spanish_import(providers: &Providers) {
     assert_eq!(lotus.requested_languages, ["es"]);
 }
 
+fn named_print(name: &str, set: &str, collector: &str) -> Value {
+    let mut card = sample();
+    card["name"] = json!(name);
+    card["set"] = json!(set);
+    card["collector_number"] = json!(collector);
+    card["lang"] = json!("en");
+    card
+}
+
+fn named_line(name: &str, set: &str, collector_number: &str, zone: Zone) -> ImportLine {
+    ImportLine {
+        name: name.into(),
+        set: set.into(),
+        collector_number: collector_number.into(),
+        quantity: 2,
+        zone,
+        board: None,
+    }
+}
+
 #[tokio::test]
-async fn resolves_front_face_identifiers_and_retries_unmatched_ampersands() {
+async fn batches_full_name_fallbacks_without_substituting_another_split_card() {
     let store = Arc::new(Store::in_memory().unwrap());
     let delver: Vec<Value> =
         serde_json::from_str(include_str!("fixtures/scryfall-art-policy-dfc.json")).unwrap();
-    let mut fire = sample();
-    fire["name"] = json!("Fire // Ice");
-    fire["set"] = json!("mh2");
-    fire["lang"] = json!("en");
-    let mut krang = sample();
-    krang["name"] = json!("Krang & Shredder");
-    krang["lang"] = json!("en");
     let collection = "https://api.scryfall.com/cards/collection";
     record(
         &store,
         collection,
         json!({"identifiers": [
             {"name": "Delver of Secrets"},
+            {"name": "Bind"},
+            {"name": "Armed"},
+            {"name": "Fire/Ice"},
             {"name": "Fire & Ice", "set": "mh2"},
-            {"name": "Krang & Shredder"},
             {"name": "Fire & Wrong Face"}
         ]}),
-        &json!({"data": [delver[0], krang]}),
+        &json!({"data": [delver[0], named_print("Bind", "inv", "182"), named_print("Armed", "fmsc", "31")]}),
     );
-    for identifier in [
-        json!({"name": "Fire", "set": "mh2"}),
-        json!({"name": "Fire"}),
-    ] {
-        record(
-            &store,
-            collection,
-            json!({"identifiers": [identifier]}),
-            &json!({"data": [fire]}),
-        );
-    }
-    let input = [
-        ("Delver of Secrets/Insectile Aberration", "", Zone::Main),
-        ("Fire & Ice", "mh2", Zone::Side),
-        ("Krang & Shredder", "", Zone::Main),
-        ("Fire & Wrong Face", "", Zone::Main),
-    ]
-    .into_iter()
-    .map(|(name, set, zone)| ImportLine {
-        name: name.into(),
-        set: set.into(),
-        collector_number: String::new(),
-        quantity: 2,
-        zone,
-        board: None,
-    })
-    .collect();
-    let resolved = Providers::new(store).unwrap().resolve(input).await.unwrap();
+    let query = r#"((!"Armed // Dangerous") or (!"Bind // Liberate") or (!"Fire // Ice" set:mh2) or (!"Fire // Ice") or (!"Fire // Wrong Face")) include:extras"#;
+    record(
+        &store,
+        &search_url(query),
+        Value::Null,
+        &json!({"data": [
+            named_print("Bind // Liberate", "cmb2", "88"),
+            named_print("Armed // Dangerous", "dgm", "122"),
+            named_print("Fire // Ice", "mh2", "290")
+        ]}),
+    );
+    let input = vec![
+        named_line("Delver of Secrets", "", "", Zone::Main),
+        named_line("Bind // Liberate", "", "", Zone::Main),
+        named_line("Armed // Dangerous", "", "", Zone::Main),
+        named_line("Fire/Ice", "", "290", Zone::Main),
+        named_line("Fire & Ice", "mh2", "", Zone::Side),
+        named_line("Fire & Wrong Face", "", "", Zone::Main),
+    ];
+    let resolved = Providers::new(Arc::clone(&store))
+        .unwrap()
+        .resolve(input)
+        .await
+        .unwrap();
     assert_eq!(
         resolved
             .entries
@@ -527,17 +538,69 @@ async fn resolves_front_face_identifiers_and_retries_unmatched_ampersands() {
             .collect::<Vec<_>>(),
         [
             ("Delver of Secrets // Insectile Aberration", 2, Zone::Main),
+            ("Bind // Liberate", 2, Zone::Main),
+            ("Armed // Dangerous", 2, Zone::Main),
+            ("Fire // Ice", 2, Zone::Main),
             ("Fire // Ice", 2, Zone::Side),
-            ("Krang & Shredder", 2, Zone::Main),
         ]
     );
     assert_eq!(resolved.issues.len(), 1);
-    assert_eq!(resolved.issues[0].line, 4);
+    assert_eq!(resolved.issues[0].line, 6);
     assert_eq!(resolved.issues[0].input, "2 Fire & Wrong Face");
     assert_eq!(
         resolved.issues[0].kind,
         deckpress_core::models::ImportIssueKind::NotFound
     );
+    assert_eq!(store.list::<Value>("cache").unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn resolves_literal_punctuation_and_prefers_full_name_over_a_face() {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let mut split = named_print("Bind // Liberate", "cmb2", "88");
+    split["card_faces"] = json!([{"name": "Bind"}, {"name": "Liberate"}]);
+    record(
+        &store,
+        "https://api.scryfall.com/cards/collection",
+        json!({"identifiers": [
+            {"set": "cmb2", "collector_number": "88"},
+            {"name": "Bind"},
+            {"name": "Summon: Choco/Mog"},
+            {"name": "Krang & Shredder"}
+        ]}),
+        &json!({"data": [
+            split,
+            named_print("Bind", "inv", "182"),
+            named_print("Summon: Choco/Mog", "fin", "35"),
+            named_print("Krang & Shredder", "tmt", "172")
+        ]}),
+    );
+    let names = [
+        "Bind // Liberate",
+        "Bind",
+        "Summon: Choco/Mog",
+        "Krang & Shredder",
+    ];
+    let mut input: Vec<_> = names
+        .iter()
+        .map(|name| named_line(name, "", "", Zone::Main))
+        .collect();
+    input[0] = named_line(names[0], "cmb2", "88", Zone::Main);
+    let resolved = Providers::new(Arc::clone(&store))
+        .unwrap()
+        .resolve(input)
+        .await
+        .unwrap();
+    assert!(resolved.issues.is_empty());
+    assert_eq!(
+        resolved
+            .entries
+            .iter()
+            .map(|entry| entry.card.name.as_str())
+            .collect::<Vec<_>>(),
+        names
+    );
+    assert_eq!(store.list::<Value>("cache").unwrap().len(), 1);
 }
 
 #[tokio::test]

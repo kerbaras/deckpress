@@ -45,54 +45,146 @@ it("maps double-faced scans, Scryfall metadata and placeholder errors", () => {
   expect(() => normalizeScryfall({})).toThrow("Unexpected Scryfall card data");
 });
 
-it("uses the front face for lookup, validates the full name, and retries unmatched ampersands", async () => {
+it("batches full-name fallback across collection batches without substituting a different split card", async () => {
   const [englishDelver] = delver;
   if (!englishDelver) throw new Error("Missing English print in fixture");
-  const fire = { ...fixture.usable_exact_en, name: "Fire // Ice", set: "mh2" };
-  const krang = { ...fixture.usable_exact_en, name: "Krang & Shredder" };
+  const print = (name: string, set = "m11") => ({
+    ...fixture.usable_exact_en,
+    name,
+    set,
+  });
+  const fire = { ...print("Fire // Ice", "mh2"), collector_number: "290" };
   const collection = vi
     .fn<Scryfall["collection"]>()
-    .mockResolvedValueOnce([englishDelver, krang])
-    .mockResolvedValueOnce([fire])
-    .mockResolvedValueOnce([fire]);
-  const lines: ImportLine[] = (
-    [
-      ["Delver of Secrets/Insectile Aberration", "", "main"],
-      ["Fire & Ice", "mh2", "side"],
-      ["Krang & Shredder", "", "main"],
-      ["Fire & Wrong Face", "", "main"],
-    ] as const
-  ).map(([name, set, zone]) => ({
+    .mockResolvedValueOnce([
+      englishDelver,
+      print("Bind"),
+      print("Lightning Bolt"),
+    ])
+    .mockResolvedValueOnce([print("Armed")]);
+  const search = vi.fn(async () => ({
+    ...emptyPage,
+    cards: [
+      print("Bind // Liberate", "cmb2"),
+      print("Armed // Dangerous", "dgm"),
+      fire,
+    ],
+  }));
+  const line = (
+    name: string,
+    set = "",
+    zone: ImportLine["zone"] = "main",
+  ): ImportLine => ({
     name,
     set,
     zone,
     quantity: 2,
     collectorNumber: "",
-  }));
-  const result = await resolveCards(mockScryfall({ collection }), lines, {
-    languages: ["en"],
-    policy: "strict",
   });
+  const first = [
+    line("Delver of Secrets"),
+    line("Bind // Liberate"),
+    { ...line("Fire/Ice"), collectorNumber: "290" },
+    ...Array.from({ length: 72 }, () => line("Lightning Bolt")),
+  ];
+  const second = [
+    line("Armed // Dangerous"),
+    line("Fire & Ice", "mh2", "side"),
+    line("Fire & Wrong Face"),
+  ];
+  const result = await resolveCards(
+    mockScryfall({ collection, search }),
+    [...first, ...second],
+    {
+      languages: ["en"],
+      policy: "strict",
+    },
+  );
   expect(collection.mock.calls).toEqual([
     [
       [
         { name: "Delver of Secrets" },
+        { name: "Bind" },
+        { name: "Fire/Ice" },
+        ...Array.from({ length: 72 }, () => ({ name: "Lightning Bolt" })),
+      ],
+    ],
+    [
+      [
+        { name: "Armed" },
         { name: "Fire & Ice", set: "mh2" },
-        { name: "Krang & Shredder" },
         { name: "Fire & Wrong Face" },
       ],
     ],
-    [[{ name: "Fire", set: "mh2" }]],
-    [[{ name: "Fire" }]],
   ]);
-  expect(result.entries).toMatchObject([
+  expect(search).toHaveBeenCalledExactlyOnceWith(
+    '((!"Bind // Liberate") or (!"Fire // Ice") or (!"Armed // Dangerous") or (!"Fire // Ice" set:mh2) or (!"Fire // Wrong Face")) include:extras',
+    1,
+    "prints",
+  );
+  expect(result.entries.slice(0, 3)).toMatchObject([
     { card: { name: "Delver of Secrets // Insectile Aberration" } },
+    { card: { name: "Bind // Liberate" } },
+    { card: { name: "Fire // Ice" } },
+  ]);
+  expect(result.entries.slice(-2)).toMatchObject([
+    { card: { name: "Armed // Dangerous" } },
     { card: { name: "Fire // Ice" }, quantity: 2, zone: "side" },
-    { card: { name: "Krang & Shredder" } },
   ]);
   expect(result.issues).toMatchObject([
-    { line: 4, input: "2 Fire & Wrong Face", kind: "notFound" },
+    { line: 78, input: "2 Fire & Wrong Face", kind: "notFound" },
   ]);
+});
+
+it("keeps literal slash and ampersand names and prefers a full match over another row's face", async () => {
+  const bolt = fixture.usable_exact_en;
+  const split = {
+    ...bolt,
+    name: "Bind // Liberate",
+    set: "cmb2",
+    collector_number: "88",
+    card_faces: [{ name: "Bind" }, { name: "Liberate" }],
+  };
+  const collection = vi.fn(async () => [
+    split,
+    { ...bolt, name: "Bind" },
+    { ...bolt, name: "Summon: Choco/Mog" },
+    { ...bolt, name: "Krang & Shredder" },
+  ]);
+  const search = vi.fn(async () => emptyPage);
+  const input = [
+    {
+      ...printLine,
+      name: "Bind // Liberate",
+      set: "cmb2",
+      collectorNumber: "88",
+    },
+    ...["Bind", "Summon: Choco/Mog", "Krang & Shredder"].map((name) => ({
+      ...printLine,
+      name,
+      set: "",
+      collectorNumber: "",
+    })),
+  ];
+  const result = await resolveCards(
+    mockScryfall({ collection, search }),
+    input,
+    {
+      languages: ["en"],
+      policy: "strict",
+    },
+  );
+  expect(collection).toHaveBeenCalledExactlyOnceWith([
+    { set: "cmb2", collector_number: "88" },
+    { name: "Bind" },
+    { name: "Summon: Choco/Mog" },
+    { name: "Krang & Shredder" },
+  ]);
+  expect(search).not.toHaveBeenCalled();
+  expect(result.entries.map(({ card }) => card.name)).toEqual(
+    input.map(({ name }) => name),
+  );
+  expect(result.issues).toEqual([]);
 });
 
 it("reports a missing exact scan in strict mode and falls back to the English printing only when allowed", async () => {

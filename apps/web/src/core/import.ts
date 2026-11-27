@@ -1,7 +1,6 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import Papa from "papaparse";
 import { z } from "zod";
-import { canonicalCardName } from "./card-names.ts";
 import { boardSchema, zoneSchema } from "./models.ts";
 
 export const importLineSchema = z.object({
@@ -137,10 +136,7 @@ export function parseDecklist(input: string): ParsedDecklist {
   const add = (value: unknown, line: number, source: string) => {
     const parsed = importLineSchema.safeParse(value);
     if (parsed.success) {
-      result.entries.push({
-        ...parsed.data,
-        name: canonicalCardName(parsed.data.name),
-      });
+      result.entries.push(parsed.data);
       result.lines.push(line);
     } else
       result.issues.push({

@@ -1,31 +1,26 @@
-use deckpress_core::card_names::{
-    ampersand_card_alternative, canonical_card_name, card_lookup_name,
-};
+use deckpress_core::card_names::{card_lookup_name, split_card_alternative};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Fixture {
     input: String,
-    canonical: String,
     lookup: String,
     alternative: Option<String>,
 }
 
 #[test]
-fn normalizes_card_names_for_collection_lookup() {
+fn looks_up_card_names_and_prepares_split_fallbacks() {
     let fixtures: Vec<Fixture> =
         serde_json::from_str(include_str!("fixtures/card-names.json")).unwrap();
     for fixture in fixtures {
-        let canonical = canonical_card_name(&fixture.input);
-        assert_eq!(canonical, fixture.canonical, "{:?}", fixture.input);
         assert_eq!(
-            card_lookup_name(&canonical),
+            card_lookup_name(&fixture.input),
             fixture.lookup,
             "{:?}",
             fixture.input
         );
         assert_eq!(
-            ampersand_card_alternative(&canonical),
+            split_card_alternative(&fixture.input),
             fixture.alternative,
             "{:?}",
             fixture.input

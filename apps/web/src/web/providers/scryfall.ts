@@ -28,6 +28,7 @@ export interface Scryfall {
   search(
     query: string,
     page: number,
+    unique?: "cards" | "prints",
   ): Promise<{
     cards: Record<string, unknown>[];
     hasMore: boolean;
@@ -166,10 +167,10 @@ export function scryfallClient(
       return record(await json(`/cards/${path}`, true));
     },
     printing: (id) => json(`/cards/${encodeURIComponent(id)}`),
-    async search(query, page) {
+    async search(query, page, unique = "prints") {
       const params = new URLSearchParams({
         q: query,
-        unique: "prints",
+        unique,
         include_multilingual: "true",
         order: "released",
         dir: "desc",
