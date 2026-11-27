@@ -11,6 +11,8 @@ export const scryfallCacheKind = "cache";
 const cacheTtl = 24 * 60 * 60 * 1000;
 const interval = 100;
 const backoff = 30_000;
+const opaqueBackoff = 60_000;
+const retries = 3;
 
 type Identifier =
   | { id: string }
@@ -39,29 +41,73 @@ export interface Scryfall {
 function rateLimiter() {
   let tail = Promise.resolve();
   let next = 0;
-  return function enqueue<T>(send: (defer: () => void) => Promise<T>) {
+  let retryAfterSeconds: number | undefined;
+  const listeners = new Set<() => void>();
+
+  function reportRetry(seconds: number | undefined) {
+    if (retryAfterSeconds === seconds) return;
+    retryAfterSeconds = seconds;
+    for (const listener of listeners) listener();
+  }
+
+  async function waitForSlot() {
+    const delay = next - performance.now();
+    if (delay > interval) reportRetry(Math.ceil(delay / 1000));
+    for (let wait = delay; wait > 0; wait = next - performance.now()) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(Math.ceil(wait), 2_147_483_647)),
+      );
+    }
+    next = performance.now() + interval;
+    reportRetry(undefined);
+  }
+
+  function enqueue<T>(
+    send: (
+      defer: (delay: number) => void,
+      wait: () => Promise<void>,
+    ) => Promise<T>,
+  ) {
     const pending = tail.then(async () => {
-      const wait = next - performance.now();
-      if (wait > 0)
-        await new Promise((resolve) => setTimeout(resolve, Math.ceil(wait)));
-      next = performance.now() + interval;
-      return send(() => {
-        next = performance.now() + backoff;
-      });
+      await waitForSlot();
+      return send((delay) => {
+        next = Math.max(next, performance.now() + delay);
+      }, waitForSlot);
     });
     tail = pending.then(
       () => {},
       () => {},
     );
     return pending;
+  }
+  return {
+    enqueue,
+    getSnapshot: () => retryAfterSeconds,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
+}
+
+function retryDelay(response: Response, attempt: number) {
+  const header = response.headers.get("Retry-After")?.trim();
+  if (header) {
+    const milliseconds = /^\d+$/.test(header)
+      ? Number(header) * 1000
+      : Date.parse(header) - Date.now();
+    if (Number.isSafeInteger(milliseconds)) return Math.max(0, milliseconds);
+  }
+  return backoff * 2 ** attempt;
 }
 
 export function scryfallClient(
   cache: Pick<DocumentStore, "get" | "put">,
   fetcher: typeof fetch = (...args) => fetch(...args),
-): Scryfall {
-  const enqueue = rateLimiter();
+) {
+  const { enqueue, ...retry } = rateLimiter();
   const pendingByKey = new Map<string, Promise<unknown>>();
 
   function json(
@@ -79,7 +125,7 @@ export function scryfallClient(
       if (hit && hit.updatedAt > Date.now() - cacheTtl) {
         return readDocument(hit);
       }
-      return enqueue(async (defer) => {
+      return enqueue(async (defer, wait) => {
         const headers = { Accept: "application/json" };
         const init = body
           ? {
@@ -88,20 +134,26 @@ export function scryfallClient(
               headers: { ...headers, "Content-Type": "application/json" },
             }
           : { headers };
-        let response: Response;
-        try {
+        let response: Response | undefined;
+        for (let attempt = 0; ; attempt++) {
           response = await fetcher(origin + path, {
             ...init,
             signal: AbortSignal.timeout(30_000),
+          }).catch((error: unknown) => {
+            // Scryfall's throttled responses can omit CORS headers.
+            if (error instanceof TypeError) return undefined;
+            throw new Error("Could not reach api.scryfall.com. Try again.");
           });
-        } catch {
-          throw new Error("Could not reach api.scryfall.com. Try again.");
-        }
-        if (response.status === 429) {
-          defer();
-          throw new Error(
-            "Scryfall is rate-limiting requests. Wait 30 seconds and try again.",
-          );
+          if (response && response.status !== 429) break;
+          defer(response ? retryDelay(response, attempt) : opaqueBackoff);
+          if (attempt === retries) {
+            throw new Error(
+              response
+                ? "Scryfall is still rate limiting requests. Try again later."
+                : "Scryfall could not be reached after retrying. It may be rate limiting requests. Try again later.",
+            );
+          }
+          await wait();
         }
         const missing = response.status === 404 && allowMissing;
         if (!missing && !response.ok) {
@@ -123,6 +175,7 @@ export function scryfallClient(
   }
 
   return {
+    retry,
     async collection(identifiers) {
       const response = record(
         await json("/cards/collection", false, JSON.stringify({ identifiers })),
@@ -171,5 +224,5 @@ export function scryfallClient(
         total: typeof result.total_cards === "number" ? result.total_cards : 0,
       };
     },
-  };
+  } satisfies Scryfall & { retry: typeof retry };
 }

@@ -8,6 +8,7 @@ import {
   artTreatments,
 } from "./core/index.ts";
 import { languageCode } from "./print-language.tsx";
+import { scryfallRetryMessage, useScryfallRetry } from "./scryfall-status.ts";
 import { SetPicker } from "./set-picker.tsx";
 import { ArtThumbnail, ErrorNotice, Modal, StatusRegion } from "./ui.tsx";
 
@@ -231,6 +232,7 @@ export function ArtPreviewDialog({
   const kept = preview?.changes.filter(
     ({ kind }) => kind === "unmatched" || kind === "pinned",
   );
+  const retry = useScryfallRetry();
   return (
     <Modal title="Preview art changes" wide busy={busy} onClose={onKeep}>
       <p>
@@ -238,7 +240,11 @@ export function ArtPreviewDialog({
         preview.
       </p>
       <StatusRegion className="hint" label="Art preview status">
-        {!preview && !error && "Finding matching printings on Scryfall…"}
+        {!preview &&
+          !error &&
+          (retry === undefined
+            ? "Finding matching printings on Scryfall…"
+            : scryfallRetryMessage(retry))}
       </StatusRegion>
       {preview && kept && (
         <>

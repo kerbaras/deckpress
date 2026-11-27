@@ -45,6 +45,7 @@ const documents = indexedDbDocuments();
 const decks = deckStore(documents);
 const settings = settingsStore(documents, decks.list);
 const scryfall = scryfallClient(documents);
+export const webScryfallRetry = scryfall.retry;
 const policyPrintings = policyProvider(scryfall);
 const art = artHistory(decks, policyPrintings, settings.printLanguage);
 const text = z.string();
