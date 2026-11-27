@@ -255,6 +255,7 @@ export const jobSchema = z.object({
   format: z.enum(["pdf", "png"]).default("pdf"),
   settings: printSettingsSchema.optional(),
   failureTarget: printFailureTargetSchema.optional(),
+  initTimedOut: z.literal(true).optional(),
 });
 export type PrintJob = z.infer<typeof jobSchema>;
 

@@ -77,6 +77,22 @@ it("matches a renamed image by hash, another by filename, and allows manual assi
   ]);
 });
 
+it("keeps the complete long filename in a tooltip", () => {
+  const filename = `${"long".repeat(60)}.png`;
+  render(
+    <ReconnectUploads
+      missing={[{ id: "missing", name: "Test art", filename }]}
+      onClose={() => {}}
+      onRestore={async () => {}}
+    />,
+  );
+  const label = screen.getByTitle(filename);
+  expect(label).toHaveClass("truncate");
+  expect(screen.getByRole("combobox")).toHaveAccessibleName(
+    `Test art · ${filename}`,
+  );
+});
+
 it("describes a quota error with browser usage and the cache control", async () => {
   vi.stubGlobal("navigator", {
     storage: {

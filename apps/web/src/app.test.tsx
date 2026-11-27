@@ -1314,6 +1314,23 @@ it.each(["pdf", "png"] as const)(
   },
 );
 
+it("offers both Retry and Reload page for a timed-out web export", async ({
+  onTestFinished,
+}) => {
+  vi.stubEnv("VITE_TARGET", "web");
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
+  });
+  vi.spyOn(api, "jobs").mockResolvedValue([
+    { ...failedExport, initTimedOut: true, failureTarget: undefined },
+  ]);
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  expect(await screen.findByRole("button", { name: "Retry" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Reload page" })).toBeVisible();
+});
+
 it("offers setup but not Retry when a legacy job has no original settings", async () => {
   const legacy = { ...failedExport, settings: undefined, format: undefined };
   mockIPC((cmd) => {

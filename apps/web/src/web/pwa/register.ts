@@ -19,6 +19,11 @@ function recoverIsolation(workerActive: boolean) {
       workerActive,
       sessionStorage.getItem(reloadGuard) !== null,
     );
+    console.debug("[deckpress:coi] isolation check", {
+      isolated: globalThis.crossOriginIsolated,
+      workerActive,
+      action,
+    });
     if (action === "clear") sessionStorage.removeItem(reloadGuard);
     if (action === "reload") {
       sessionStorage.setItem(reloadGuard, "1");

@@ -988,6 +988,11 @@ function PrintJobs({
                           Original print settings unavailable for Retry.
                         </p>
                       )}
+                      {web && job.initTimedOut && (
+                        <button type="button" onClick={() => location.reload()}>
+                          Reload page
+                        </button>
+                      )}
                     </>
                   ) : (
                     <p className="hint">

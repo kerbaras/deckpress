@@ -7,7 +7,23 @@ import type {
 import { webAssetBase } from "../asset-base.ts";
 import { downloadBlob } from "../backend/download.ts";
 import { exportFileName } from "../store/settings.ts";
-import type { PrintRequest, PrintResponse, PrintResult } from "./protocol.ts";
+import type {
+  PrintInitStage,
+  PrintRequest,
+  PrintResponse,
+  PrintResult,
+} from "./protocol.ts";
+
+export const PRINT_INIT_TIMEOUT_MS = 30_000;
+
+class PrintInitTimeout extends Error {
+  constructor(stage: PrintInitStage) {
+    const component = stage === "core" ? "Print worker" : "Upscaling model";
+    super(
+      `${component} initialization timed out. Retry, or reload the page if it keeps failing.`,
+    );
+  }
+}
 
 class WorkerFailure extends Error {
   readonly target: PrintFailureTarget | undefined;
@@ -25,32 +41,60 @@ export async function runPrintWorker(
   signal?.throwIfAborted();
   if (import.meta.env.PROD && import.meta.env.VITE_TARGET !== "web")
     throw new Error("The print worker is only available in the web app");
-  const { default: PrintWorker } = await import("./print-worker.ts?worker");
-  signal?.throwIfAborted();
-  const worker = new PrintWorker();
-  const cancel = () => worker.terminate();
+  let worker: Worker | undefined;
+  let finished = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   try {
     return await new Promise((resolve, reject) => {
-      onAbort = () => {
-        cancel();
-        reject(signal?.reason);
+      const startTimer = (stage: PrintInitStage) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          console.debug("[deckpress:print] init timeout", stage);
+          reject(new PrintInitTimeout(stage));
+        }, PRINT_INIT_TIMEOUT_MS);
       };
+      onAbort = () => reject(signal?.reason);
       signal?.addEventListener("abort", onAbort, { once: true });
-      worker.onmessage = ({ data }: MessageEvent<PrintResponse>) => {
-        if (data.kind === "progress") onProgress?.(data);
-        else if (data.kind === "result") resolve(data.result);
-        else reject(new WorkerFailure(data.message, data.target));
-      };
-      worker.onerror = (event) =>
-        reject(new Error(event.message || "The print worker could not start"));
-      worker.onmessageerror = () =>
-        reject(new Error("Could not read the print worker response"));
-      worker.postMessage({ request, base: webAssetBase().href });
+      startTimer("core");
+      console.debug("[deckpress:print] loading worker", {
+        request: request.kind,
+        isolated: globalThis.crossOriginIsolated,
+        controlled: !!navigator.serviceWorker?.controller,
+      });
+      void import("./print-worker.ts?worker")
+        .then(({ default: PrintWorker }) => {
+          if (finished || signal?.aborted) return;
+          worker = new PrintWorker();
+          console.debug("[deckpress:print] worker spawned");
+          worker.onmessage = ({ data }: MessageEvent<PrintResponse>) => {
+            if (data.kind === "init") {
+              console.debug(
+                "[deckpress:print] init",
+                data.stage,
+                data.ready ? "ready" : "starting",
+              );
+              if (data.ready) clearTimeout(timer);
+              else startTimer(data.stage);
+            } else if (data.kind === "progress") onProgress?.(data);
+            else if (data.kind === "result") resolve(data.result);
+            else reject(new WorkerFailure(data.message, data.target));
+          };
+          worker.onerror = (event) =>
+            reject(
+              new Error(event.message || "The print worker could not start"),
+            );
+          worker.onmessageerror = () =>
+            reject(new Error("Could not read the print worker response"));
+          worker.postMessage({ request, base: webAssetBase().href });
+        })
+        .catch(reject);
     });
   } finally {
+    finished = true;
+    clearTimeout(timer);
     if (onAbort) signal?.removeEventListener("abort", onAbort);
-    cancel();
+    worker?.terminate();
   }
 }
 
@@ -94,6 +138,7 @@ async function next() {
     if (!controller.signal.aborted) {
       job.status = "failed";
       job.message = error instanceof Error ? error.message : String(error);
+      if (error instanceof PrintInitTimeout) job.initTimedOut = true;
       if (error instanceof WorkerFailure && error.target)
         job.failureTarget = error.target;
     }
