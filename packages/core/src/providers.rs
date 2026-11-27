@@ -2,7 +2,7 @@
 //! serialized through a single rate limiter (550 ms between requests, 30 s
 //! back-off on 429) and every JSON response is cached in SQLite for 24 hours.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use url::Url;
 
-use crate::art_policy::Printing;
+use crate::art_policy::{policy_can_change, Printing};
 use crate::art_quality::{prefer_high_res, scryfall_quality, ScanQuality};
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -21,6 +21,7 @@ use crate::models::{
     ImportPrintLookup, MissingPrint, PrintLanguagePolicy, PrintLanguagePreferences, Provider,
     ResolvedCards, Zone,
 };
+use crate::set_family::{coverage, SetCoverage, SetInfo};
 use crate::store::Store;
 
 pub const USER_AGENT: &str = "Deckpress/0.1 (local playtest tool)";
@@ -496,6 +497,45 @@ impl Providers {
         self.json_or_status(url, None, true)
             .await?
             .map_err(|status| AppError::user(format!("Scryfall returned {status}. Try again.")))
+    }
+
+    pub async fn sets(&self) -> AppResult<Vec<SetInfo>> {
+        #[derive(Deserialize)]
+        struct SetList {
+            data: Vec<SetInfo>,
+        }
+
+        let raw = self.scryfall_json("https://api.scryfall.com/sets").await?;
+        Ok(serde_json::from_value::<SetList>(raw)?.data)
+    }
+
+    pub async fn set_coverage(&self, entries: &[DeckEntry]) -> AppResult<Vec<SetCoverage>> {
+        if !entries.iter().any(policy_can_change) {
+            return Ok(Vec::new());
+        }
+        let sets = self.sets().await?;
+        let mut inventory = HashMap::new();
+        let mut entry_sets = Vec::new();
+        for entry in entries {
+            if !policy_can_change(entry) {
+                continue;
+            }
+            let oracle = entry.card.oracle_id.as_str();
+            if let std::collections::hash_map::Entry::Vacant(slot) = inventory.entry(oracle) {
+                slot.insert(self.policy_printings(oracle, None).await?);
+            }
+            let codes = inventory[oracle]
+                .iter()
+                .filter(|print| {
+                    print.paper
+                        && !print.promo
+                        && print.illustrations.len() == entry.card.faces.len()
+                })
+                .map(|print| print.set.clone())
+                .collect();
+            entry_sets.push(codes);
+        }
+        Ok(coverage(&entry_sets, &sets))
     }
 
     pub fn print_language_preferences(&self) -> AppResult<PrintLanguagePreferences> {

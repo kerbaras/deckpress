@@ -23,6 +23,7 @@ pub mod png_export;
 pub mod providers;
 pub mod raster;
 pub mod scm;
+pub mod set_family;
 #[cfg(feature = "native")]
 pub mod store;
 #[cfg(feature = "native")]
