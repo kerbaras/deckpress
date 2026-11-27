@@ -14,6 +14,7 @@ use deckpress_core::pdf::{build_pdf, PdfServices};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::CancelToken;
 use image::{ImageFormat, Rgb, RgbImage};
+use sha2::{Digest, Sha256};
 
 #[test]
 fn cancelling_a_scan_fetch_releases_its_cache_entry() {
@@ -146,6 +147,7 @@ async fn uploads_are_normalized_to_png_and_listed_by_oracle() {
                 name: "Custom".into(),
                 artist: String::new(),
                 bleed_mm: Some(0.0),
+                filename: None,
             },
         )
         .unwrap();
@@ -167,7 +169,67 @@ fn upload_input(bleed_mm: Option<f64>) -> UploadInput {
         name: "Custom".into(),
         artist: String::new(),
         bleed_mm,
+        filename: None,
     }
+}
+
+#[test]
+fn deck_backups_reference_original_upload_files_and_restore_legacy_refs() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(&dir.path().join("deckpress.sqlite")).unwrap());
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    let mut jpg = Vec::new();
+    RgbImage::from_pixel(63, 88, Rgb([20, 60, 100]))
+        .write_to(&mut Cursor::new(&mut jpg), ImageFormat::Jpeg)
+        .unwrap();
+    let filename = "Art α #1.jpg";
+    let hash = hex::encode(Sha256::digest(&jpg));
+    let art = images
+        .upload(
+            &jpg,
+            UploadInput {
+                filename: Some(filename.into()),
+                ..upload_input(Some(0.0))
+            },
+        )
+        .unwrap();
+    let mut old_ref = art.clone();
+    old_ref.filename = None;
+    old_ref.content_hash = None;
+    let mut entry = common::entry(old_ref.clone(), 1);
+    entry.selected_art = Some(old_ref.clone());
+    entry.selected_back = Some(old_ref.clone());
+    entry.policy_art = Some(vec![old_ref]);
+    let mut input = common::new_deck("Upload references");
+    input.entries.push(entry);
+    let fresh = tempfile::tempdir().unwrap();
+    let fresh_store = Arc::new(Store::open(&fresh.path().join("deckpress.sqlite")).unwrap());
+    let legacy = serde_json::to_string(&fresh_store.create_deck(input.clone()).unwrap()).unwrap();
+    assert!(!legacy.contains("\"filename\"") && !legacy.contains("\"contentHash\""));
+
+    let deck = store.create_deck(input).unwrap();
+    let backup = serde_json::to_value(store.deck(&deck.id).unwrap()).unwrap();
+    let entry = &backup["entries"][0];
+    for reference in [
+        &entry["card"]["faces"][0],
+        &entry["selectedArt"],
+        &entry["selectedBack"],
+        &entry["policyArt"][0],
+    ] {
+        assert_eq!(reference["imageUrl"], art.image_url);
+        assert_eq!(reference["filename"], filename);
+        assert_eq!(reference["contentHash"], hash);
+    }
+
+    let fresh_images = Images::new(fresh.path(), fresh_store).unwrap();
+    let restored = fresh_images.restore_deck(&legacy).unwrap();
+    assert_eq!(restored.updated_uploads, 0);
+    let old_art = restored.deck.entries[0].selected_art.as_ref().unwrap();
+    assert_eq!(old_art.image_url, art.image_url);
+    assert_eq!(old_art.filename, None);
+    assert_eq!(old_art.content_hash, None);
+    let restored = fresh_images.restore_deck(&backup.to_string()).unwrap();
+    assert_eq!(restored.deck.entries[0].selected_art.as_ref(), Some(&art));
 }
 
 #[tokio::test]

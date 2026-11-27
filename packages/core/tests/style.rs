@@ -40,6 +40,8 @@ fn art(id: &str, artist: &str, set: &str, year: &str, tags: &[&str]) -> Art {
         bleed_mm: 0.0,
         back_image_url: String::new(),
         back_thumbnail_url: String::new(),
+        filename: None,
+        content_hash: None,
         english_fallback: false,
     }
 }
@@ -72,6 +74,7 @@ fn upload(images: &Images, name: &str, pixel: [u8; 3]) -> Art {
                 name: name.into(),
                 artist: "Seb McKinnon".into(),
                 bleed_mm: Some(0.0),
+                filename: None,
             },
         )
         .unwrap()

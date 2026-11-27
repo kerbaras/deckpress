@@ -16,8 +16,10 @@ const MAX_UPLOAD: usize = 16 * 1024 * 1024;
 pub struct UploadInput {
     pub oracle_id: String,
     pub name: String,
+    #[serde(default)]
     pub artist: String,
     pub bleed_mm: Option<f64>,
+    pub filename: Option<String>,
 }
 
 pub(crate) fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
@@ -74,6 +76,8 @@ pub fn prepare(
         back_image_url: String::new(),
         back_thumbnail_url: String::new(),
         english_fallback: false,
+        filename: input.filename.filter(|name| !name.is_empty()),
+        content_hash: None,
     };
     Ok((
         Upload {

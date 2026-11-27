@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { artSchema } from "../../core/index.ts";
 import { checkUploadSize, uploadHash } from "../upload-hash.ts";
 import { uploadId } from "./upload-files.ts";
 import type { uploadStore } from "./uploads.ts";
@@ -9,8 +10,8 @@ const reference = z.object({
   name: z.string(),
   artist: z.string().default("Unknown"),
   bleedMm: z.number().optional(),
-  filename: z.string().optional(),
-  contentHash: z.string().optional(),
+  filename: artSchema.shape.filename,
+  contentHash: artSchema.shape.contentHash,
 });
 type BackupUpload = z.infer<typeof reference> & { oracleId: string };
 const entries = z.object({
@@ -101,6 +102,6 @@ export async function prepareReconnection(
     bytes,
     { oracleId, name, artist, ...(bleedMm !== undefined && { bleedMm }) },
     hash,
-    file.name,
+    ref.filename ?? file.name,
   );
 }

@@ -132,6 +132,8 @@ impl MpcCard {
                 back_image_url: String::new(),
                 back_thumbnail_url: String::new(),
                 english_fallback: false,
+                filename: None,
+                content_hash: None,
             },
         }
     }
@@ -272,6 +274,8 @@ pub fn normalize_scryfall(value: &Value) -> AppResult<Card> {
                 bleed_mm: 0.0,
                 back_image_url: String::new(),
                 back_thumbnail_url: String::new(),
+                filename: None,
+                content_hash: None,
             }
         })
         .collect();

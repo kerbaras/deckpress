@@ -28,6 +28,7 @@ async function matchFiles(missing: MissingUpload[], files: File[]) {
       break;
     }
   }
+  // A filename is only evidence when the backup has no original hash.
   for (const upload of missing) {
     const filename = upload.filename?.toLowerCase();
     if (!filename || upload.contentHash) continue;
@@ -45,10 +46,14 @@ async function matchFiles(missing: MissingUpload[], files: File[]) {
   }
   return {
     files: files.map((file) => ({ file, key: crypto.randomUUID() })),
-    hashes,
-    assignments,
+    matches: assignments,
   };
 }
+
+const emptySelection: Awaited<ReturnType<typeof matchFiles>> = {
+  files: [],
+  matches: new Map(),
+};
 
 export function ReconnectUploads({
   missing,
@@ -60,10 +65,9 @@ export function ReconnectUploads({
   onRestore: (attachments: UploadAttachment[]) => Promise<void>;
 }) {
   const task = useTask();
-  const [selection, setSelection] = useState<
-    Awaited<ReturnType<typeof matchFiles>>
-  >({ files: [], hashes: new Map(), assignments: new Map() });
-  const { files, hashes, assignments } = selection;
+  const [selection, setSelection] = useState(emptySelection);
+  const [assignments, setAssignments] = useState(new Map<string, number>());
+  const { files, matches } = selection;
   return (
     <Modal
       title="Reconnect uploaded art"
@@ -77,7 +81,8 @@ export function ReconnectUploads({
           void task.run(() =>
             onRestore(
               missing.flatMap(({ id }) => {
-                const file = files[assignments.get(id) ?? -1]?.file;
+                const index = matches.get(id) ?? assignments.get(id);
+                const file = files[index ?? -1]?.file;
                 return file ? [{ id, file }] : [];
               }),
             ),
@@ -97,48 +102,60 @@ export function ReconnectUploads({
             multiple
             disabled={task.busy}
             onChange={(event) => {
-              const picked = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              if (picked.length)
-                void task.run(async () =>
-                  setSelection(await matchFiles(missing, picked)),
-                );
+              const input = event.currentTarget;
+              const picked = Array.from(input.files ?? []);
+              setSelection(emptySelection);
+              setAssignments(new Map());
+              void task.run(async () => {
+                try {
+                  setSelection(await matchFiles(missing, picked));
+                } catch (error) {
+                  input.value = "";
+                  throw error;
+                }
+              });
             }}
           />
         </label>
-        {missing.map((upload) => (
-          <label className="field" key={upload.id}>
-            {upload.name} · {upload.filename ?? upload.id}
-            <select
-              value={assignments.get(upload.id) ?? ""}
-              disabled={task.busy}
-              onChange={(event) => {
-                const next = new Map(assignments);
-                if (event.target.value === "") next.delete(upload.id);
-                else next.set(upload.id, Number(event.target.value));
-                setSelection({ ...selection, assignments: next });
-              }}
-            >
-              <option value="">Leave missing</option>
-              {files.map(({ file, key }, index) => (
-                <option
-                  key={key}
-                  value={index}
-                  disabled={
-                    !!upload.contentHash &&
-                    hashes.get(index) !== upload.contentHash.toLowerCase()
-                  }
-                >
-                  {file.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
+        {missing.map((upload) => {
+          const label = `${upload.name} · ${upload.filename ?? upload.id}`;
+          const matched = files[matches.get(upload.id) ?? -1]?.file;
+          return matched || upload.contentHash ? (
+            <div className="field" key={upload.id}>
+              {label}
+              <span>
+                {matched
+                  ? `Matched to ${matched.name}`
+                  : "No matching file selected"}
+              </span>
+            </div>
+          ) : (
+            <label className="field" key={upload.id}>
+              {label}
+              <select
+                value={assignments.get(upload.id) ?? ""}
+                disabled={task.busy}
+                onChange={(event) => {
+                  const next = new Map(assignments);
+                  if (event.target.value === "") next.delete(upload.id);
+                  else next.set(upload.id, Number(event.target.value));
+                  setAssignments(next);
+                }}
+              >
+                <option value="">Leave missing</option>
+                {files.map(({ file, key }, index) => (
+                  <option key={key} value={index}>
+                    {file.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          );
+        })}
         <ErrorNotice error={task.error} />
         <div className="modal-actions">
           <button className="primary" type="submit" disabled={task.busy}>
-            {assignments.size
+            {matches.size || assignments.size
               ? "Restore with selected files"
               : "Restore without files"}
           </button>
