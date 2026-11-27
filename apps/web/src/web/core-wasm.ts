@@ -2,6 +2,34 @@ interface CoreWasm {
   default: () => Promise<unknown>;
   setFamily(chosen: string, sets: string): string;
   setCoverage(entries: string, sets: string): string;
+  planDeckArtPolicy(
+    deck: string,
+    policy: string,
+    preferences: string,
+    familyRanks: string,
+    inventory: string,
+  ): string;
+  planPrintLocalization(
+    entry: string,
+    anchor: string,
+    candidates: string,
+    preferred: string,
+    language?: string,
+  ): string;
+  deckLanguageLookups(deck: string, language: string): string;
+  planDeckLanguage(
+    deck: string,
+    language: string,
+    missing: string,
+    inventory: string,
+    english?: string,
+  ): string;
+  overrideDeckLanguagePrint(
+    original: string,
+    proposed: string,
+    printing: string,
+    language: string,
+  ): string;
   assessSource(
     width: number,
     height: number,

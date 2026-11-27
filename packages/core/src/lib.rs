@@ -7,6 +7,7 @@ pub mod art_policy;
 pub mod art_quality;
 #[cfg(feature = "native")]
 pub mod builder;
+pub mod card_names;
 pub mod cut_dxf;
 pub mod cut_svg;
 #[cfg(feature = "native")]
@@ -16,8 +17,7 @@ pub mod error;
 pub mod images;
 #[cfg(feature = "native")]
 pub mod jobs;
-#[cfg(feature = "native")]
-mod language_deck;
+pub mod language_deck;
 pub mod language_switch;
 pub mod layout;
 pub mod models;

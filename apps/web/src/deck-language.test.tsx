@@ -191,25 +191,21 @@ it("previews a deck language, stages an override and applies or undoes the switc
   await waitFor(() => expect(control).toHaveValue(""));
 });
 
-it("explains the web availability of deck language switching", async () => {
+it("offers a language selection before the first language change", async () => {
   const user = userEvent.setup();
   const onSelect = vi.fn();
   render(
     <DeckLanguageControl
       language={undefined}
       disabled={false}
-      web
       onSelect={onSelect}
       onUndo={undefined}
     />,
   );
-  await user.click(screen.getByRole("button", { name: "Deck language" }));
-  expect(
-    screen.getByText(
-      "Deck language switching is not available on the web yet.",
-    ),
-  ).toBeVisible();
-  expect(onSelect).not.toHaveBeenCalled();
+  const select = screen.getByRole("combobox", { name: "Deck language" });
+  expect(select).toHaveValue("");
+  await user.selectOptions(select, "es");
+  expect(onSelect).toHaveBeenCalledWith("es", select);
 });
 
 it("keeps the sticky action footer when no printings need review", () => {
@@ -228,6 +224,7 @@ it("keeps the sticky action footer when no printings need review", () => {
       deck={deck}
       language="es"
       preview={{ previewId: crypto.randomUUID(), canApply: true, changes: [] }}
+      progress={undefined}
       error={undefined}
       busy={false}
       onKeep={vi.fn()}

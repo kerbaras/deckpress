@@ -23,32 +23,45 @@ it("matches a renamed image by hash, another by filename, and allows manual assi
   const renamed = makeFile("renamed.png", data);
   const byName = makeFile("filename.png", new Uint8Array([2]));
   const manual = makeFile("original.png", new Uint8Array([3]));
+  const wrong = makeFile("wrong.png", new Uint8Array([4]));
   const onRestore = vi.fn(async () => {});
   render(
     <ReconnectUploads
       missing={[
-        { id: "hash", name: "Hash match", contentHash },
+        { id: "hash", name: "Hash match", filename: manual.name, contentHash },
         { id: "name", name: "Filename match", filename: byName.name },
         { id: "manual", name: "Manual match" },
+        {
+          id: "mismatch",
+          name: "Hash mismatch",
+          filename: wrong.name,
+          contentHash: "0".repeat(64),
+        },
       ]}
       onClose={() => {}}
       onRestore={onRestore}
     />,
   );
-  expect(screen.getByText(/3 uploads missing/)).toBeVisible();
-  await user.upload(screen.getByLabelText("Original image files"), [
-    manual,
-    byName,
-    renamed,
-  ]);
+  expect(screen.getByText(/4 uploads missing/)).toBeVisible();
+  const picker = screen.getByLabelText<HTMLInputElement>(
+    "Original image files",
+  );
+  const files = [manual, byName, renamed, wrong];
+  await user.upload(picker, files);
   await waitFor(() => {
-    expect(screen.getByLabelText(/Hash match/)).toHaveDisplayValue(
-      "renamed.png",
-    );
-    expect(screen.getByLabelText(/Filename match/)).toHaveDisplayValue(
-      "filename.png",
-    );
+    expect(screen.getByText("Matched to renamed.png")).toBeVisible();
+    expect(screen.getByText("Matched to filename.png")).toBeVisible();
   });
+  expect(Array.from(picker.files ?? [])).toEqual(files);
+  expect(screen.getByText("No matching file selected")).toBeVisible();
+  expect(screen.getAllByRole("combobox")).toHaveLength(2);
+  const override = screen.getByLabelText(/Hash mismatch/);
+  expect(override).toHaveDisplayValue("Leave missing");
+  expect(screen.queryByText(/different contents/)).not.toBeInTheDocument();
+  await user.selectOptions(override, "3");
+  expect(override).toHaveAccessibleDescription(
+    "This file has different contents from the original. Restoring will use it as a replacement.",
+  );
   expect(screen.getByLabelText(/Manual match/)).toHaveDisplayValue(
     "Leave missing",
   );
@@ -60,6 +73,7 @@ it("matches a renamed image by hash, another by filename, and allows manual assi
     { id: "hash", file: renamed },
     { id: "name", file: byName },
     { id: "manual", file: manual },
+    { id: "mismatch", file: wrong, allowHashMismatch: true },
   ]);
 });
 

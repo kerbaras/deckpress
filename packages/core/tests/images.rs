@@ -9,11 +9,12 @@ use deckpress_core::images::{
     UPLOAD_SCHEME,
 };
 use deckpress_core::layout::{create_layout, face_pixels, mm_to_pixels, mm_to_pt};
-use deckpress_core::models::{BleedMode, NewDeck, PrintSettings, Provider, Zone};
+use deckpress_core::models::{Art, BleedMode, NewDeck, PrintSettings, Provider, Zone};
 use deckpress_core::pdf::{build_pdf, PdfServices};
 use deckpress_core::store::Store;
 use deckpress_core::upscaler::CancelToken;
 use image::{ImageFormat, Rgb, RgbImage};
+use sha2::{Digest, Sha256};
 
 #[test]
 fn cancelling_a_scan_fetch_releases_its_cache_entry() {
@@ -146,6 +147,7 @@ async fn uploads_are_normalized_to_png_and_listed_by_oracle() {
                 name: "Custom".into(),
                 artist: String::new(),
                 bleed_mm: Some(0.0),
+                filename: None,
             },
         )
         .unwrap();
@@ -167,7 +169,122 @@ fn upload_input(bleed_mm: Option<f64>) -> UploadInput {
         name: "Custom".into(),
         artist: String::new(),
         bleed_mm,
+        filename: None,
     }
+}
+
+#[test]
+fn deck_backups_reference_original_upload_files_and_restore_legacy_refs() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(&dir.path().join("deckpress.sqlite")).unwrap());
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    let mut jpg = Vec::new();
+    RgbImage::from_pixel(63, 88, Rgb([20, 60, 100]))
+        .write_to(&mut Cursor::new(&mut jpg), ImageFormat::Jpeg)
+        .unwrap();
+    let filename = "Art α #1.jpg";
+    let hash = hex::encode(Sha256::digest(&jpg));
+    let art = images
+        .upload(
+            &jpg,
+            UploadInput {
+                filename: Some(filename.into()),
+                ..upload_input(Some(0.0))
+            },
+        )
+        .unwrap();
+    let mut old_ref = art.clone();
+    old_ref.filename = None;
+    old_ref.content_hash = None;
+    let mut entry = common::entry(old_ref.clone(), 1);
+    entry.selected_art = Some(old_ref.clone());
+    entry.selected_back = Some(old_ref.clone());
+    entry.policy_art = Some(vec![old_ref]);
+    let mut input = common::new_deck("Upload references");
+    input.entries.push(entry);
+    let fresh = tempfile::tempdir().unwrap();
+    let fresh_store = Arc::new(Store::open(&fresh.path().join("deckpress.sqlite")).unwrap());
+    let legacy = serde_json::to_string(&fresh_store.create_deck(input.clone()).unwrap()).unwrap();
+    assert!(!legacy.contains("\"filename\"") && !legacy.contains("\"contentHash\""));
+
+    let deck = store.create_deck(input).unwrap();
+    let backup = serde_json::to_value(store.deck(&deck.id).unwrap()).unwrap();
+    let entry = &backup["entries"][0];
+    for reference in [
+        &entry["card"]["faces"][0],
+        &entry["selectedArt"],
+        &entry["selectedBack"],
+        &entry["policyArt"][0],
+    ] {
+        assert_eq!(reference["imageUrl"], art.image_url);
+        assert_eq!(reference["filename"], filename);
+        assert_eq!(reference["contentHash"], hash);
+    }
+
+    let fresh_images = Images::new(fresh.path(), fresh_store).unwrap();
+    let restored = fresh_images.restore_deck(&legacy).unwrap();
+    assert_eq!(restored.updated_uploads, 0);
+    let old_art = restored.deck.entries[0].selected_art.as_ref().unwrap();
+    assert_eq!(old_art.image_url, art.image_url);
+    assert_eq!(old_art.filename, None);
+    assert_eq!(old_art.content_hash, None);
+    let restored = fresh_images.restore_deck(&backup.to_string()).unwrap();
+    assert_eq!(restored.deck.entries[0].selected_art.as_ref(), Some(&art));
+}
+
+#[test]
+fn caps_upload_filenames_when_writing_and_reading_art() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(&dir.path().join("deckpress.sqlite")).unwrap());
+    let images = Images::new(dir.path(), store).unwrap();
+    let png = common::png(63, 88, [20, 60, 100]);
+    let prefix = "a".repeat(254);
+    for (suffix, capped_suffix) in [("é.png", "é"), ("🃏.png", "")] {
+        let filename = format!("{prefix}{suffix}");
+        let expected = format!("{prefix}{capped_suffix}");
+        let art = images
+            .upload(
+                &png,
+                UploadInput {
+                    filename: Some(filename.clone()),
+                    ..upload_input(Some(0.0))
+                },
+            )
+            .unwrap();
+        assert_eq!(art.filename.as_deref(), Some(expected.as_str()));
+        let mut json = serde_json::to_value(art).unwrap();
+        json["filename"] = filename.into();
+        let restored: Art = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.filename.as_deref(), Some(expected.as_str()));
+    }
+}
+
+#[test]
+fn restores_explicit_bleed_for_upload_referenced_only_by_policy_art() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(&dir.path().join("deckpress.sqlite")).unwrap());
+    let images = Images::new(dir.path(), Arc::clone(&store)).unwrap();
+    let art = images
+        .upload(&common::png(63, 88, [20, 60, 100]), upload_input(Some(3.0)))
+        .unwrap();
+    let mut entry = common::entry(common::scryfall_art(), 1);
+    entry.policy_art = Some(vec![art.clone()]);
+    let deck = store
+        .create_deck(NewDeck {
+            entries: vec![entry],
+            ..common::new_deck("Policy art bleed backup")
+        })
+        .unwrap();
+    let backup = serde_json::to_string(&deck).unwrap();
+    images
+        .update_upload_bleed(&art.image_url, Some(0.0))
+        .unwrap();
+
+    let restored = images.restore_deck(&backup).unwrap();
+    assert_eq!(restored.updated_uploads, 1);
+    assert_eq!(images.upload_bleed(&art.image_url).unwrap(), Some(3.0));
+    assert_eq!(restored.deck.entries[0].policy_art, Some(vec![art]));
+    assert_eq!(images.restore_deck(&backup).unwrap().updated_uploads, 0);
 }
 
 #[tokio::test]

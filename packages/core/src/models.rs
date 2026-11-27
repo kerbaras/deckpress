@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::art_quality::ScanQuality;
 
@@ -13,6 +13,26 @@ fn default_dpi() -> f64 {
 }
 fn default_artist() -> String {
     "Unknown".into()
+}
+
+/// Match the web schema's 255 UTF-16 code units without splitting a character.
+pub(crate) fn cap_upload_filename(mut filename: String) -> String {
+    const MAX_FILENAME_LENGTH: usize = 255;
+    let mut length = 0;
+    if let Some((index, _)) = filename.char_indices().find(|(_, ch)| {
+        length += ch.len_utf16();
+        length > MAX_FILENAME_LENGTH
+    }) {
+        filename.truncate(index);
+    }
+    filename
+}
+
+fn deserialize_upload_filename<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.map(cap_upload_filename))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,6 +76,14 @@ pub struct Art {
     pub back_image_url: String,
     #[serde(default)]
     pub back_thumbnail_url: String,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_upload_filename",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
