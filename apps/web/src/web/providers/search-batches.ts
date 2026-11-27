@@ -1,9 +1,7 @@
 import type { Scryfall } from "./scryfall.ts";
 
-const batchSize = 12;
-
-function anyOf(terms: readonly string[]) {
-  return terms.length === 1 ? terms[0] : `(${terms.join(" or ")})`;
+export function anyOf(terms: readonly string[]) {
+  return terms.length <= 1 ? (terms[0] ?? "") : `(${terms.join(" or ")})`;
 }
 
 export async function searchBatches(
@@ -11,6 +9,7 @@ export async function searchBatches(
   terms: Iterable<string>,
   filters: readonly string[],
   visit: (cards: Record<string, unknown>[], batch: string[]) => boolean,
+  batchSize = 12,
 ) {
   const clauses = [...new Set(terms)].sort();
   let complete = true;

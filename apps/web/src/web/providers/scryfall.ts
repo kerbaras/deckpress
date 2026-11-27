@@ -1,3 +1,4 @@
+import { type SetInfo, setInfoSchema } from "../../core/sets.ts";
 import {
   type DocumentStore,
   document,
@@ -11,6 +12,7 @@ const cacheTtl = 24 * 60 * 60 * 1000;
 const interval = 100;
 const backoff = 15_000;
 const maxBackoff = 30_000;
+const opaqueBackoff = 60_000;
 const retries = 3;
 
 type Identifier =
@@ -26,6 +28,7 @@ export interface Scryfall {
     language: string,
   ): Promise<Record<string, unknown>>;
   printing(id: string): Promise<unknown>;
+  sets(): Promise<SetInfo[]>;
   search(
     query: string,
     page: number,
@@ -39,7 +42,18 @@ export interface Scryfall {
 function rateLimiter() {
   let tail = Promise.resolve();
   let next = 0;
+  let retryAfterSeconds: number | undefined;
+  const listeners = new Set<() => void>();
+
+  function reportRetry(seconds: number | undefined) {
+    if (retryAfterSeconds === seconds) return;
+    retryAfterSeconds = seconds;
+    for (const listener of listeners) listener();
+  }
+
   async function waitForSlot() {
+    const delay = next - performance.now();
+    if (delay > interval) reportRetry(Math.ceil(delay / 1000));
     for (
       let wait = next - performance.now();
       wait > 0;
@@ -50,8 +64,10 @@ function rateLimiter() {
       );
     }
     next = performance.now() + interval;
+    reportRetry(undefined);
   }
-  return function enqueue<T>(
+
+  function enqueue<T>(
     send: (
       defer: (delay: number) => void,
       wait: () => Promise<void>,
@@ -68,6 +84,16 @@ function rateLimiter() {
       () => {},
     );
     return pending;
+  }
+  return {
+    enqueue,
+    getSnapshot: () => retryAfterSeconds,
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
   };
 }
 
@@ -85,8 +111,8 @@ function retryDelay(response: Response, attempt: number) {
 export function scryfallClient(
   cache: Pick<DocumentStore, "get" | "put">,
   fetcher: typeof fetch = (...args) => fetch(...args),
-): Scryfall {
-  const enqueue = rateLimiter();
+) {
+  const { enqueue, ...retry } = rateLimiter();
   const pendingByKey = new Map<string, Promise<unknown>>();
 
   function json(
@@ -113,21 +139,26 @@ export function scryfallClient(
               headers: { ...headers, "Content-Type": "application/json" },
             }
           : { headers };
-        let response: Response;
+        let response: Response | undefined;
         for (let attempt = 0; ; attempt++) {
           try {
             response = await fetcher(origin + path, {
               ...init,
               signal: AbortSignal.timeout(30_000),
             });
-          } catch {
-            throw new Error("Could not reach api.scryfall.com. Try again.");
+          } catch (error) {
+            // Scryfall's throttled responses can omit CORS headers.
+            if (!(error instanceof TypeError))
+              throw new Error("Could not reach api.scryfall.com. Try again.");
+            response = undefined;
           }
-          if (response.status !== 429) break;
-          defer(retryDelay(response, attempt));
+          if (response && response.status !== 429) break;
+          defer(response ? retryDelay(response, attempt) : opaqueBackoff);
           if (attempt === retries) {
             throw new Error(
-              "Scryfall is still rate-limiting requests. Try again later.",
+              response
+                ? "Scryfall is still rate-limiting requests. Try again later."
+                : "Scryfall could not be reached after retrying. It may be rate limiting requests. Try again later.",
             );
           }
           await wait();
@@ -152,6 +183,7 @@ export function scryfallClient(
   }
 
   return {
+    retry,
     async collection(identifiers) {
       const response = record(
         await json("/cards/collection", false, JSON.stringify({ identifiers })),
@@ -167,6 +199,23 @@ export function scryfallClient(
       return record(await json(`/cards/${path}`, true));
     },
     printing: (id) => json(`/cards/${encodeURIComponent(id)}`),
+    async sets() {
+      const response = record(await json("/sets"));
+      if (!Array.isArray(response.data))
+        throw new Error("Unexpected Scryfall set catalog data");
+      return recordList(response.data).map((set) =>
+        setInfoSchema.parse({
+          code: set.code,
+          name: set.name,
+          setType: set.set_type,
+          parentSetCode: set.parent_set_code ?? null,
+          digital: set.digital,
+          releasedAt: set.released_at,
+          iconSvgUri: set.icon_svg_uri,
+          cardCount: set.card_count,
+        }),
+      );
+    },
     async search(query, page) {
       const params = new URLSearchParams({
         q: query,
@@ -183,5 +232,5 @@ export function scryfallClient(
         total: typeof result.total_cards === "number" ? result.total_cards : 0,
       };
     },
-  };
+  } satisfies Scryfall & { retry: typeof retry };
 }

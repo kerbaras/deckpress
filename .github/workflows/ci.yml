@@ -107,4 +107,4 @@ jobs:
 
       - run: pnpm build:wasm
 
-      - run: node --test packages/core-wasm/tests/export.test.mjs
+      - run: node --test packages/core-wasm/tests/*.test.mjs
