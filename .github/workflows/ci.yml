@@ -81,3 +81,30 @@ jobs:
 
       - name: pnpm test:rust
         run: pnpm test:rust
+
+  wasm:
+    name: WASM print pipeline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo install wasm-bindgen-cli --version 0.2.129 --locked
+
+      - run: cargo build --locked -p deckpress-core --no-default-features --target wasm32-unknown-unknown
+
+      - run: pnpm build:wasm
+
+      - run: node --test packages/core-wasm/tests/export.test.mjs

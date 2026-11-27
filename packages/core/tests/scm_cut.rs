@@ -17,7 +17,13 @@ fn every_scm_layout_has_the_pinned_studio_file_or_an_explicit_exception() {
         manifest["commit"],
         "0da09b729814aa5aafde024b5a6059624fa87951"
     );
-    let mut files: HashMap<_, _> = manifest["files"].as_object().unwrap().iter().collect();
+    let inventory: HashSet<_> = manifest["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|path| path.as_str().unwrap())
+        .collect();
+    let mut files: HashMap<_, _> = manifest["exports"].as_object().unwrap().iter().collect();
     let exceptions = manifest["exceptions"].as_array().unwrap();
     let mut exceptions: HashSet<_> = exceptions
         .iter()
@@ -73,6 +79,7 @@ fn every_scm_layout_has_the_pinned_studio_file_or_an_explicit_exception() {
                             filename.clone()
                         };
                         assert_eq!(entry["path"], expected_path);
+                        assert!(inventory.contains(expected_path.as_str()));
                         let bytes = exported.unwrap();
                         assert_eq!(hex::encode(Sha256::digest(bytes)), entry["sha256"]);
                     } else {

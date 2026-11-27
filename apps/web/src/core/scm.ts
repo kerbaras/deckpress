@@ -40,7 +40,7 @@ export const scmHasDxfFallback = (name: string) => dxfFallbacks.has(name);
 
 export function scmCutFile(name: string): string | undefined {
   const file = `${name}.studio3`;
-  return Object.hasOwn(cutTemplates.files, file) ? file : undefined;
+  return Object.hasOwn(cutTemplates.exports, file) ? file : undefined;
 }
 
 export interface ScmSheet {

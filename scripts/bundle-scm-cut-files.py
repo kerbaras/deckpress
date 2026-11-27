@@ -48,7 +48,16 @@ def bundle(checkout):
             data = upstream(f"cutting_templates/{path}")
             entries[name] = {"path": path, "sha256": hashlib.sha256(data).hexdigest()}
             archive.writestr(ZipInfo(path), data)
-    manifest = {"commit": commit, "files": entries, "exceptions": sorted(exceptions)}
+    inventory = subprocess.check_output(
+        ["git", "-C", checkout, "ls-tree", "-r", "--name-only", commit, "cutting_templates"],
+        text=True,
+    ).splitlines()
+    manifest = {
+        "commit": commit,
+        "files": [path.removeprefix("cutting_templates/") for path in inventory if path.endswith(".studio3")],
+        "exports": entries,
+        "exceptions": sorted(exceptions),
+    }
     (ASSETS / "cutting-templates.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
 

@@ -1,6 +1,8 @@
+#[cfg(feature = "native")]
 use futures_util::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "native")]
 use crate::images::{decode, Images};
 use crate::models::{Art, PrintSettings, Provider};
 use crate::raster::{below_upscale_threshold, fitted_art_dimensions, trim_bounds, trim_pixels};
@@ -91,6 +93,7 @@ pub struct PickerDpi {
     pub estimated: bool,
 }
 
+#[cfg(feature = "native")]
 fn scryfall_format_size(url: &str) -> Option<(u32, u32)> {
     let url = url::Url::parse(url).ok()?;
     if url.host_str()? != "cards.scryfall.io" {
@@ -104,6 +107,7 @@ fn scryfall_format_size(url: &str) -> Option<(u32, u32)> {
     }
 }
 
+#[cfg(feature = "native")]
 pub async fn picker_dpi(
     images: &Images,
     arts: Vec<Art>,
@@ -135,6 +139,7 @@ pub async fn picker_dpi(
         .await
 }
 
+#[cfg(feature = "native")]
 pub async fn source_dpi(
     images: &Images,
     arts: Vec<Art>,

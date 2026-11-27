@@ -5,7 +5,7 @@ import { createLayout } from "./layout.ts";
 import { printSettingsSchema } from "./models.ts";
 import { scmCards, scmCutFile, scmHasDxfFallback, scmPapers } from "./scm.ts";
 
-const vendored = new Set(Object.keys(cutTemplates.files));
+const vendored = new Set(Object.keys(cutTemplates.exports));
 const variants = (paper: string, card: string) =>
   Object.keys(
     (source.layouts as Record<string, Record<string, object>>)[paper]?.[card] ??

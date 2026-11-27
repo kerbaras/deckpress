@@ -1060,6 +1060,7 @@ dependencies = [
  "crc32fast",
  "fast_image_resize",
  "futures-util",
+ "getrandom 0.4.3",
  "hex",
  "image",
  "krilla",
@@ -1079,6 +1080,16 @@ dependencies = [
  "url",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "deckpress-core-wasm"
+version = "0.1.1"
+dependencies = [
+ "deckpress-core",
+ "js-sys",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

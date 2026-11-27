@@ -5,28 +5,38 @@
 
 pub mod art_policy;
 pub mod art_quality;
+#[cfg(feature = "native")]
 pub mod builder;
 pub mod cut_dxf;
 pub mod cut_svg;
+#[cfg(feature = "native")]
 pub mod decksearch;
 pub mod error;
+#[cfg(feature = "native")]
 pub mod images;
+#[cfg(feature = "native")]
 pub mod jobs;
 pub mod layout;
 pub mod models;
 pub mod pdf;
 pub mod png_export;
+#[cfg(feature = "native")]
 pub mod providers;
 pub mod raster;
 pub mod scm;
 pub mod scm_cut;
+#[cfg(feature = "native")]
 pub mod store;
+#[cfg(feature = "native")]
 pub mod style;
 pub mod upscaler;
 pub mod validate;
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+#[cfg(feature = "native")]
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 pub use error::{AppError, AppResult};
 
@@ -45,6 +55,7 @@ fn count_noun<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
 }
 
 /// Every long-lived service, wired together once at startup.
+#[cfg(feature = "native")]
 pub struct Core {
     pub data_dir: PathBuf,
     pub store: Arc<store::Store>,
@@ -58,6 +69,7 @@ pub struct Core {
     pub art_policy: art_policy::ArtPolicies,
 }
 
+#[cfg(feature = "native")]
 impl Core {
     /// Opens the store and caches under `data_dir` and reads bundled model
     /// weights from `resource_dir`. Print jobs run on `runtime`.

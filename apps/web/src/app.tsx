@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isTauri } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
   Compass,
@@ -24,7 +23,10 @@ import {
   api,
   confirmAction,
   fetchHealth,
+  isWebPreview,
   type ModelStatus,
+  saveFileDialog,
+  upscalingUnavailable,
 } from "./api.ts";
 import { DiscardPreview } from "./art-picker.tsx";
 import { formatCount, type PrintJob } from "./core/index.ts";
@@ -865,7 +867,7 @@ function PrintJobs({
                         onClick={() =>
                           void task.run(async () => {
                             setSaveStatus("");
-                            const destination = await save({
+                            const destination = await saveFileDialog({
                               defaultPath: job.fileName,
                               filters:
                                 job.format === "png"
@@ -1028,7 +1030,8 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
               onChange={(event) => {
                 const theme = event.currentTarget.value as Appearance;
                 void task.run(async () => {
-                  if (isTauri()) await api.saveAppearance(theme);
+                  if (isTauri() || isWebPreview())
+                    await api.saveAppearance(theme);
                   setAppearance(theme);
                   window.deckpressAppearance?.set(theme);
                 });
@@ -1065,6 +1068,7 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
                 : "Loads on first export"}
             </span>
           </div>
+          <ErrorNotice error={upscalingUnavailable()} />
           <p>
             Real-ESRGAN models run through ONNX Runtime inside the app: Core ML
             on macOS, DirectML on Windows, CUDA or CPU on Linux. Every model

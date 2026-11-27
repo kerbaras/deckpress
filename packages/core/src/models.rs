@@ -587,10 +587,12 @@ pub struct Upload {
     pub bleed_auto: bool,
 }
 
+#[cfg(feature = "native")]
 pub fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+#[cfg(feature = "native")]
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }

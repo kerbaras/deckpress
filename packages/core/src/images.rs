@@ -22,6 +22,7 @@ use url::Url;
 use crate::error::{AppError, AppResult};
 use crate::models::{new_id, now_iso, Art, Deck, NewDeck, Provider, Upload};
 use crate::providers::USER_AGENT;
+pub use crate::raster::decode;
 use crate::raster::{
     detect_upload_bleed, encode_png, strip_bleed, to_rgb, PIPELINE_VERSION, UPLOAD_CARD_MM,
 };
@@ -165,22 +166,6 @@ pub fn mime_for(bytes: &[u8]) -> &'static str {
         Some(ImageFormat::WebP) => "image/webp",
         _ => "image/png",
     }
-}
-
-/// Decodes with size limits and applies the EXIF orientation, so camera
-/// photos come out upright.
-pub fn decode(bytes: &[u8]) -> AppResult<DynamicImage> {
-    let mut reader = ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(12_000);
-    limits.max_image_height = Some(12_000);
-    limits.max_alloc = Some(600 * 1024 * 1024);
-    reader.limits(limits);
-    let mut decoder = reader.into_decoder()?;
-    let orientation = decoder.orientation()?;
-    let mut image = DynamicImage::from_decoder(decoder)?;
-    image.apply_orientation(orientation);
-    Ok(image)
 }
 
 pub(crate) fn file_dimensions(path: &Path) -> AppResult<(u32, u32)> {

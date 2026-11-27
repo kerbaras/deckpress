@@ -12,7 +12,7 @@ use crate::scm;
 
 #[derive(Deserialize)]
 struct Manifest {
-    files: HashMap<String, CutFile>,
+    exports: HashMap<String, CutFile>,
     exceptions: HashSet<String>,
 }
 
@@ -23,8 +23,7 @@ struct CutFile {
 }
 
 static MANIFEST: LazyLock<Manifest> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../assets/scm/cutting-templates.json"))
-        .expect("vendored SCM cut-file manifest")
+    serde_json::from_str(scm::CUTTING_TEMPLATES_JSON).expect("vendored SCM cut-file manifest")
 });
 
 pub(crate) fn has_dxf_fallback(template_name: &str) -> bool {
@@ -39,7 +38,7 @@ pub fn studio3(settings: &PrintSettings) -> AppResult<Vec<u8>> {
     }
     let name = scm::template_name(settings)?;
     let cut_file = MANIFEST
-        .files
+        .exports
         .get(&format!("{name}.studio3"))
         .ok_or_else(|| {
             AppError::user(format!(

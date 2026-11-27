@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
 use crate::layout::{mm_to_pt, PrintLayout, Rect, Slot};
@@ -14,7 +14,7 @@ pub const MAX_BLEED_MM: f64 = 0.625;
 const GAP_MM: f64 = 1.25;
 const CORNER_PADDING_MM: f64 = 1.5;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ScmSheet {
     pub name: String,
     pub marks: Vec<Rect>,
@@ -74,9 +74,11 @@ struct RegistrationOverride {
     length: Option<String>,
 }
 
-static CONFIG: LazyLock<Config> = LazyLock::new(|| {
-    serde_json::from_str(include_str!("../assets/scm/layouts.json")).expect("vendored SCM layouts")
-});
+pub const TEMPLATE_CATALOG_JSON: &str = include_str!("../assets/scm/layouts.json");
+pub const CUTTING_TEMPLATES_JSON: &str = include_str!("../assets/scm/cutting-templates.json");
+
+static CONFIG: LazyLock<Config> =
+    LazyLock::new(|| serde_json::from_str(TEMPLATE_CATALOG_JSON).expect("vendored SCM layouts"));
 
 fn size_mm(size: &str) -> f64 {
     if let Some(inches) = size.strip_suffix("in") {
