@@ -16,6 +16,10 @@ export async function openUpscaler(model: ArrayBuffer, assetBase: URL) {
     hardwareConcurrency: navigator.hardwareConcurrency,
   });
   async function open({ provider, threads }: Backend) {
+    console.debug("[deckpress:upscale] loading ONNX runtime", {
+      provider,
+      threads,
+    });
     const ortUrl = new URL("ort/ort.webgpu.min.mjs", assetBase);
     // Each fallback can initialize ORT with its own provider and thread count.
     if (candidates.length > 1)
@@ -33,6 +37,10 @@ export async function openUpscaler(model: ArrayBuffer, assetBase: URL) {
       wasm: new URL(`${wasm}.wasm`, assetBase),
     };
     env.wasm.numThreads = threads;
+    console.debug(
+      "[deckpress:upscale] creating session (WASM, threads, model)",
+      { provider, threads },
+    );
     const session = await InferenceSession.create(model, {
       executionProviders: [provider],
     });
@@ -42,6 +50,7 @@ export async function openUpscaler(model: ArrayBuffer, assetBase: URL) {
       await session.release();
       throw new Error("Model input or output is missing");
     }
+    console.debug("[deckpress:upscale] session ready", { provider, threads });
     return { session, Tensor, inputName, outputName };
   }
   let active:
@@ -53,6 +62,7 @@ export async function openUpscaler(model: ArrayBuffer, assetBase: URL) {
       image: RgbImage,
       signal: AbortSignal,
       onProgress: (done: number, total: number, timing: Timing) => void,
+      onFallback?: (ready: boolean) => void,
     ) {
       while (true) {
         signal.throwIfAborted();
@@ -64,9 +74,11 @@ export async function openUpscaler(model: ArrayBuffer, assetBase: URL) {
             candidates.indexOf(active.backend) + 1,
           );
           if (signal.aborted || fallback.length === 0) throw error;
+          onFallback?.(false);
           await active.session.session.release().catch(() => {});
           active = undefined;
           active = await openBackend(fallback, open);
+          onFallback?.(true);
         }
       }
     },

@@ -778,6 +778,26 @@ function PrintJobs({
   const task = useTask();
   const [saveStatus, setSaveStatus] = useState("");
   const total = query.data?.length ?? 0;
+  const reloadAfterTimeout = (id: string) =>
+    task.run(async () => {
+      const jobs = await api.jobs();
+      const atRisk = jobs.filter(
+        (job) =>
+          job.id !== id &&
+          (job.status === "queued" ||
+            job.status === "running" ||
+            (job.status === "completed" && !job.downloadStarted)),
+      ).length;
+      if (
+        atRisk &&
+        !(await confirmAction(
+          `Reloading will discard ${formatCount(atRisk, "export")}. Reload page?`,
+          "Reload page",
+        ))
+      )
+        return;
+      location.reload();
+    });
   return (
     <>
       <PageToolbar
@@ -987,6 +1007,15 @@ function PrintJobs({
                         <p className="hint">
                           Original print settings unavailable for Retry.
                         </p>
+                      )}
+                      {web && job.initTimedOut && (
+                        <button
+                          type="button"
+                          disabled={task.busy}
+                          onClick={() => void reloadAfterTimeout(job.id)}
+                        >
+                          Reload page
+                        </button>
                       )}
                     </>
                   ) : (

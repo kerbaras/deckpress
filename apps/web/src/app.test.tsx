@@ -1314,6 +1314,61 @@ it.each(["pdf", "png"] as const)(
   },
 );
 
+it("offers both Retry and Reload page for a timed-out web export", async ({
+  onTestFinished,
+}) => {
+  vi.stubEnv("VITE_TARGET", "web");
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
+  });
+  vi.spyOn(api, "jobs").mockResolvedValue([
+    { ...failedExport, initTimedOut: true, failureTarget: undefined },
+  ]);
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  expect(await screen.findByRole("button", { name: "Retry" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Reload page" })).toBeVisible();
+});
+
+it("asks before reloading when other web exports would be lost", async ({
+  onTestFinished,
+}) => {
+  vi.stubEnv("VITE_TARGET", "web");
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
+  });
+  const timedOut: PrintJob = { ...failedExport, initTimedOut: true };
+  const jobs = vi.spyOn(api, "jobs").mockResolvedValue([timedOut]);
+  vi.spyOn(api, "decks").mockResolvedValue([deck]);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  window.history.replaceState(null, "", "#/jobs");
+  renderWithClient(<App />);
+  const reload = await screen.findByRole("button", { name: "Reload page" });
+
+  jobs.mockResolvedValue([
+    timedOut,
+    ...(
+      [
+        { status: "queued" },
+        { status: "running" },
+        { status: "completed" },
+        { status: "completed", downloadStarted: true },
+        { status: "failed" },
+      ] satisfies Partial<PrintJob>[]
+    ).map((job) => ({
+      ...failedExport,
+      ...job,
+      id: crypto.randomUUID(),
+    })),
+  ]);
+  await userEvent.click(reload);
+  expect(confirm).toHaveBeenCalledExactlyOnceWith(
+    "Reloading will discard 3 exports. Reload page?",
+  );
+  expect(jobs).toHaveBeenCalledTimes(2);
+});
+
 it("offers setup but not Retry when a legacy job has no original settings", async () => {
   const legacy = { ...failedExport, settings: undefined, format: undefined };
   mockIPC((cmd) => {

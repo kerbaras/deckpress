@@ -35,6 +35,12 @@ export type PrintResult =
   | { kind: "source-dpi"; readings: (SourceReading | null)[] };
 
 export type PrintResponse =
-  | { kind: "progress"; completed: number; total: number; message: string }
+  | PrintUpdate
   | { kind: "result"; result: PrintResult }
   | { kind: "error"; message: string; target?: PrintFailureTarget };
+
+export type PrintInitStage = "core" | "model";
+
+export type PrintUpdate =
+  | { kind: "init"; stage: PrintInitStage; ready: boolean }
+  | { kind: "progress"; completed: number; total: number; message: string };

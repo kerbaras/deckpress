@@ -10,8 +10,8 @@ import type { Timing } from "../upscale/worker-protocol.ts";
 import { exportPlan } from "./plan.ts";
 import type {
   PrintRequest,
-  PrintResponse,
   PrintResult,
+  PrintUpdate,
   SourceReading,
 } from "./protocol.ts";
 
@@ -41,9 +41,13 @@ function backendName(timing: Timing) {
 export async function print(
   request: PrintRequest,
   base: URL,
-  send: (progress: Extract<PrintResponse, { kind: "progress" }>) => void,
+  send: (update: PrintUpdate) => void,
 ): Promise<PrintResult> {
+  console.debug("[deckpress:print] loading core WASM module and binary", {
+    isolated: globalThis.crossOriginIsolated,
+  });
   const wasm = await loadCoreWasm(base);
+  send({ kind: "init", stage: "core", ready: true });
   const settings = JSON.stringify(request.settings);
   if (request.kind === "cut") {
     if (request.format === "studio3") {
@@ -128,6 +132,8 @@ export async function print(
   let backend = "";
   const progress = (message: string) =>
     send({ kind: "progress", completed, total: sources.size, message });
+  const modelReady = (ready: boolean) =>
+    send({ kind: "init", stage: "model", ready });
   try {
     for (const [key, { art, name, entryId, back }] of sources) {
       const label = back ? `${name} back` : name;
@@ -145,6 +151,8 @@ export async function print(
         if (rgb && model) {
           if (!upscaler) {
             try {
+              modelReady(false);
+              console.debug("[deckpress:print] loading model bytes", model.id);
               const bytes = await loadModel(
                 model,
                 base,
@@ -154,8 +162,10 @@ export async function print(
                     `Downloading ${model.name} · ${Math.floor((done * 100) / total)}%`,
                   ),
               );
+              console.debug("[deckpress:print] model bytes ready", model.id);
               progress(`Loading ${model.name}`);
               upscaler = await openUpscaler(bytes, base);
+              modelReady(true);
             } catch (error) {
               throw new PrintError(error, { kind: "upscaleModel" });
             }
@@ -167,6 +177,7 @@ export async function print(
               progress(
                 `Upscaling ${label} · tile ${done}/${total} · ${backendName(timing)}`,
               ),
+            modelReady,
           );
           backend = backendName(result.timing);
           source = await encodePng(result.image);
