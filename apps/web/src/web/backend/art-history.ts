@@ -1,0 +1,107 @@
+import type { ArtPreview, PrintLanguagePreferences } from "../../api.ts";
+import type { ArtPolicy, Deck } from "../../core/index.ts";
+import type { policyProvider } from "../providers/printings.ts";
+import type { deckStore } from "../store/decks.ts";
+import { planLocalization, planPolicy, validatePolicy } from "./art-plan.ts";
+
+export function artHistory(
+  decks: Pick<ReturnType<typeof deckStore>, "get" | "save">,
+  provider: ReturnType<typeof policyProvider>,
+  preferences: () => Promise<PrintLanguagePreferences>,
+) {
+  const pending = new Map<string, { id: string; next: Deck | null }>();
+  const undo = new Map<string, { appliedRevision: number; before: Deck }>();
+  let tail = Promise.resolve();
+
+  function serialize<T>(run: () => Promise<T>) {
+    const task = tail.then(run);
+    tail = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
+  }
+
+  async function atRevision(id: string, revision: number) {
+    const deck = await decks.get(id);
+    if (deck.revision !== revision)
+      throw new Error(
+        "The deck changed. Reload it before previewing or applying art.",
+      );
+    return deck;
+  }
+
+  async function preview(
+    id: string,
+    revision: number,
+    plan: (
+      deck: Deck,
+      preferences: PrintLanguagePreferences,
+    ) => Promise<{ changes: ArtPreview["changes"]; next: Deck | null }>,
+  ): Promise<ArtPreview> {
+    const { before, previewId } = await serialize(async () => {
+      const before = await atRevision(id, revision);
+      const previewId = crypto.randomUUID();
+      pending.set(id, { id: previewId, next: null });
+      return { before, previewId };
+    });
+    const { changes, next } = await plan(before, await preferences());
+    return serialize(async () => {
+      await atRevision(id, revision);
+      if (pending.get(id)?.id !== previewId)
+        throw new Error("This art preview was superseded.");
+      pending.set(id, { id: previewId, next });
+      return { previewId, canApply: next !== null, changes };
+    });
+  }
+
+  return {
+    previewPolicy(id: string, revision: number, policy: ArtPolicy) {
+      validatePolicy(policy);
+      return preview(id, revision, (deck, prefs) =>
+        planPolicy(provider, deck, policy, prefs),
+      );
+    },
+    previewLocalization(
+      id: string,
+      revision: number,
+      entryId: string,
+      artId: string,
+    ) {
+      return preview(id, revision, (deck, prefs) =>
+        planLocalization(provider, deck, entryId, artId, prefs),
+      );
+    },
+    apply(id: string, revision: number, previewId: string) {
+      return serialize(async () => {
+        const before = await atRevision(id, revision);
+        const preview = pending.get(id);
+        if (preview?.id !== previewId || preview.next?.revision !== revision) {
+          throw new Error(
+            "This art preview expired. Preview the changes again.",
+          );
+        }
+        const deck = await decks.save(preview.next);
+        pending.delete(id);
+        undo.set(id, { appliedRevision: deck.revision, before });
+        return deck;
+      });
+    },
+    undo(id: string, revision: number) {
+      return serialize(async () => {
+        await atRevision(id, revision);
+        const previous = undo.get(id);
+        if (!previous) throw new Error("There is no art change to undo.");
+        if (previous.appliedRevision !== revision) {
+          throw new Error(
+            "The deck changed since applying art. Undo would overwrite those changes.",
+          );
+        }
+        const deck = await decks.save({ ...previous.before, revision });
+        undo.delete(id);
+        pending.delete(id);
+        return deck;
+      });
+    },
+  };
+}

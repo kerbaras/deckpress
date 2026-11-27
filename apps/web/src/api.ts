@@ -1,5 +1,4 @@
-import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { ask, save } from "@tauri-apps/plugin-dialog";
+import type { SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 import { z } from "zod";
 import {
   type Art,
@@ -28,17 +27,32 @@ import {
   parseDecklist,
   printerProfileSchema,
 } from "./core/index.ts";
+import { getBackend } from "./web/backend/index.ts";
+import type {
+  CommandName,
+  PreviewSettings,
+  UploadMetadata,
+} from "./web/backend/types.ts";
+import { NotAvailableOnWebError, webBackend } from "./web/backend/web.ts";
 
-/** Calls a Rust command over Tauri IPC and validates the response shape. */
-export async function command<T>(
-  name: string,
+/** Calls a backend command and validates the response shape. */
+export function command<T>(
+  name: CommandName,
   schema: z.ZodType<T>,
   args?: Record<string, unknown>,
 ): Promise<T> {
+  return parseResponse(getBackend().call(name, args), schema);
+}
+
+async function parseResponse<T>(
+  response: Promise<unknown>,
+  schema: z.ZodType<T>,
+): Promise<T> {
   let data: unknown;
   try {
-    data = await invoke(name, args);
+    data = await response;
   } catch (error) {
+    if (error instanceof NotAvailableOnWebError) throw error;
     throw new Error(
       typeof error === "string"
         ? error
@@ -451,7 +465,7 @@ export const api = {
   deleteDeck: (id: string) => command("delete_deck", nothing, { id }),
   relatedTokens: (cardIds: string[]) =>
     command("related_tokens", z.array(entrySchema), { cardIds }),
-  /** Decklist parsing stays in the browser; provider resolution runs in Rust. */
+  /** Decklist parsing stays in the UI; the backend resolves the cards. */
   import: async (
     value: { text: string } | { url: string },
   ): Promise<ImportResult> => {
@@ -505,9 +519,10 @@ export const api = {
     position?: CropPosition,
   ) => {
     const requestId = crypto.randomUUID();
+    const backend = getBackend();
     const cancel = () =>
-      invoke<void>("cancel_upscale_comparison", { requestId });
-    await invoke<void>("begin_upscale_comparison", { requestId });
+      backend.call("cancel_upscale_comparison", { requestId });
+    await backend.call("begin_upscale_comparison", { requestId });
     if (signal.aborted) {
       await cancel();
       return [];
@@ -579,12 +594,10 @@ export const api = {
     request: StyleRequest,
     onProgress?: (progress: StyleProgress) => void,
   ) => {
-    const progress = new Channel<StyleProgress>();
-    progress.onmessage = (message) => onProgress?.(message);
-    return command("match_art_style", styleReportSchema, {
-      request,
-      progress,
-    });
+    return parseResponse(
+      getBackend().matchArtStyle(request, onProgress),
+      styleReportSchema,
+    );
   },
   uploads: (oracleId: string, _signal?: AbortSignal) =>
     command("list_uploads", z.array(artSchema), { oracleId }),
@@ -592,23 +605,15 @@ export const api = {
     command("upload_bleed", z.number().nullable(), { imageUrl }),
   updateUploadBleed: (imageUrl: string, bleedMm: number | null) =>
     command("update_upload_bleed", artSchema, { imageUrl, bleedMm }),
-  /** Image bytes travel as the raw IPC body; metadata rides in a header. */
-  upload: async (
-    file: File,
-    meta: { oracleId: string; name: string; artist: string; bleedMm?: number },
-  ) => {
+  upload: async (file: File, meta: UploadMetadata) => {
     let data: unknown;
     try {
-      data = await invoke(
-        "upload_art",
+      data = await getBackend().uploadArt(
         new Uint8Array(await file.arrayBuffer()),
-        {
-          headers: {
-            "x-deckpress-upload": encodeURIComponent(JSON.stringify(meta)),
-          },
-        },
+        meta,
       );
     } catch (error) {
+      if (error instanceof NotAvailableOnWebError) throw error;
       throw new Error(typeof error === "string" ? error : "Upload failed");
     }
     return artSchema.parse(data);
@@ -631,7 +636,7 @@ export const api = {
   deletePrinterProfile: (id: string) =>
     command("delete_printer_profile", nothing, { id }),
   exportDuplexCalibration: async (settings: PrintSettings) => {
-    const destination = await save({
+    const destination = await saveFileDialog({
       title: "Save duplex calibration sheet",
       defaultPath: "deckpress-duplex-calibration.pdf",
       filters: [{ name: "PDF", extensions: ["pdf"] }],
@@ -670,42 +675,45 @@ export const api = {
 export const fetchHealth = (_signal?: AbortSignal) =>
   command("health", healthResponseSchema);
 
-const IMAGE_SCHEME = "dpimg";
-/** `<img src>` for any art URL, served by the Rust image cache. */
 export function imageSrc(url: string): string {
-  return convertFileSrc(`image/${url}`, IMAGE_SCHEME);
+  return getBackend().imageSrc(url);
 }
-export function uploadTrimSrc({ imageUrl, bleedMm }: Art, thumbnail = false) {
-  return convertFileSrc(
-    `upload-trim/${JSON.stringify({ imageUrl, bleedMm, ...(thumbnail && { thumbnail }) })}`,
-    IMAGE_SCHEME,
-  );
+export function uploadTrimSrc(art: Art, thumbnail = false) {
+  return getBackend().uploadTrimSrc(art, thumbnail);
 }
 export function comparisonThumbnailSrc(art: Art, settings: PrintSettings) {
-  return convertFileSrc(
-    `comparison-thumbnail/${JSON.stringify({ art, settings })}`,
-    IMAGE_SCHEME,
-  );
+  return getBackend().comparisonThumbnailSrc(art, settings);
 }
 /** 150 DPI print-pipeline preview of one face, no AI. */
-export function previewSrc(
-  art: unknown,
-  settings: Pick<
-    PrintSettings,
-    "cardWidthMm" | "cardHeightMm" | "bleedMm" | "bleedMode" | "bleedColor"
-  >,
-): string {
-  return convertFileSrc(
-    `preview/${JSON.stringify({ art, settings })}`,
-    IMAGE_SCHEME,
-  );
+export function previewSrc(art: unknown, settings: PreviewSettings): string {
+  return getBackend().previewSrc(art, settings);
+}
+
+export function saveFileDialog(options: SaveDialogOptions) {
+  return getBackend().save(options);
+}
+
+export const isWebPreview = () => getBackend() === webBackend;
+
+export function printPreviewUnavailable(): Error | null {
+  return isWebPreview()
+    ? new NotAvailableOnWebError(
+        "Rendered print previews are not available on the web.",
+      )
+    : null;
+}
+
+export function upscalingUnavailable(): Error | null {
+  return isWebPreview()
+    ? new NotAvailableOnWebError("AI upscaling is not available on the web.")
+    : null;
 }
 /** Native yes/no dialog for destructive actions; resolves false when declined. */
 export function confirmAction(
   message: string,
   okLabel: string,
 ): Promise<boolean> {
-  return ask(message, {
+  return getBackend().ask(message, {
     title: "Deckpress",
     kind: "warning",
     okLabel,
@@ -719,7 +727,7 @@ const exportFileName = (deck: Deck, suffix: string) =>
 
 /** Deck backup through the native save dialog; resolves false when cancelled. */
 export async function downloadJson(deck: Deck): Promise<boolean> {
-  const destination = await save({
+  const destination = await saveFileDialog({
     title: "Back up deck",
     defaultPath: await exportFileName(deck, ".deckpress.json"),
     filters: [{ name: "Deckpress backup", extensions: ["json"] }],
@@ -733,7 +741,7 @@ export async function downloadJson(deck: Deck): Promise<boolean> {
 }
 
 export async function downloadCutTemplate(deck: Deck): Promise<string | null> {
-  const destination = await save({
+  const destination = await saveFileDialog({
     title: "Save cut template",
     defaultPath: await exportFileName(deck, "-cut-template.svg"),
     filters: [{ name: "SVG cut template", extensions: ["svg"] }],
@@ -748,7 +756,7 @@ export async function downloadCutTemplate(deck: Deck): Promise<string | null> {
 
 export async function downloadMpcXml(deck: Deck): Promise<boolean> {
   const contents = await exportMpcXml(deck.entries, lookupMpcArtwork);
-  const destination = await save({
+  const destination = await saveFileDialog({
     title: "Export MPC Autofill XML",
     defaultPath: await exportFileName(deck, ".xml"),
     filters: [{ name: mpcXmlFormat, extensions: ["xml"] }],
