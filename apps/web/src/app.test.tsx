@@ -39,7 +39,7 @@ import {
   targetsFor,
 } from "./style-match.tsx";
 import { UpscaleComparison } from "./upscale-comparison.tsx";
-import * as printJobs from "./web/print/jobs.ts";
+import * as sourceDpi from "./web/source-dpi.ts";
 
 const id = "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240";
 const original = artSchema.parse({
@@ -2489,19 +2489,9 @@ it("shows measured web source DPI alongside the native scan quality badge", asyn
   });
   const low = { ...alternate, scanQuality: "lowres" as const };
   mockPickerArt([original, low]);
-  const worker = vi
-    .spyOn(printJobs, "runPrintWorker")
-    .mockImplementation(async (request) => {
-      if (request.kind !== "source-dpi") throw new Error("Expected source DPI");
-      return {
-        kind: "source-dpi",
-        readings: request.arts.map((art) =>
-          art.id === low.id
-            ? { effectiveDpi: 254.8, belowUpscaleThreshold: true }
-            : null,
-        ),
-      };
-    });
+  const readDpi = vi
+    .spyOn(sourceDpi, "readPickerDpi")
+    .mockImplementation(async (art) => (art.id === low.id ? 254.8 : undefined));
   const desktop = vi.spyOn(api, "pickerDpi");
   renderWithClient(
     <ArtPicker
@@ -2512,6 +2502,9 @@ it("shows measured web source DPI alongside the native scan quality badge", asyn
     />,
   );
   const tile = await screen.findByRole("button", previewButton);
+  expect(readDpi).toHaveBeenCalledTimes(1);
+  expect(readDpi).toHaveBeenCalledWith(original, pickerDeck.printSettings);
+  await userEvent.click(tile);
   expect(await within(tile).findByText("254 effective DPI")).toBeVisible();
   expect(within(tile).getByText("Low-res scan")).toBeVisible();
   expect(tile).toHaveAccessibleDescription("Low-res scan · 254 effective DPI");
@@ -2521,11 +2514,7 @@ it("shows measured web source DPI alongside the native scan quality badge", asyn
   expect(
     within(originalTile).getByText("Source DPI unavailable"),
   ).toBeVisible();
-  expect(worker).toHaveBeenLastCalledWith({
-    kind: "source-dpi",
-    arts: [original, low],
-    settings: pickerDeck.printSettings,
-  });
+  expect(readDpi).toHaveBeenLastCalledWith(low, pickerDeck.printSettings);
   expect(desktop).not.toHaveBeenCalled();
 });
 

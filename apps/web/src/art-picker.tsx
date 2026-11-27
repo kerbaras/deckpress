@@ -47,6 +47,7 @@ import {
   useTask,
 } from "./ui.tsx";
 import { type UseSet, UseSetAction } from "./use-set-action.tsx";
+import { usePickerDpi } from "./web/use-picker-dpi.ts";
 
 const preferHighResKey = "deckpress.prefer-high-res";
 
@@ -155,7 +156,7 @@ export function filterArt(
     language?: string;
   },
   data: Preferences,
-  resolution: (art: Art) => number = (art) => art.dpi,
+  resolution: (art: Art) => number | undefined = (art) => art.dpi,
 ): Art[] {
   const unique = [...new Map(items.map((art) => [art.id, art])).values()];
   const text = options.search.toLowerCase().trim();
@@ -172,7 +173,7 @@ export function filterArt(
           art.source === options.artist) &&
         (!options.tag || tags.includes(normalizeTag(options.tag))) &&
         (!options.language || art.language === options.language) &&
-        resolution(art) >= options.dpi &&
+        (resolution(art) ?? Number.POSITIVE_INFINITY) >= options.dpi &&
         (!options.favorites || preference?.favorite) &&
         `${art.name} ${art.source} ${art.artist} ${art.set} ${art.collectorNumber} ${art.language} ${tags.join(" ")}`
           .toLowerCase()
@@ -191,7 +192,8 @@ export function filterArt(
           (data.usage[b.id] ?? 0) - (data.usage[a.id] ?? 0) ||
           b.releasedAt.localeCompare(a.releasedAt)
         );
-      if (options.sort === "dpi") return resolution(b) - resolution(a);
+      if (options.sort === "dpi")
+        return (resolution(b) ?? -1) - (resolution(a) ?? -1);
       if (options.sort === "artist") return a.artist.localeCompare(b.artist);
       return options.sort === "oldest"
         ? (a.releasedAt || "9999").localeCompare(b.releasedAt || "9999")
@@ -353,17 +355,10 @@ function ArtSession({
       printSettings.bleedMm,
       printSettings.dpi,
       measuredItems.map((art) => [art.imageUrl, art.provider, art.bleedMm]),
-      web ? "web" : loadedSources,
+      loadedSources,
     ],
-    queryFn: async () => {
-      if (!web) return api.pickerDpi(measuredItems, printSettings);
-      const readings = await api.sourceDpi(measuredItems, printSettings);
-      return readings.map(
-        (reading) =>
-          reading && { effectiveDpi: reading.effectiveDpi, estimated: false },
-      );
-    },
-    enabled: measuredItems.length > 0,
+    queryFn: () => api.pickerDpi(measuredItems, printSettings),
+    enabled: !web && measuredItems.length > 0,
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -373,8 +368,15 @@ function ArtSession({
       sourceSizes.data?.[index],
     ]),
   );
+  const webDpi = usePickerDpi(web, candidate, items, printSettings);
   const sourceLabel = (art: Art) => {
     if (art.provider === "mpc") return `${art.dpi} DPI (provider)`;
+    if (web) {
+      const dpi = webDpi.dpi(art);
+      return dpi === undefined
+        ? "Source DPI unavailable"
+        : `${Math.floor(dpi)} effective DPI`;
+    }
     const reading = sourceSizeByUrl.get(art.imageUrl);
     if (!reading) return "Source DPI unavailable";
     const value = Math.floor(reading.effectiveDpi);
@@ -395,7 +397,9 @@ function ArtSession({
     (art) =>
       art.provider === "mpc"
         ? art.dpi
-        : (sourceSizeByUrl.get(art.imageUrl)?.effectiveDpi ?? 0),
+        : web
+          ? webDpi.dpi(art)
+          : (sourceSizeByUrl.get(art.imageUrl)?.effectiveDpi ?? 0),
   );
   const artists = [
     ...new Set(
@@ -1062,6 +1066,12 @@ function ArtSession({
                   type="button"
                   className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
                   key={art.id}
+                  ref={
+                    web && art.provider !== "mpc"
+                      ? webDpi.observeTile
+                      : undefined
+                  }
+                  data-source-art={web ? art.id : undefined}
                   aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}${states.length ? ` — ${states.join(", ")}` : ""}`}
                   aria-description={[scanLabel(art), dpiLabel]
                     .filter(Boolean)
