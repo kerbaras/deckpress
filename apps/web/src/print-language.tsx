@@ -187,13 +187,14 @@ export function isEnglishFallback(entry: DeckEntry, art = frontArt(entry)) {
       !requested.includes("en") &&
       art.language === "en" &&
       (art.englishFallback ||
-        [entry.card.faces, entry.policyArt ?? []].some((faces) =>
-          faces.some(
-            (face) =>
-              face.id === art.id ||
-              (face.backImageUrl && `${face.id}:back` === art.id),
-          ),
-        )),
+        (!entry.languageAnchor &&
+          [entry.card.faces, entry.policyArt ?? []].some((faces) =>
+            faces.some(
+              (face) =>
+                face.id === art.id ||
+                (face.backImageUrl && `${face.id}:back` === art.id),
+            ),
+          ))),
   );
 }
 

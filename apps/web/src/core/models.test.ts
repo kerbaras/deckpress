@@ -126,6 +126,45 @@ it("does not inherit non-preferred art when a localized print is imported", () =
   ).toEqual([{ ...old, requestedLanguages: ["es"] }, incoming]);
 });
 
+it("preserves the original printing and language choices on replace for the same card", () => {
+  const previous = entrySchema.parse({
+    ...entry,
+    selectedArt: null,
+    languageAnchor: `scryfall:${id}:0`,
+    languageChoices: { es: "35a60469-b610-4139-98b1-ed2d5fd2cb65" },
+  });
+  const incoming = {
+    ...entry,
+    id: "0326aebd-6115-4bc6-82c4-80281c957244",
+    selectedArt: null,
+    requestedLanguages: ["es"],
+  };
+  const expected = {
+    id: previous.id,
+    languageAnchor: previous.languageAnchor,
+    languageChoices: previous.languageChoices,
+  };
+  expect(mergeImport([previous], [incoming], true)[0]).toMatchObject(expected);
+
+  const localized = {
+    ...incoming,
+    card: {
+      ...incoming.card,
+      id: incoming.id,
+      faces: [{ ...art, language: "es" }],
+    },
+    quantity: 3,
+  };
+  const [matched, added] = mergeImport([previous], [localized], true);
+  expect(matched).toMatchObject({ ...expected, quantity: 2 });
+  expect(added).toEqual({ ...localized, quantity: 1 });
+  const other = {
+    ...localized,
+    card: { ...localized.card, oracleId: localized.id },
+  };
+  expect(mergeImport([previous], [other], true)).toEqual([other]);
+});
+
 it("prints companions by default like the commander and keeps them through the deck schema", () => {
   const companion = { ...entry, zone: "companion" } satisfies DeckEntry;
   const deck = { entries: [companion] } as unknown as Deck;

@@ -41,8 +41,13 @@ import {
   type PrintJob,
   zones,
 } from "./core/index.ts";
+import { DeckLanguageControl, DeckLanguagePreview } from "./deck-language.tsx";
 import { ImportPanel } from "./import-panel.tsx";
-import { DeckLanguageSummary, entryLanguageLabel } from "./print-language.tsx";
+import {
+  DeckLanguageSummary,
+  entryLanguageLabel,
+  languageList,
+} from "./print-language.tsx";
 import { PrintSetup } from "./print-setup.tsx";
 import { PageToolbar } from "./titlebar.tsx";
 import { TokenSuggestions } from "./token-suggestions.tsx";
@@ -208,9 +213,11 @@ function DeckWorkspace({
   const [artPreview, setArtPreview] = useState<{
     result?: ArtPreview;
     error?: unknown;
+    language?: string | undefined;
   } | null>(null);
   const [preserveStudioPreview, setPreserveStudioPreview] = useState(false);
   const [canUndoArt, setCanUndoArt] = useState(false);
+  const [undoLanguage, setUndoLanguage] = useState(false);
   const [artStatus, setArtStatus] = useState("");
   const [mpcExportStatus, setMpcExportStatus] = useState("");
   const task = useTask();
@@ -219,9 +226,7 @@ function DeckWorkspace({
   const saveButton = useRef<HTMLButtonElement>(null);
   const previewButton = useRef<HTMLButtonElement>(null);
   const previewRequest = useRef<symbol | null>(null);
-  const restorePreviewFocus = useRef<(() => HTMLButtonElement | null) | null>(
-    null,
-  );
+  const restorePreviewFocus = useRef<(() => HTMLElement | null) | null>(null);
   const exportMpc = async () => {
     const exported = await task.run(() => {
       setMpcExportStatus("Preparing MPC Autofill XML…");
@@ -306,7 +311,8 @@ function DeckWorkspace({
   }, [registerPolicyPreview]);
   const previewArt = async (
     request: () => Promise<ArtPreview>,
-    opener: () => HTMLButtonElement | null,
+    opener: () => HTMLElement | null,
+    language?: string,
   ) => {
     if (dirty || saving.current || previewRequest.current) return;
     const id = Symbol();
@@ -317,12 +323,12 @@ function DeckWorkspace({
     });
     restorePreviewFocus.current = opener;
     setArtStatus("");
-    setArtPreview({});
+    setArtPreview({ language });
     try {
       const result = await request();
-      if (previewRequest.current === id) setArtPreview({ result });
+      if (previewRequest.current === id) setArtPreview({ result, language });
     } catch (error) {
-      if (previewRequest.current === id) setArtPreview({ error });
+      if (previewRequest.current === id) setArtPreview({ error, language });
     }
   };
   const previewPolicy = (policy: ArtPolicy, opener?: HTMLButtonElement) =>
@@ -330,6 +336,37 @@ function DeckWorkspace({
       () => api.previewArtPolicy(deck.id, deck.revision, policy),
       () => opener ?? previewButton.current,
     );
+  const previewLanguage = (language: string, opener: HTMLSelectElement) =>
+    void previewArt(
+      () => api.previewDeckLanguage(deck.id, deck.revision, language),
+      () => opener,
+      language,
+    );
+  const overrideLanguage = async (entryId: string, artId: string) => {
+    const result = artPreview?.result;
+    if (!result) return;
+    const change = await api.overrideLanguagePrint(
+      deck.id,
+      deck.revision,
+      result.previewId,
+      entryId,
+      artId,
+    );
+    setArtPreview((current) =>
+      current?.result?.previewId === result.previewId
+        ? {
+            ...current,
+            result: {
+              ...result,
+              canApply: true,
+              changes: result.changes.map((item) =>
+                item.entryId === entryId ? change : item,
+              ),
+            },
+          }
+        : current,
+    );
+  };
   const previewLocalization = (
     entryId: string,
     artId: string,
@@ -343,19 +380,25 @@ function DeckWorkspace({
     void artTask.run(async () => {
       const result = artPreview?.result;
       if (!result || dirty) return;
-      setArtPreview({ result });
+      const language = artPreview.language;
+      setArtPreview({ result, language });
       try {
         await writeDeck(
           () => api.applyArtPreview(deck.id, deck.revision, result.previewId),
           { preservePreview: metadata },
         );
       } catch (error) {
-        setArtPreview({ result, error });
+        setArtPreview({ result, error, language });
         return;
       }
       setCanUndoArt(true);
+      setUndoLanguage(!!language);
       keepArt();
-      setArtStatus("Art changes applied.");
+      setArtStatus(
+        language
+          ? `Deck language set to ${languageList([language])}.`
+          : "Art changes applied.",
+      );
     });
   const undoArt = () =>
     void artTask.run(async () => {
@@ -365,7 +408,10 @@ function DeckWorkspace({
         preservePreview: true,
       });
       setCanUndoArt(false);
-      setArtStatus("Art changes undone.");
+      setArtStatus(
+        undoLanguage ? "Language change undone." : "Art changes undone.",
+      );
+      setUndoLanguage(false);
     });
   const saveChanges = () =>
     void task.run(async () => {
@@ -502,6 +548,15 @@ function DeckWorkspace({
           <SlidersHorizontal size={16} />
         </button>
       </PageToolbar>
+      {view !== "art" && (
+        <DeckLanguageControl
+          language={deck.printLanguage}
+          disabled={dirty || isSaving || task.busy || artTask.busy}
+          web={isWebPreview()}
+          onSelect={previewLanguage}
+          onUndo={canUndoArt && undoLanguage ? undoArt : undefined}
+        />
+      )}
       {restoreMessage && (
         <p className="notice success" aria-hidden="true">
           {restoreMessage}
@@ -517,6 +572,8 @@ function DeckWorkspace({
       {view === "edit" && (
         <div className="editor-layout">
           <ImportPanel
+            key={deck.printLanguage ?? "default"}
+            deckId={deck.printLanguage ? deck.id : undefined}
             existing={countCards(deck.entries)}
             onApply={async (result, replace) => {
               const { entries, missingPrints = [] } =
@@ -669,14 +726,27 @@ function DeckWorkspace({
           </form>
         </Modal>
       )}
-      {artPreview && (
-        <ArtPreviewDialog
+      {artPreview?.language ? (
+        <DeckLanguagePreview
+          deck={deck}
+          language={artPreview.language}
           preview={artPreview.result}
           busy={artTask.busy}
           error={artPreview.error}
           onKeep={keepArt}
           onApply={applyArt}
+          onOverride={overrideLanguage}
         />
+      ) : (
+        artPreview && (
+          <ArtPreviewDialog
+            preview={artPreview.result}
+            busy={artTask.busy}
+            error={artPreview.error}
+            onKeep={keepArt}
+            onApply={applyArt}
+          />
+        )
       )}
     </fieldset>
   );
@@ -760,6 +830,11 @@ function DeckCards({
     <section className="deck-cards">
       <TokenSuggestions
         entries={deck.entries}
+        languageDeck={
+          deck.printLanguage
+            ? { id: deck.id, revision: deck.revision }
+            : undefined
+        }
         onAdd={(entry) => {
           const next = deckSchema.safeParse({
             ...deck,

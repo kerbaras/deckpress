@@ -32,6 +32,7 @@ import {
   languageCode,
   printLanguages,
 } from "./print-language.tsx";
+import { useScryfallPrints } from "./scryfall-editions.ts";
 import { StyleMatch } from "./style-match.tsx";
 import {
   ArtThumbnail,
@@ -297,25 +298,12 @@ function ArtSession({
     queryFn: ({ signal }) => api.preferences(signal),
   });
   const personal = prefs.data ?? { preferences: {}, usage: {} };
-  const prints = useInfiniteQuery({
-    queryKey: ["art", "scryfall", entry.card.oracleId, face, language],
-    queryFn: ({ pageParam, signal }) =>
-      api.art(
-        "scryfall",
-        entry.card.oracleId,
-        entry.card.name,
-        face,
-        pageParam,
-        signal,
-        language || undefined,
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (page) => (page.hasMore ? page.page + 1 : undefined),
-    enabled:
-      !!original && (official || provider === "all" || provider === "scryfall"),
-    staleTime: 86_400_000,
-    retry: false,
-  });
+  const prints = useScryfallPrints(
+    entry.card,
+    face,
+    language,
+    !!original && (official || provider === "all" || provider === "scryfall"),
+  );
   const community = useInfiniteQuery({
     queryKey: ["art", "mpc", entry.card.oracleId, face],
     queryFn: ({ pageParam, signal }) =>

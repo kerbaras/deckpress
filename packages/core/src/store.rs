@@ -308,6 +308,7 @@ impl Store {
             cover_entry_id: input.cover_entry_id,
             print_settings: input.print_settings,
             art_policy: input.art_policy,
+            print_language: input.print_language,
             revision: 0,
             created_at: now.clone(),
             updated_at: now,
