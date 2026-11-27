@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tauri::ipc::Channel;
 use tauri::State;
 
-use deckpress_core::art_policy::{ArtPolicy, ArtPreview};
+use deckpress_core::art_policy::{ArtChange, ArtPolicy, ArtPreview};
 use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, ExternalDeck};
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::{RestoreResult, UploadInput};
@@ -215,6 +215,34 @@ pub async fn preview_art_localization(
 }
 
 #[tauri::command]
+pub async fn preview_deck_language(
+    state: State<'_, AppState>,
+    deck_id: String,
+    expected_revision: u64,
+    language: String,
+) -> AppResult<ArtPreview> {
+    state
+        .art_policy
+        .preview_language(&deck_id, expected_revision, language)
+        .await
+}
+
+#[tauri::command]
+pub async fn override_language_print(
+    state: State<'_, AppState>,
+    deck_id: String,
+    expected_revision: u64,
+    preview_id: String,
+    entry_id: String,
+    art_id: String,
+) -> AppResult<ArtChange> {
+    state
+        .art_policy
+        .override_language_print(&deck_id, expected_revision, &preview_id, &entry_id, &art_id)
+        .await
+}
+
+#[tauri::command]
 pub fn apply_art_preview(
     state: State<'_, AppState>,
     deck_id: String,
@@ -249,19 +277,37 @@ pub async fn import_url(state: State<'_, AppState>, url: String) -> AppResult<St
 pub async fn resolve_cards(
     state: State<'_, AppState>,
     lines: Vec<ImportLine>,
+    deck_id: Option<String>,
 ) -> AppResult<ResolvedCards> {
     if lines.len() > 1000 {
         return Err(AppError::user("Decklists are limited to 1000 lines"));
     }
-    state.providers.resolve_import(lines).await
+    match deck_id {
+        Some(id) => {
+            state
+                .providers
+                .resolve_deck_import(&state.store.deck(&id)?, lines)
+                .await
+        }
+        None => state.providers.resolve_import(lines).await,
+    }
 }
 
 #[tauri::command]
 pub async fn related_tokens(
     state: State<'_, AppState>,
     card_ids: Vec<String>,
+    deck_id: Option<String>,
 ) -> AppResult<Vec<DeckEntry>> {
-    state.providers.related_tokens(card_ids).await
+    match deck_id {
+        Some(id) => {
+            state
+                .providers
+                .related_deck_tokens(&state.store.deck(&id)?, card_ids)
+                .await
+        }
+        None => state.providers.related_tokens(card_ids).await,
+    }
 }
 
 #[tauri::command]

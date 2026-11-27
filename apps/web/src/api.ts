@@ -83,22 +83,37 @@ const modelStatusSchema = z.object({
   installed: z.boolean(),
   downloading: z.boolean(),
 });
+const languageTierSchema = z.enum([
+  "samePrinting",
+  "sameSet",
+  "sameArt",
+  "closest",
+  "keptEnglish",
+  "keptCurrent",
+  "pinned",
+  "override",
+]);
+const artChangeSchema = z.object({
+  entryId: z.uuid(),
+  name: z.string(),
+  quantity: z.number(),
+  before: artSchema,
+  after: artSchema.nullable(),
+  kind: z.enum(["changed", "unchanged", "pinned", "unmatched", "fallback"]),
+  reason: z.string(),
+  tier: languageTierSchema.optional(),
+  beforeBack: artSchema.optional(),
+  afterBack: artSchema.optional(),
+});
 const artPreviewSchema = z.object({
   previewId: z.uuid(),
   canApply: z.boolean(),
-  changes: z.array(
-    z.object({
-      entryId: z.uuid(),
-      name: z.string(),
-      quantity: z.number(),
-      before: artSchema,
-      after: artSchema.nullable(),
-      kind: z.enum(["changed", "unchanged", "pinned", "unmatched", "fallback"]),
-      reason: z.string(),
-    }),
-  ),
+  changes: z.array(artChangeSchema),
+  language: z.string().optional(),
 });
 export type ArtPreview = z.infer<typeof artPreviewSchema>;
+export type ArtChange = z.infer<typeof artChangeSchema>;
+export type LanguageTier = z.infer<typeof languageTierSchema>;
 export type ModelStatus = z.infer<typeof modelStatusSchema>;
 const cropPreviewSchema = z
   .object({
@@ -450,6 +465,30 @@ export const api = {
       entryId,
       artId,
     }),
+  previewDeckLanguage: (
+    deckId: string,
+    expectedRevision: number,
+    language: string,
+  ) =>
+    command("preview_deck_language", artPreviewSchema, {
+      deckId,
+      expectedRevision,
+      language,
+    }),
+  overrideLanguagePrint: (
+    deckId: string,
+    expectedRevision: number,
+    previewId: string,
+    entryId: string,
+    artId: string,
+  ) =>
+    command("override_language_print", artChangeSchema, {
+      deckId,
+      expectedRevision,
+      previewId,
+      entryId,
+      artId,
+    }),
   applyArtPreview: (
     deckId: string,
     expectedRevision: number,
@@ -463,11 +502,14 @@ export const api = {
   undoArtChange: (deckId: string, expectedRevision: number) =>
     command("undo_art_change", deckSchema, { deckId, expectedRevision }),
   deleteDeck: (id: string) => command("delete_deck", nothing, { id }),
-  relatedTokens: (cardIds: string[]) =>
-    command("related_tokens", z.array(entrySchema), { cardIds }),
+  relatedTokens: (cardIds: string[], deckId?: string) =>
+    command("related_tokens", z.array(entrySchema), {
+      cardIds,
+      ...(deckId && { deckId }),
+    }),
   /** Decklist parsing stays in the UI; the backend resolves the cards. */
   import: async (
-    value: { text: string } | { url: string },
+    value: ({ text: string } | { url: string }) & { deckId?: string },
   ): Promise<ImportResult> => {
     const text =
       "url" in value
@@ -488,6 +530,7 @@ export const api = {
     const parsed = parseDecklist(text);
     const resolved = await command("resolve_cards", resolvedSchema, {
       lines: parsed.entries,
+      ...(value.deckId && { deckId: value.deckId }),
     });
     // `resolve_cards` numbers issues by position in `lines`; map them back to
     // the line the user typed.

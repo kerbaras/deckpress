@@ -109,6 +109,9 @@ pub struct DeckEntry {
     pub art_pinned: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy_art: Option<Vec<Art>>,
+    /// The original printing before a deck-wide language change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language_anchor: Option<String>,
     #[serde(default)]
     pub excluded: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -120,7 +123,7 @@ impl DeckEntry {
         self.art_pinned || self.selected_art.is_some() || self.selected_back.is_some()
     }
 
-    fn effective_faces(&self) -> &[Art] {
+    pub(crate) fn effective_faces(&self) -> &[Art] {
         self.policy_art
             .as_deref()
             .filter(|_| !self.is_art_pinned())
@@ -380,6 +383,8 @@ pub struct Deck {
     pub print_settings: PrintSettings,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub art_policy: Option<crate::art_policy::ArtPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub print_language: Option<String>,
     pub revision: u64,
     pub created_at: String,
     pub updated_at: String,
@@ -416,6 +421,8 @@ pub struct NewDeck {
     pub print_settings: PrintSettings,
     #[serde(default)]
     pub art_policy: Option<crate::art_policy::ArtPolicy>,
+    #[serde(default)]
+    pub print_language: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

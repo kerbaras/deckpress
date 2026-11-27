@@ -57,6 +57,7 @@ pub fn entry(face: Art, quantity: u32) -> DeckEntry {
         selected_back: None,
         art_pinned: false,
         policy_art: None,
+        language_anchor: None,
         excluded: false,
         requested_languages: Vec::new(),
     }
@@ -73,6 +74,7 @@ pub fn deck(quantity: u32) -> Deck {
         cover_entry_id: String::new(),
         print_settings: PrintSettings::default(),
         art_policy: None,
+        print_language: None,
         revision: 0,
         created_at: String::new(),
         updated_at: String::new(),
@@ -89,6 +91,7 @@ pub fn new_deck(name: &str) -> NewDeck {
         cover_entry_id: String::new(),
         print_settings: PrintSettings::default(),
         art_policy: None,
+        print_language: None,
     }
 }
 

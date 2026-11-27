@@ -248,6 +248,7 @@ async fn atraxa_counters_midrange_resembles_popular_atraxa_lists() {
         selected_back: None,
         art_pinned: false,
         policy_art: None,
+        language_anchor: None,
         excluded: false,
         requested_languages: Vec::new(),
     }];

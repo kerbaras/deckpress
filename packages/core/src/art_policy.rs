@@ -7,11 +7,15 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use crate::models::Art;
+
 #[cfg(feature = "native")]
 use crate::{
     error::{AppError, AppResult},
-    models::{new_id, Art, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences},
-    providers::Providers,
+    language_deck,
+    language_switch::LanguageTier,
+    models::{new_id, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences},
+    providers::{validate_language, Providers},
     store::Store,
 };
 
@@ -44,9 +48,8 @@ pub enum Frame {
     Future,
 }
 
-#[cfg(feature = "native")]
 impl Frame {
-    fn code(self) -> &'static str {
+    pub(crate) fn code(self) -> &'static str {
         match self {
             Self::Original => "1993",
             Self::Classic => "1997",
@@ -65,9 +68,8 @@ pub enum Border {
     Borderless,
 }
 
-#[cfg(feature = "native")]
 impl Border {
-    fn code(self) -> &'static str {
+    pub(crate) fn code(self) -> &'static str {
         match self {
             Self::Black => "black",
             Self::White => "white",
@@ -84,9 +86,8 @@ pub enum Treatment {
     Showcase,
 }
 
-#[cfg(feature = "native")]
 #[derive(Debug, Clone)]
-pub(crate) struct Printing {
+pub struct Printing {
     pub id: String,
     pub oracle_id: String,
     pub set: String,
@@ -97,6 +98,7 @@ pub(crate) struct Printing {
     pub border: String,
     pub full_art: bool,
     pub showcase: bool,
+    pub treatments: Vec<String>,
     pub paper: bool,
     pub promo: bool,
     pub illustrations: Vec<Option<uuid::Uuid>>,
@@ -189,8 +191,7 @@ fn compare_scan_quality(a: Option<&Art>, b: Option<&Art>) -> Ordering {
         .cmp(&a.and_then(|art| art.scan_quality))
 }
 
-#[cfg(feature = "native")]
-fn same_illustrations(anchor: &Printing, candidate: &Printing) -> bool {
+pub(crate) fn same_illustrations(anchor: &Printing, candidate: &Printing) -> bool {
     anchor.oracle_id == candidate.oracle_id
         && (anchor.id == candidate.id
             || (!anchor.illustrations.is_empty()
@@ -259,11 +260,22 @@ pub struct ArtChange {
     pub after: Option<Art>,
     pub kind: ArtChangeKind,
     pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier: Option<LanguageTier>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_back: Option<Art>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_back: Option<Art>,
 }
 
 #[cfg(feature = "native")]
 impl ArtChange {
-    fn new(entry: &DeckEntry, kind: ArtChangeKind, after: Option<Art>, reason: &str) -> Self {
+    pub(crate) fn new(
+        entry: &DeckEntry,
+        kind: ArtChangeKind,
+        after: Option<Art>,
+        reason: &str,
+    ) -> Self {
         Self {
             entry_id: entry.id.clone(),
             name: entry.card.name.clone(),
@@ -272,6 +284,9 @@ impl ArtChange {
             after,
             kind,
             reason: reason.into(),
+            tier: None,
+            before_back: None,
+            after_back: None,
         }
     }
 }
@@ -307,6 +322,7 @@ fn plan_change(
         next.selected_back = scans.get(1).map(mark_fallback);
     } else {
         next.policy_art = Some(scans.clone());
+        next.language_anchor = None;
     }
     next.requested_languages = preferences.languages.clone();
     let (kind, reason) = if fallback {
@@ -339,12 +355,15 @@ pub struct ArtPreview {
     pub preview_id: String,
     pub changes: Vec<ArtChange>,
     pub can_apply: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 #[cfg(feature = "native")]
 struct Pending {
     id: String,
     next: Option<Deck>,
+    language: Option<String>,
 }
 
 #[cfg(feature = "native")]
@@ -402,6 +421,7 @@ impl ArtPolicies {
             Pending {
                 id: id.clone(),
                 next: None,
+                language: None,
             },
         );
         Ok((before, id))
@@ -413,6 +433,17 @@ impl ArtPolicies {
         preview_id: String,
         next: Deck,
         changes: Vec<ArtChange>,
+    ) -> AppResult<ArtPreview> {
+        self.save_preview_for_language(before, preview_id, next, changes, None)
+    }
+
+    fn save_preview_for_language(
+        &self,
+        before: &Deck,
+        preview_id: String,
+        next: Deck,
+        changes: Vec<ArtChange>,
+        language: Option<String>,
     ) -> AppResult<ArtPreview> {
         let mut history = self
             .history
@@ -426,10 +457,12 @@ impl ArtPolicies {
             .ok_or_else(|| AppError::user("This art preview was superseded."))?;
         let can_apply = *before != next;
         pending.next = can_apply.then_some(next);
+        pending.language.clone_from(&language);
         Ok(ArtPreview {
             preview_id,
             changes,
             can_apply,
+            language,
         })
     }
 
@@ -441,7 +474,7 @@ impl ArtPolicies {
     ) -> AppResult<ArtPreview> {
         policy.validate()?;
         let (before, preview_id) = self.begin_preview(deck_id, revision)?;
-        let preferences = self.providers.print_language_preferences()?;
+        let preferences = self.providers.preferences_for_deck(&before)?;
         let mut next = before.clone();
         next.art_policy = Some(policy.clone());
         let mut inventory = HashMap::<String, Vec<Printing>>::new();
@@ -533,7 +566,7 @@ impl ArtPolicies {
             .iter()
             .find(|item| item.id == entry_id)
             .ok_or_else(|| AppError::not_found("Card not found"))?;
-        let preferences = self.providers.print_language_preferences()?;
+        let preferences = self.providers.preferences_for_deck(&before)?;
         let anchor = self.providers.policy_printing(art_id).await?;
         let mut candidate = None;
         if let Some(anchor) = anchor.filter(|anchor| {
@@ -571,6 +604,80 @@ impl ArtPolicies {
             }
         }
         self.save_preview(&before, preview_id, next, vec![change])
+    }
+
+    pub async fn preview_language(
+        &self,
+        deck_id: &str,
+        revision: u64,
+        language: String,
+    ) -> AppResult<ArtPreview> {
+        validate_language(&language)?;
+        let (before, preview_id) = self.begin_preview(deck_id, revision)?;
+        let missing = self.providers.print_language_preferences()?.policy;
+        let mut next = before.clone();
+        next.print_language = Some(language.clone());
+        let changes = language_deck::plan(
+            &self.providers,
+            &mut next.entries,
+            next.art_policy.as_ref(),
+            &language,
+            missing,
+        )
+        .await?;
+        self.save_preview_for_language(&before, preview_id, next, changes, Some(language))
+    }
+
+    pub async fn override_language_print(
+        &self,
+        deck_id: &str,
+        revision: u64,
+        preview_id: &str,
+        entry_id: &str,
+        art_id: &str,
+    ) -> AppResult<ArtChange> {
+        let before = self.at_revision(deck_id, revision)?;
+        let original = before
+            .entries
+            .iter()
+            .find(|entry| entry.id == entry_id)
+            .ok_or_else(|| AppError::not_found("Card not found"))?;
+        if language_deck::protected(original) {
+            return Err(AppError::user("Manual art is protected."));
+        }
+        let printing = self.providers.policy_printing(art_id).await?;
+        let mut history = self
+            .history
+            .lock()
+            .map_err(|_| AppError::user("Art previews are unavailable."))?;
+        self.at_revision(deck_id, revision)?;
+        let pending = history
+            .pending
+            .get_mut(deck_id)
+            .filter(|pending| pending.id == preview_id && pending.language.is_some())
+            .ok_or_else(|| {
+                AppError::user("This language preview expired. Preview the changes again.")
+            })?;
+        let language = pending.language.as_deref();
+        let scans = printing
+            .filter(|print| {
+                print.paper
+                    && print.oracle_id == original.card.oracle_id
+                    && Some(print.language.as_str()) == language
+            })
+            .and_then(|print| print.scans)
+            .filter(|faces| faces.len() == original.card.faces.len())
+            .ok_or_else(|| AppError::user("Choose a usable printing in the requested language."))?;
+        let next = pending.next.get_or_insert(before.clone());
+        let entry = next
+            .entries
+            .iter_mut()
+            .find(|entry| entry.id == entry_id)
+            .ok_or_else(|| AppError::not_found("Card not found"))?;
+        entry.selected_art = scans.first().cloned();
+        entry.selected_back = scans.get(1).cloned();
+        entry.art_pinned = true;
+        Ok(language_deck::row(original, entry, LanguageTier::Override))
     }
 
     pub fn apply(&self, deck_id: &str, revision: u64, preview_id: &str) -> AppResult<Deck> {

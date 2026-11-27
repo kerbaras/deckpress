@@ -117,12 +117,21 @@ export const webBackend: Backend = {
         );
       case "window_chrome":
         return { platform: "linux", customControls: false, insetLeft: 0 };
-      case "resolve_cards":
+      case "resolve_cards": {
+        const preferences = await settings.printLanguage();
+        const deckId = text.optional().parse(args.deckId);
+        const language = deckId
+          ? (await decks.get(deckId)).printLanguage
+          : undefined;
         return resolveCards(
           scryfall,
           z.array(importLineSchema).parse(args.lines),
-          await settings.printLanguage(),
+          language ? { ...preferences, languages: [language] } : preferences,
         );
+      }
+      case "preview_deck_language":
+      case "override_language_print":
+        return notAvailableYet("Deck language switching");
       case "related_tokens":
         return relatedTokens(scryfall, z.array(text).parse(args.cardIds));
       case "better_scan":

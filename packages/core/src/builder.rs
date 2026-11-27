@@ -1292,6 +1292,7 @@ pub fn plan_fill(
                 selected_back: None,
                 art_pinned: false,
                 policy_art: None,
+                language_anchor: None,
                 excluded: false,
                 requested_languages: Vec::new(),
             }

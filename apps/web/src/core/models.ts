@@ -87,6 +87,7 @@ export const entrySchema = z.object({
   selectedBack: artSchema.nullable().default(null),
   artPinned: z.boolean().optional(),
   policyArt: z.array(artSchema).min(1).max(2).optional(),
+  languageAnchor: z.string().optional(),
   excluded: z.boolean().default(false),
   requestedLanguages: z.array(z.string()).optional(),
 });
@@ -197,6 +198,7 @@ export const deckSchema = z.object({
   coverEntryId: z.string().max(36).default(""),
   missingPrints: z.array(missingPrintSchema).optional(),
   artPolicy: artPolicySchema.optional(),
+  printLanguage: z.string().optional(),
   printSettings: printSettingsSchema,
   revision: z.number().int().min(0),
   createdAt: z.iso.datetime(),

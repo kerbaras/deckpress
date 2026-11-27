@@ -57,6 +57,8 @@ pub fn run() {
             commands::save_deck,
             commands::preview_art_policy,
             commands::preview_art_localization,
+            commands::preview_deck_language,
+            commands::override_language_print,
             commands::apply_art_preview,
             commands::undo_art_change,
             commands::delete_deck,
