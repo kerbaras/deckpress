@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { api, imageSrc } from "./api.ts";
+import { api, imageSrc, scryfallCrossOrigin } from "./api.ts";
 import {
   formatSetCoverage,
   type SetInfo,
@@ -29,6 +29,7 @@ function SetIcon({ set }: { set: SetInfo }) {
   ) : (
     <img
       className="set-picker-icon"
+      crossOrigin={scryfallCrossOrigin(src)}
       src={src}
       alt=""
       loading="lazy"

@@ -23,11 +23,11 @@ import {
 } from "react";
 import {
   api,
-  cardImageCrossOrigin,
   downloadCutTemplate,
   imageSrc,
   isWebPreview,
   previewSrc,
+  scryfallCrossOrigin,
 } from "./api.ts";
 import {
   type Art,
@@ -2090,7 +2090,7 @@ function ProofImage({
     <g>
       {url && (
         <image
-          crossOrigin={cardImageCrossOrigin(url)}
+          crossOrigin={scryfallCrossOrigin(url)}
           href={url}
           x={x}
           y={y}

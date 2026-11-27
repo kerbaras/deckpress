@@ -11,9 +11,9 @@ import {
 } from "react";
 import { ZodError } from "zod";
 import {
-  cardImageCrossOrigin,
   imageSrc,
   isWebPreview,
+  scryfallCrossOrigin,
   uploadTrimSrc,
 } from "./api.ts";
 import type { Art, DeckEntry } from "./core/index.ts";
@@ -330,7 +330,7 @@ function ImageContent({
       ) : (
         src && (
           <img
-            crossOrigin={cardImageCrossOrigin(src)}
+            crossOrigin={scryfallCrossOrigin(src)}
             src={src}
             alt={name}
             loading={eager ? "eager" : "lazy"}

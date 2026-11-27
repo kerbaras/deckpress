@@ -1,9 +1,22 @@
 const imageOrigin = "https://cards.scryfall.io";
+const setIconOrigin = "https://svgs.scryfall.io";
+const setIconPath = /^\/sets\/[A-Za-z0-9_-]+\.svg$/;
 const imageDirectory = "image-cache";
+
+function isSetIcon(url: URL) {
+  return (
+    url.origin === setIconOrigin &&
+    !url.username &&
+    !url.password &&
+    setIconPath.test(url.pathname)
+  );
+}
 
 function scryfallImage(source: string) {
   const url = URL.parse(source);
-  return url?.origin === imageOrigin ? url : undefined;
+  return url && (url.origin === imageOrigin || isSetIcon(url))
+    ? url
+    : undefined;
 }
 
 async function cacheFile(url: URL): Promise<FileSystemFileHandle | undefined> {

@@ -6,6 +6,7 @@ import {
   downloadCutTemplate,
   fetchHealth,
   imageSrc,
+  scryfallCrossOrigin,
   UrlImportError,
 } from "../../api.ts";
 import { deckSchema } from "../../core/index.ts";
@@ -28,6 +29,12 @@ it("routes commands and image URLs through Tauri when the runtime is present", a
   });
   expect(ipc).toHaveBeenCalledWith("health", {});
   expect(imageSrc("art.png")).toBe("dpimg://localhost/image%2Fart.png");
+  expect(imageSrc("https://svgs.scryfall.io/sets/ecl.svg?1795410000")).toMatch(
+    /^dpimg:\/\/localhost\/image%2F/,
+  );
+  expect(
+    scryfallCrossOrigin("dpimg://localhost/image%2Fart.png"),
+  ).toBeUndefined();
 });
 
 it("uses the web backend when Tauri internals are missing", async () => {
@@ -41,6 +48,11 @@ it("uses the web backend when Tauri internals are missing", async () => {
   expect(imageSrc("art.png")).toBeUndefined();
   const cdnUrl = "https://cards.scryfall.io/normal/art.jpg";
   expect(imageSrc(cdnUrl)).toBe(cdnUrl);
+  expect(scryfallCrossOrigin(cdnUrl)).toBe("anonymous");
+  const icon = "https://svgs.scryfall.io/sets/ecl.svg?1795410000";
+  expect(imageSrc(icon)).toBe(icon);
+  expect(scryfallCrossOrigin(icon)).toBe("anonymous");
+  expect(scryfallCrossOrigin("blob:https://example.com/id")).toBeUndefined();
 });
 
 it("uses the web backend for the explicit web target even with Tauri available", async () => {
