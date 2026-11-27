@@ -36,8 +36,9 @@ export function WebStorage({ onCleared }: { onCleared: () => void }) {
         browser.
       </p>
       <p className="hint">
-        Deck backups reference uploads already in this browser; they do not
-        contain image files. Backups with MPC art require the desktop app.
+        Deck backups reference uploads but do not contain image files. When
+        restoring a backup, select the original files to reconnect missing art.
+        Backups with MPC art require the desktop app.
       </p>
       <div className="toolbar">
         <button

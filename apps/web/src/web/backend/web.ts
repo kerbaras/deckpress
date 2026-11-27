@@ -13,6 +13,7 @@ import { policyProvider } from "../providers/printings.ts";
 import { resolveCards } from "../providers/resolve.ts";
 import { scryfallCacheKind, scryfallClient } from "../providers/scryfall.ts";
 import { relatedTokens } from "../providers/tokens.ts";
+import { uploadAttachmentsSchema } from "../store/backup-uploads.ts";
 import { deckStore } from "../store/decks.ts";
 import { clearImageCache, imageSrc } from "../store/image-cache.ts";
 import { indexedDbDocuments } from "../store/indexed-db.ts";
@@ -68,8 +69,13 @@ export const webBackend: Backend = {
         return decks.save(args.deck);
       case "delete_deck":
         return decks.remove(text.parse(args.id));
+      case "inspect_backup_uploads":
+        return decks.missingUploads(text.parse(args.contents));
       case "restore_deck":
-        return decks.restore(text.parse(args.contents));
+        return decks.restore(
+          text.parse(args.contents),
+          uploadAttachmentsSchema.optional().parse(args.attachments),
+        );
       case "scryfall_sets":
       case "set_coverage":
         return notAvailableYet("Deck set suggestions");

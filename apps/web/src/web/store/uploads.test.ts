@@ -1,6 +1,8 @@
-import { expect, it, vi } from "vitest";
+import { webcrypto } from "node:crypto";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import backup from "../../../../../packages/core/tests/fixtures/deck-backup-before-board-names.json";
 import { deckSchema } from "../../core/index.ts";
+import type { UploadMetadata } from "../backend/types.ts";
 import { deckStore } from "./decks.ts";
 import { memoryDocuments } from "./memory.test-helper.ts";
 import { opfsUploads, uploadId } from "./upload-files.ts";
@@ -11,6 +13,11 @@ const url = `upload://${id}`;
 const legacy = `/api/uploads/${id}`;
 const bytes = new Uint8Array([1, 2, 3]);
 const oracleId = "oracle";
+const contentHash =
+  "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81";
+
+beforeEach(() => vi.stubGlobal("crypto", webcrypto));
+afterEach(() => vi.unstubAllGlobals());
 
 function fixture() {
   const deck = deckSchema.parse(backup);
@@ -60,10 +67,21 @@ function fixture() {
     ({ getDirectoryHandle }) as unknown as FileSystemDirectoryHandle;
   const documents = memoryDocuments();
   const processing = {
-    prepare: vi.fn(async () => ({
-      metadata: JSON.stringify({ oracleId, art, bleedAuto: true }),
-      png: bytes,
-    })),
+    prepare: vi.fn(
+      async (_bytes: Uint8Array, input: UploadMetadata, uploadId: string) => ({
+        metadata: JSON.stringify({
+          oracleId: input.oracleId,
+          art: {
+            ...art,
+            id: `upload:${uploadId}`,
+            imageUrl: `upload://${uploadId}`,
+            bleedMm: input.bleedMm ?? art.bleedMm,
+          },
+          bleedAuto: input.bleedMm === undefined,
+        }),
+        png: bytes,
+      }),
+    ),
     setBleed: vi.fn(async (_file: File, json: string, bleed: number | null) => {
       const upload = JSON.parse(json);
       return JSON.stringify({
@@ -97,9 +115,10 @@ function fixture() {
 it("persists originals under uploads in OPFS and keeps only metadata in IndexedDB", async () => {
   const { art, documents, directory, getDirectoryHandle, root, store } =
     fixture();
+  const stored = { ...art, contentHash };
   expect(
     await store().upload(bytes, { oracleId, name: "Upload", artist: "" }),
-  ).toEqual(art);
+  ).toEqual(stored);
   expect(getDirectoryHandle).toHaveBeenCalledWith("uploads", { create: true });
   expect([...directory.keys()]).toEqual([`${id}.png`]);
   const file = await opfsUploads(root).read(id);
@@ -108,10 +127,10 @@ it("persists originals under uploads in OPFS and keeps only metadata in IndexedD
   const [row] = await documents.list("upload");
   expect(JSON.parse(row?.json ?? "{}")).toEqual({
     oracleId,
-    art,
+    art: stored,
     bleedAuto: true,
   });
-  expect(await store().list(oracleId)).toEqual([art]);
+  expect(await store().list(oracleId)).toEqual([stored]);
   expect(await store().list("different")).toEqual([]);
 });
 
@@ -161,6 +180,7 @@ it("restores existing upload bleed once per ID and retains missing backup refere
   const contents = JSON.stringify(deck);
   const result = await decks.restore(contents);
   expect(result.updatedUploads).toBe(1);
+  expect(result.missingUploads).toBe(1);
   expect(result.deck.entries[0]).toMatchObject({
     card: { faces: [{ bleedMm: 2, dpi: 500 }] },
     selectedArt: { bleedMm: 2, dpi: 500 },
@@ -188,4 +208,62 @@ it("does not mistake an omitted backup bleed for explicit zero", async () => {
   expect(result.updatedUploads).toBe(0);
   expect(result.deck.entries[0]?.selectedArt?.bleedMm).toBe(art.bleedMm);
   expect(processing.setBleed).not.toHaveBeenCalled();
+});
+
+it("reuses the same ID for renamed originals and lists it for both cards", async () => {
+  const { store, processing, directory } = fixture();
+  const input = { oracleId, name: "Upload", artist: "" };
+  const original = await store().upload(bytes, input, "original.jpg");
+  const duplicate = await store().upload(
+    bytes,
+    { ...input, oracleId: "other" },
+    "renamed.jpg",
+  );
+  expect(duplicate).toEqual(original);
+  expect(await store().list("other")).toEqual([original]);
+  expect(processing.prepare).toHaveBeenCalledOnce();
+  expect(directory.size).toBe(1);
+});
+
+it("reconnects under the backup ID and counts metadata with a missing file as unavailable", async () => {
+  const { art, deck, entry, documents, directory, store } = fixture();
+  const uploads = store();
+  await uploads.upload(bytes, { oracleId, name: "Upload", artist: "" });
+  directory.delete(`${id}.png`);
+  const decks = deckStore(documents, undefined, undefined, uploads);
+  entry.selectedArt = {
+    ...art,
+    bleedMm: 4,
+    contentHash,
+    filename: "original.jpg",
+  };
+  const contents = JSON.stringify(deck);
+  expect(await decks.missingUploads(contents)).toEqual([
+    { id, name: art.name, contentHash, filename: "original.jpg" },
+  ]);
+  expect(await decks.restore(contents)).toMatchObject({
+    updatedUploads: 0,
+    missingUploads: 1,
+    reconnectedUploads: 0,
+  });
+  function attachment(data: Uint8Array<ArrayBuffer>) {
+    const file = new File([data], "renamed.jpg");
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => data.buffer,
+    });
+    return { id, file };
+  }
+  await expect(
+    decks.restore(contents, [attachment(new Uint8Array([9]))]),
+  ).rejects.toThrow("does not match the original");
+  const result = await decks.restore(contents, [attachment(bytes)]);
+  expect(result).toMatchObject({
+    updatedUploads: 1,
+    reconnectedUploads: 1,
+    missingUploads: 0,
+    deck: {
+      entries: [{ selectedArt: { imageUrl: url, bleedMm: 4, contentHash } }],
+    },
+  });
+  expect([...directory.keys()]).toEqual([`${id}.png`]);
 });

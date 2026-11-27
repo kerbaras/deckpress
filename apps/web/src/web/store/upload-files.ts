@@ -2,6 +2,7 @@ const directory = "uploads";
 
 export interface UploadFiles {
   read(id: string): Promise<File>;
+  exists(id: string): Promise<boolean>;
   write(id: string, png: Uint8Array<ArrayBuffer>): Promise<void>;
   remove(id: string): Promise<void>;
 }
@@ -24,15 +25,28 @@ export function opfsUploads(
   async function folder(create: boolean) {
     return (await root()).getDirectoryHandle(directory, { create });
   }
+  function handle(id: string) {
+    return folder(false).then((dir) => dir.getFileHandle(`${id}.png`));
+  }
+  const missing = (error: unknown) =>
+    error instanceof DOMException && error.name === "NotFoundError";
 
   return {
     async read(id) {
       try {
-        const file = await (await folder(false)).getFileHandle(`${id}.png`);
-        return await file.getFile();
+        return await (await handle(id)).getFile();
       } catch (error) {
-        if (error instanceof DOMException && error.name === "NotFoundError")
+        if (missing(error))
           throw new Error("Uploaded image not found", { cause: error });
+        throw error;
+      }
+    },
+    async exists(id) {
+      try {
+        await handle(id);
+        return true;
+      } catch (error) {
+        if (missing(error)) return false;
         throw error;
       }
     },

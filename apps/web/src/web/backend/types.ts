@@ -30,6 +30,7 @@ export type CommandName =
   | "health"
   | "import_external_deck"
   | "import_url"
+  | "inspect_backup_uploads"
   | "list_decks"
   | "list_jobs"
   | "list_printer_profiles"
@@ -84,7 +85,11 @@ export type PreviewSettings = Pick<
 
 export interface Backend {
   call(name: CommandName, args?: Record<string, unknown>): Promise<unknown>;
-  uploadArt(bytes: Uint8Array, meta: UploadMetadata): Promise<unknown>;
+  uploadArt(
+    bytes: Uint8Array,
+    meta: UploadMetadata,
+    filename?: string,
+  ): Promise<unknown>;
   matchArtStyle(
     request: StyleRequest,
     onProgress?: (progress: StyleProgress) => void,

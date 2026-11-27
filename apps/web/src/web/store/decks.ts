@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   type Art,
   createScmLayout,
@@ -6,6 +5,12 @@ import {
   type DeckEntry,
   deckSchema,
 } from "../../core/index.ts";
+import {
+  backupUploads,
+  inspectUploads,
+  prepareReconnection,
+  type UploadAttachment,
+} from "./backup-uploads.ts";
 import { type DocumentStore, document, readDocument } from "./documents.ts";
 import { uploadId } from "./upload-files.ts";
 import { uploadStore } from "./uploads.ts";
@@ -61,23 +66,6 @@ function revisedDeck(input: Deck, old: Deck, now: string): Deck {
 
 const kind = "deck";
 
-const backupReferences = z.object({
-  entries: z
-    .array(
-      z.object({
-        card: z.object({ faces: z.array(z.unknown()) }),
-        selectedArt: z.unknown().optional(),
-        selectedBack: z.unknown().optional(),
-      }),
-    )
-    .default([]),
-});
-const uploadReference = z.object({
-  provider: z.literal("upload"),
-  imageUrl: z.string(),
-  bleedMm: z.number(),
-});
-
 function references<T>(entry: {
   card: { faces: T[] };
   selectedArt?: T | null;
@@ -86,17 +74,25 @@ function references<T>(entry: {
   return [...entry.card.faces, entry.selectedArt, entry.selectedBack];
 }
 
-function backupBleeds(backup: unknown) {
-  const bleeds = new Map<string, number>();
-  for (const entry of backupReferences.parse(backup).entries) {
-    for (const art of references(entry)) {
-      const result = uploadReference.safeParse(art);
-      if (!result.success) continue;
-      const id = uploadId(result.data.imageUrl);
-      if (id && !bleeds.has(id)) bleeds.set(id, result.data.bleedMm);
-    }
+function parseBackup(contents: string) {
+  let backup: unknown;
+  let input: ReturnType<typeof newDeckSchema.parse>;
+  try {
+    backup = JSON.parse(contents);
+    input = newDeckSchema.parse(backup);
+  } catch {
+    throw new Error("Invalid deck backup");
   }
-  return bleeds;
+  if (
+    input.entries.some((entry) =>
+      [...references(entry), ...(entry.policyArt ?? [])].some(
+        (art) => art?.provider === "mpc",
+      ),
+    )
+  ) {
+    throw new Error("Backups with MPC art require the desktop app.");
+  }
+  return { input, refs: backupUploads(backup) };
 }
 
 export function deckStore(
@@ -121,21 +117,29 @@ export function deckStore(
         stored = await pending;
       }
       return stored
-        ? { ...art, bleedMm: stored.bleedMm, dpi: stored.dpi }
+        ? {
+            ...art,
+            bleedMm: stored.bleedMm,
+            dpi: stored.dpi,
+            ...(stored.filename && { filename: stored.filename }),
+            ...(stored.contentHash && { contentHash: stored.contentHash }),
+          }
         : art;
     }
 
     async function updateEntry(entry: DeckEntry) {
-      const [faces, selectedArt, selectedBack] = await Promise.all([
+      const [faces, selectedArt, selectedBack, policyArt] = await Promise.all([
         Promise.all(entry.card.faces.map(update)),
         update(entry.selectedArt),
         update(entry.selectedBack),
+        entry.policyArt && Promise.all(entry.policyArt.map(update)),
       ]);
       return {
         ...entry,
         card: { ...entry.card, faces },
         selectedArt,
         selectedBack,
+        ...(policyArt && { policyArt }),
       };
     }
 
@@ -156,36 +160,71 @@ export function deckStore(
 
   return {
     create,
-    async restore(contents: string) {
-      let backup: unknown;
-      let input: ReturnType<typeof newDeckSchema.parse>;
-      try {
-        backup = JSON.parse(contents);
-        input = newDeckSchema.parse(backup);
-      } catch {
-        throw new Error("Invalid deck backup");
-      }
-      if (
-        input.entries.some((entry) =>
-          [...references(entry), ...(entry.policyArt ?? [])].some(
-            (art) => art?.provider === "mpc",
-          ),
-        )
-      ) {
-        throw new Error("Backups with MPC art require the desktop app.");
-      }
+    async missingUploads(contents: string) {
+      const { refs } = parseBackup(contents);
+      return (await inspectUploads(refs, uploads)).flatMap(
+        ({ id, ref, stored }) =>
+          stored
+            ? []
+            : [
+                {
+                  id,
+                  name: ref.name,
+                  filename: ref.filename,
+                  contentHash: ref.contentHash,
+                },
+              ],
+      );
+    },
+    async restore(contents: string, attachments: UploadAttachment[] = []) {
+      const { input, refs } = parseBackup(contents);
       const timestamp = now();
       const deck = newDeck(input, newId(), new Date(timestamp).toISOString());
-      const edits = await uploads.restoreBleeds(backupBleeds(backup));
-      const restored = await refresh(
-        deck,
-        new Map(edits.map(({ row, art }) => [row.id, art])),
+      const selected = new Map(
+        attachments.map((attachment) => [attachment.id, attachment]),
       );
-      await documents.putMany([
-        document(kind, restored.id, restored, timestamp),
-        ...edits.map(({ row }) => row),
-      ]);
-      return { deck: restored, updatedUploads: edits.length };
+      const edits = [];
+      const written: string[] = [];
+      let missingUploads = 0;
+      try {
+        for (const { id, ref, stored } of await inspectUploads(refs, uploads)) {
+          if (stored) {
+            if (ref.bleedMm !== undefined && stored.art.bleedMm !== ref.bleedMm)
+              edits.push(await uploads.edit(id, stored, ref.bleedMm));
+          } else {
+            const attachment = selected.get(id);
+            if (!attachment) {
+              missingUploads++;
+              continue;
+            }
+            const { row, art, png } = await prepareReconnection(
+              uploads,
+              ref,
+              attachment,
+            );
+            written.push(id);
+            await uploads.files.write(id, png);
+            edits.push({ row, art });
+          }
+        }
+        const restored = await refresh(
+          deck,
+          new Map(edits.map(({ row, art }) => [row.id, art])),
+        );
+        await documents.putMany([
+          document(kind, restored.id, restored, timestamp),
+          ...edits.map(({ row }) => row),
+        ]);
+        return {
+          deck: restored,
+          updatedUploads: edits.length,
+          reconnectedUploads: written.length,
+          missingUploads,
+        };
+      } catch (error) {
+        await Promise.allSettled(written.map((id) => uploads.files.remove(id)));
+        throw error;
+      }
     },
     async get(id: string) {
       const row = await documents.get(kind, id);
