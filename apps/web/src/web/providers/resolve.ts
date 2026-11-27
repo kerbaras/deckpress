@@ -9,6 +9,7 @@ import {
   recordList,
   usableCard,
 } from "./scryfall-card.ts";
+import { searchBatches } from "./search-batches.ts";
 
 const collectionBatch = 75;
 const splitSearchBatch = 20;
@@ -16,6 +17,13 @@ const splitSearchBatch = 20;
 type NumberedPrint = NonNullable<ReturnType<typeof printNumber>>;
 type Candidate = { raw: Record<string, unknown>; card: Card | undefined };
 type ImportRow = { line: ImportLine; candidate: Candidate | undefined };
+
+type ImportResolution = {
+  line: ImportLine;
+  original: Card | undefined;
+  number: NumberedPrint | undefined;
+  card: Card | undefined;
+};
 
 function identifier(line: ImportLine) {
   if (line.set && line.collectorNumber) {
@@ -29,6 +37,17 @@ function importLabel({ name, quantity, set, collectorNumber }: ImportLine) {
   return set
     ? `${quantity} ${name} (${set}) ${collectorNumber}`.trimEnd()
     : `${quantity} ${name}`;
+}
+
+function fullNameMatches(raw: Record<string, unknown>, wanted: string) {
+  if (nameMatches(raw, wanted)) return true;
+  const faces = recordList(raw.card_faces);
+  if (faces.length < 2) return false;
+  const names = faces.map((face) => face.printed_name ?? face.name);
+  return (
+    names.every((name) => typeof name === "string") &&
+    foldName(names.join(" // ")) === wanted
+  );
 }
 
 function findCandidate(
@@ -49,7 +68,7 @@ function findCandidate(
     )
       continue;
     const full =
-      Boolean(line.set && line.collectorNumber) || nameMatches(raw, wanted);
+      Boolean(line.set && line.collectorNumber) || fullNameMatches(raw, wanted);
     if (
       !full &&
       (!allowFaces ||
@@ -83,17 +102,18 @@ async function resolveSplitNames(api: Scryfall, rows: ImportRow[]) {
     if (group) group.push(lookup);
     else queries.set(clause, [lookup]);
   }
-  const clauses = [...queries.entries()];
-  for (let offset = 0; offset < clauses.length; offset += splitSearchBatch) {
-    const chunk = clauses.slice(offset, offset + splitSearchBatch);
-    const lookups = chunk.flatMap(([, group]) => group);
-    const query = `(${chunk.map(([clause]) => clause).join(" or ")}) include:extras`;
-    const unique = lookups.some(({ line }) => line.set || line.collectorNumber)
-      ? "prints"
-      : "cards";
-    for (let page = 1; page <= 100; page++) {
-      const result = await api.search(query, page, unique);
-      const cards = result.cards.map((raw) => ({ raw, card: usableCard(raw) }));
+  const unique = [...queries.values()].some((group) =>
+    group.some(({ line }) => line.set || line.collectorNumber),
+  )
+    ? "prints"
+    : "cards";
+  await searchBatches(
+    { search: (query, page) => api.search(query, page, unique) },
+    queries.keys(),
+    ["include:extras"],
+    (rawCards, batch) => {
+      const lookups = batch.flatMap((term) => queries.get(term) ?? []);
+      const cards = rawCards.map((raw) => ({ raw, card: usableCard(raw) }));
       for (const { row, line } of lookups) {
         if (row.candidate?.card) continue;
         const candidate = findCandidate(cards, line, false);
@@ -102,10 +122,10 @@ async function resolveSplitNames(api: Scryfall, rows: ImportRow[]) {
           row.candidate = candidate;
         }
       }
-      if (!result.hasMore || lookups.every(({ row }) => row.candidate?.card))
-        break;
-    }
-  }
+      return lookups.every(({ row }) => row.candidate?.card);
+    },
+    splitSearchBatch,
+  );
 }
 
 export function resolvedEntry(
@@ -127,56 +147,68 @@ export function resolvedEntry(
   };
 }
 
-async function localizedPrint(
+async function resolveImportLanguage(
   api: Scryfall,
-  line: ImportLine,
-  original: Card | undefined,
+  resolutions: ImportResolution[],
   lang: string,
-  checked: { number: NumberedPrint | undefined },
+  englishOnly: boolean,
 ) {
-  if (original?.faces[0]?.language === lang) return original;
-  const matchesOracle = (raw: Record<string, unknown>) =>
-    !original || (raw.oracle_id ?? raw.id) === original.oracleId;
-
-  if (line.set && line.collectorNumber) {
-    const raw = await api.exact(line.set, line.collectorNumber, lang);
-    const number = printNumber(raw);
-    if (
-      number?.set === line.set &&
-      number.collectorNumber === line.collectorNumber &&
-      raw.lang === lang &&
-      matchesOracle(raw)
-    ) {
-      checked.number ??= number;
-      return usableCard(raw);
-    }
-    return undefined;
-  }
-
-  let query = original
-    ? `oracleid:${original.oracleId}`
-    : exactNameQuery(line.name);
-  if (!original && line.set) {
-    if (!/^[a-z\d]+$/i.test(line.set)) return undefined;
-    query += ` set:${line.set}`;
-  }
-  const wanted = foldName(line.name);
-  for (let page = 1; page <= 100; page++) {
-    const result = await api.search(`${query} game:paper lang:${lang}`, page);
-    for (const raw of result.cards) {
+  const pending = new Map<string, ImportResolution[]>();
+  for (const result of resolutions) {
+    const { line, original } = result;
+    if (result.card || (englishOnly && !original)) continue;
+    if (original?.faces[0]?.language === lang) {
+      result.card = original;
+    } else if (line.set && line.collectorNumber) {
+      const raw = await api.exact(line.set, line.collectorNumber, lang);
       const number = printNumber(raw);
-      if (!number || raw.lang !== lang) continue;
-      const matches = original
-        ? matchesOracle(raw)
-        : (!line.set || number.set === line.set) && nameMatches(raw, wanted);
-      if (!matches) continue;
-      checked.number ??= number;
-      const card = usableCard(raw);
-      if (card) return card;
+      if (
+        number?.set === line.set &&
+        number.collectorNumber === line.collectorNumber &&
+        raw.lang === lang &&
+        (!original || (raw.oracle_id ?? raw.id) === original.oracleId)
+      ) {
+        result.number ??= number;
+        result.card = usableCard(raw);
+      }
+    } else {
+      let query = original
+        ? `oracleid:${original.oracleId}`
+        : exactNameQuery(line.name);
+      if (!original && line.set) {
+        if (!/^[a-z\d]+$/i.test(line.set)) continue;
+        query += ` set:${line.set}`;
+      }
+      const group = pending.get(query);
+      if (group) group.push(result);
+      else pending.set(query, [result]);
     }
-    if (!result.hasMore) break;
   }
-  return undefined;
+
+  await searchBatches(
+    api,
+    pending.keys(),
+    ["game:paper", `lang:${lang}`],
+    (cards, batch) => {
+      const candidates = batch.flatMap((term) => pending.get(term) ?? []);
+      for (const raw of cards) {
+        const number = printNumber(raw);
+        if (!number || raw.lang !== lang) continue;
+        for (const result of candidates) {
+          if (result.card) continue;
+          const { line, original } = result;
+          const matches = original
+            ? (raw.oracle_id ?? raw.id) === original.oracleId
+            : (!line.set || number.set === line.set) &&
+              fullNameMatches(raw, foldName(line.name));
+          if (!matches) continue;
+          result.number ??= number;
+          result.card = usableCard(raw);
+        }
+      }
+      return candidates.every(({ card }) => card);
+    },
+  );
 }
 
 export async function resolveCards(
@@ -209,19 +241,19 @@ export async function resolveCards(
     );
   }
   await resolveSplitNames(api, rows);
-  for (const [index, { line, candidate }] of rows.entries()) {
-    const original = candidate?.card;
-    const checked = { number: candidate && printNumber(candidate.raw) };
-    let card: Card | undefined;
-    if (englishOnly && !original) {
-      card = undefined;
-    } else {
-      for (const lang of attempted) {
-        card = await localizedPrint(api, line, original, lang, checked);
-        if (card) break;
-      }
+  const resolutions: ImportResolution[] = rows.map(({ line, candidate }) => ({
+    line,
+    original: candidate?.card,
+    number: candidate && printNumber(candidate.raw),
+    card: undefined,
+  }));
+  for (let offset = 0; offset < resolutions.length; offset += collectionBatch) {
+    const batch = resolutions.slice(offset, offset + collectionBatch);
+    for (const lang of attempted) {
+      await resolveImportLanguage(api, batch, lang, englishOnly);
     }
-
+  }
+  for (const [index, { line, card, number }] of resolutions.entries()) {
     if (card) {
       entries.push(
         resolvedEntry(newId(), card, line, englishOnly ? [] : languages),
@@ -231,13 +263,13 @@ export async function resolveCards(
 
     const input = importLabel(line);
     const position = index + 1;
-    if (checked.number) {
+    if (number) {
       issues.push({
         line: position,
         input,
         kind: "noUsableScan",
         message: `No usable scan found in ${attempted.join(", ")}.`,
-        printLookup: { ...checked.number, languages: attempted },
+        printLookup: { ...number, languages: attempted },
       });
       missingPrints.push({ input, languages });
     } else {

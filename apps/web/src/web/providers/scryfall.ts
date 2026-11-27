@@ -10,7 +10,8 @@ const origin = "https://api.scryfall.com";
 export const scryfallCacheKind = "cache";
 const cacheTtl = 24 * 60 * 60 * 1000;
 const interval = 100;
-const backoff = 30_000;
+const backoff = 15_000;
+const maxBackoff = 30_000;
 const opaqueBackoff = 60_000;
 const retries = 3;
 
@@ -105,7 +106,7 @@ function retryDelay(response: Response, attempt: number) {
       : Date.parse(header) - Date.now();
     if (Number.isSafeInteger(milliseconds)) return Math.max(0, milliseconds);
   }
-  return backoff * 2 ** attempt;
+  return Math.min(backoff * 2 ** attempt, maxBackoff);
 }
 
 export function scryfallClient(

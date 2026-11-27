@@ -150,7 +150,7 @@ it("batches full-name fallback across collection batches without substituting a 
     ],
   ]);
   expect(search).toHaveBeenCalledExactlyOnceWith(
-    '((!"Bind // Liberate") or (!"Fire // Ice") or (!"Armed // Dangerous") or (!"Fire // Ice" set:mh2) or (!"Fire // Wrong Face")) include:extras',
+    '((!"Armed // Dangerous") or (!"Bind // Liberate") or (!"Fire // Ice" set:mh2) or (!"Fire // Ice") or (!"Fire // Wrong Face")) include:extras',
     1,
     "prints",
   );
@@ -217,6 +217,83 @@ it("keeps literal slash and ampersand names and prefers a full match over anothe
     input.map(({ name }) => name),
   );
   expect(result.issues).toEqual([]);
+});
+
+it("resolves both Spanish split faces and batches localization after a front-face collision", async () => {
+  const fireOracle = "00000000-0000-4000-8000-000000000001";
+  const bindOracle = "00000000-0000-4000-8000-000000000002";
+  const fire = {
+    ...fixture.usable_exact_en,
+    name: "Fire // Ice",
+    oracle_id: fireOracle,
+  };
+  const fuego = {
+    ...fire,
+    lang: "es",
+    card_faces: [
+      { name: "Fire", printed_name: "Fuego" },
+      { name: "Ice", printed_name: "Hielo" },
+    ],
+  };
+  const bind = {
+    ...fixture.usable_exact_en,
+    name: "Bind // Liberate",
+    oracle_id: bindOracle,
+    card_faces: [{ name: "Bind" }, { name: "Liberate" }],
+  };
+  const collection = vi.fn(async () => [
+    fire,
+    { ...fixture.usable_exact_en, name: "Bind" },
+    {
+      ...fuego,
+      name: "Fire // Heat",
+      card_faces: [
+        { name: "Fire", printed_name: "Fuego" },
+        { name: "Heat", printed_name: "Calor" },
+      ],
+    },
+  ]);
+  const search = vi.fn(async (query: string) => ({
+    ...emptyPage,
+    cards: query.endsWith("include:extras") ? [bind, fuego] : [fuego],
+  }));
+  const input = ["Fire // Ice", "Fuego // Hielo", "Bind // Liberate"].map(
+    (name) => ({ ...printLine, name, set: "", collectorNumber: "" }),
+  );
+
+  const result = await resolveCards(
+    mockScryfall({ collection, search }),
+    input,
+    {
+      languages: ["es"],
+      policy: "fallback-to-english",
+    },
+  );
+
+  expect(collection).toHaveBeenCalledExactlyOnceWith([
+    { name: "Fire" },
+    { name: "Fuego" },
+    { name: "Bind" },
+  ]);
+  expect(search.mock.calls).toEqual([
+    [
+      '((!"Bind // Liberate") or (!"Fuego // Hielo")) include:extras',
+      1,
+      "cards",
+    ],
+    [
+      `(oracleid:${fireOracle} or oracleid:${bindOracle}) game:paper lang:es`,
+      1,
+    ],
+  ]);
+  expect(result.issues).toEqual([]);
+  expect(
+    result.entries.map(({ card }) => [card.name, card.faces[0]?.language]),
+  ).toEqual([
+    ["Fire // Ice", "es"],
+    ["Fire // Ice", "es"],
+    ["Bind // Liberate", "en"],
+  ]);
 });
 
 it("reports a missing exact scan in strict mode and falls back to the English printing only when allowed", async () => {
@@ -293,12 +370,70 @@ it("uses localized name search, preserves line numbers for misses, and skips req
       {
         zone: "side",
         board: "Test board",
-        card: { faces: [{ language: "es" }] },
+        card: {
+          id: fixture.search_es.data[0]?.id,
+          faces: [{ language: "es" }],
+        },
       },
     ],
     issues: [{ line: 1, kind: "notFound" }],
     missingPrints: [],
   });
+});
+
+it("batches a hundred Spanish names and oracles without changing their printings", async () => {
+  const englishSample = fixture.collection.data[0];
+  const spanishSample = fixture.search_es.data[0];
+  if (!englishSample || !spanishSample) throw new Error("Missing scan fixture");
+  const cards = Array.from({ length: 100 }, (_, index) => {
+    const suffix = String(index).padStart(12, "0");
+    const oracle_id = `00000000-0000-4000-8000-${suffix}`;
+    const name = `English Card ${index}`;
+    const printed_name = `Carta ${index}`;
+    return {
+      en: { ...englishSample, name, oracle_id },
+      es: {
+        ...spanishSample,
+        id: `00000001-0000-4000-8000-${suffix}`,
+        oracle_id,
+        name,
+        printed_name,
+      },
+    };
+  });
+  const collection = vi.fn<Scryfall["collection"]>(async (ids) =>
+    cards.flatMap(({ en }) =>
+      ids.some((id) => "name" in id && id.name === en.name) ? [en] : [],
+    ),
+  );
+  const search = vi.fn<Scryfall["search"]>(async (query) => ({
+    ...emptyPage,
+    cards: cards.flatMap(({ es }) =>
+      query.includes(`oracleid:${es.oracle_id}`) ||
+      query.includes(`!"${es.printed_name}"`)
+        ? [es]
+        : [],
+    ),
+  }));
+  const result = await resolveCards(
+    mockScryfall({ collection, search }),
+    cards.map(({ es }, index) => ({
+      ...printLine,
+      name: index % 2 === 0 ? es.name : es.printed_name,
+      set: "",
+      collectorNumber: "",
+    })),
+    { ...spanish, languages: ["es"] },
+  );
+  expect(result.issues).toEqual([]);
+  expect(result.entries.map(({ card }) => card.id)).toEqual(
+    cards.map(({ es }) => es.id),
+  );
+  expect(collection).toHaveBeenCalledTimes(2);
+  expect(search).toHaveBeenCalledTimes(10);
+  expect(search.mock.calls.every(([query]) => query.endsWith(" lang:es"))).toBe(
+    true,
+  );
 });
 
 it("filters print results by oracle, language, and face; better scans match the same art and language", async () => {
