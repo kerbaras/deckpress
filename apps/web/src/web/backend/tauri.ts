@@ -7,10 +7,12 @@ const IMAGE_SCHEME = "dpimg";
 
 export const tauriBackend: Backend = {
   call: (name, args) => invoke(name, args),
-  uploadArt: (bytes, meta) =>
+  uploadArt: (bytes, meta, filename) =>
     invoke("upload_art", bytes, {
       headers: {
-        "x-deckpress-upload": encodeURIComponent(JSON.stringify(meta)),
+        "x-deckpress-upload": encodeURIComponent(
+          JSON.stringify({ ...meta, filename }),
+        ),
       },
     }),
   matchArtStyle: (request, onProgress) => {
