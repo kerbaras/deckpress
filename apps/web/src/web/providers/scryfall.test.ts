@@ -43,10 +43,12 @@ it("batches distinct oracle IDs, pages each group and preserves its family and l
       total: 1,
     };
   });
+  const onProgress = vi.fn();
   const prints = await policyProvider(mockScryfall({ search })).inventoryBatch(
     [...ids, first, "invalid"],
     "en",
     ["ecc", "ecl", "tecc"],
+    { onProgress },
   );
   expect(search.mock.calls.map(([, page]) => page)).toEqual([1, 2, 1]);
   expect(
@@ -58,6 +60,11 @@ it("batches distinct oracle IDs, pages each group and preserves its family and l
     );
   expect(prints.get(first)).toHaveLength(2);
   expect(prints.get(last)).toHaveLength(1);
+  expect(onProgress.mock.calls).toEqual([
+    [0, 19],
+    [18, 19],
+    [19, 19],
+  ]);
 });
 
 it("maps double-faced scans, Scryfall metadata and placeholder errors", () => {

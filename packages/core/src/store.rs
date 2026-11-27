@@ -241,6 +241,7 @@ impl Store {
                 .iter_mut()
                 .chain(entry.selected_art.iter_mut())
                 .chain(entry.selected_back.iter_mut())
+                .chain(entry.policy_art.iter_mut().flatten())
             {
                 if art.provider == Provider::Upload {
                     if let Some(Ok(id)) = upload_id(&art.image_url) {
@@ -254,6 +255,12 @@ impl Store {
                         if let Some(upload) = upload {
                             art.bleed_mm = upload.art.bleed_mm;
                             art.dpi = upload.art.dpi;
+                            if let Some(filename) = &upload.art.filename {
+                                art.filename = Some(filename.clone());
+                            }
+                            if let Some(hash) = &upload.art.content_hash {
+                                art.content_hash = Some(hash.clone());
+                            }
                         }
                     }
                 }

@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import type { SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 import { z } from "zod";
+import { artChangeSchema, artPreviewSchema } from "./core/art-preview.ts";
 import {
   type Art,
   type ArtPolicy,
@@ -92,37 +93,12 @@ const modelStatusSchema = z.object({
   installed: z.boolean(),
   downloading: z.boolean(),
 });
-const languageTierSchema = z.enum([
-  "samePrinting",
-  "sameSet",
-  "sameArt",
-  "closest",
-  "keptEnglish",
-  "keptCurrent",
-  "pinned",
-  "override",
-]);
-const artChangeSchema = z.object({
-  entryId: z.uuid(),
-  name: z.string(),
-  quantity: z.number(),
-  before: artSchema,
-  after: artSchema.nullable(),
-  kind: z.enum(["changed", "unchanged", "pinned", "unmatched", "fallback"]),
-  reason: z.string(),
-  tier: languageTierSchema.optional(),
-  beforeBack: artSchema.optional(),
-  afterBack: artSchema.optional(),
-});
-const artPreviewSchema = z.object({
-  previewId: z.uuid(),
-  canApply: z.boolean(),
-  changes: z.array(artChangeSchema),
-  language: z.string().optional(),
-});
-export type ArtPreview = z.infer<typeof artPreviewSchema>;
-export type ArtChange = z.infer<typeof artChangeSchema>;
-export type LanguageTier = z.infer<typeof languageTierSchema>;
+
+export type {
+  ArtChange,
+  ArtPreview,
+  LanguageTier,
+} from "./core/art-preview.ts";
 export type ModelStatus = z.infer<typeof modelStatusSchema>;
 const cropPreviewSchema = z
   .object({
@@ -508,12 +484,21 @@ export const api = {
     deckId: string,
     expectedRevision: number,
     language: string,
-  ) =>
-    command("preview_deck_language", artPreviewSchema, {
-      deckId,
-      expectedRevision,
-      language,
-    }),
+    onProgress?: (progress: ArtPreviewProgress) => void,
+    signal?: AbortSignal,
+  ) => {
+    const backend = getBackend();
+    return parseResponse(
+      backend.call("preview_deck_language", {
+        deckId,
+        expectedRevision,
+        language,
+        ...(backend === webBackend && onProgress && { onProgress }),
+        ...(backend === webBackend && signal && { signal }),
+      }),
+      artPreviewSchema,
+    );
+  },
   overrideLanguagePrint: (
     deckId: string,
     expectedRevision: number,

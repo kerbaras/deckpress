@@ -3,7 +3,7 @@ use std::io::Cursor;
 use image::{DynamicImage, ImageFormat, RgbImage};
 use serde::Deserialize;
 
-use crate::models::{Art, Provider, Upload};
+use crate::models::{cap_upload_filename, Art, Provider, Upload};
 use crate::raster::{decode, detect_upload_bleed, encode_png, strip_bleed, to_rgb, UPLOAD_CARD_MM};
 use crate::{AppError, AppResult};
 
@@ -16,8 +16,10 @@ const MAX_UPLOAD: usize = 16 * 1024 * 1024;
 pub struct UploadInput {
     pub oracle_id: String,
     pub name: String,
+    #[serde(default)]
     pub artist: String,
     pub bleed_mm: Option<f64>,
+    pub filename: Option<String>,
 }
 
 pub(crate) fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
@@ -74,6 +76,11 @@ pub fn prepare(
         back_image_url: String::new(),
         back_thumbnail_url: String::new(),
         english_fallback: false,
+        filename: input
+            .filename
+            .filter(|name| !name.is_empty())
+            .map(cap_upload_filename),
+        content_hash: None,
     };
     Ok((
         Upload {

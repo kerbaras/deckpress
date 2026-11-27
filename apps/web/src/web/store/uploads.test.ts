@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import backup from "../../../../../packages/core/tests/fixtures/deck-backup-before-board-names.json";
 import { deckSchema } from "../../core/index.ts";
 import type { UploadMetadata } from "../backend/types.ts";
+import { uploadHash } from "../upload-hash.ts";
 import { deckStore } from "./decks.ts";
 import { memoryDocuments } from "./memory.test-helper.ts";
 import { opfsUploads, uploadId } from "./upload-files.ts";
@@ -195,6 +196,94 @@ it("restores existing upload bleed once per ID and retains missing backup refere
   ).toBe(4);
 });
 
+it("includes web upload filenames and hashes in backed-up deck references", async () => {
+  const { art, deck, entry, documents, store } = fixture();
+  const uploads = store();
+  const decks = deckStore(documents, undefined, undefined, uploads);
+  const filename = "Art α #1.png";
+  await uploads.upload(
+    bytes,
+    { oracleId, name: "Upload", artist: "" },
+    filename,
+  );
+  entry.selectedArt = art;
+  const saved = await decks.create(deck);
+  const contents = JSON.stringify(await decks.get(saved.id));
+  expect(JSON.parse(contents).entries[0].selectedArt).toEqual({
+    ...art,
+    filename,
+    contentHash,
+  });
+  const fresh = fixture();
+  const freshDecks = deckStore(
+    fresh.documents,
+    undefined,
+    undefined,
+    fresh.store(),
+  );
+  expect(await freshDecks.missingUploads(contents)).toEqual([
+    { id, name: art.name, filename, contentHash },
+  ]);
+});
+
+it("reconnects a legacy upload reference with no filename or hash", async () => {
+  const { art, deck, entry, documents, store } = fixture();
+  entry.selectedArt = art;
+  const contents = JSON.stringify(deck);
+  const decks = deckStore(documents, undefined, undefined, store());
+  expect(await decks.missingUploads(contents)).toEqual([
+    { id, name: art.name },
+  ]);
+  const file = new File([bytes], "original.jpg");
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => bytes.buffer,
+  });
+  expect(await decks.restore(contents, [{ id, file }])).toMatchObject({
+    reconnectedUploads: 1,
+    missingUploads: 0,
+    deck: {
+      entries: [
+        { selectedArt: { imageUrl: url, filename: file.name, contentHash } },
+      ],
+    },
+  });
+});
+
+it("caps long upload filenames in the web store and when reading an older backup", async () => {
+  const { art, deck, entry, documents, store } = fixture();
+  const uploads = store();
+  const decks = deckStore(documents, undefined, undefined, uploads);
+  const prefix = "a".repeat(254);
+  const long = `${prefix}🃏.png`;
+  entry.selectedArt = { ...art, filename: long };
+  expect(await decks.missingUploads(JSON.stringify(deck))).toEqual([
+    { id, name: art.name, filename: prefix },
+  ]);
+  expect(await decks.restore(JSON.stringify(deck))).toMatchObject({
+    missingUploads: 1,
+    deck: { entries: [{ selectedArt: { filename: prefix } }] },
+  });
+  expect(
+    await uploads.upload(bytes, { oracleId, name: "Upload", artist: "" }, long),
+  ).toMatchObject({ filename: prefix });
+});
+
+it("restores explicit bleed for an upload referenced only by policy art", async () => {
+  const { art, deck, entry, documents, store, processing } = fixture();
+  const uploads = store();
+  const decks = deckStore(documents, undefined, undefined, uploads);
+  await uploads.upload(bytes, { oracleId, name: "Upload", artist: "" });
+  entry.policyArt = [{ ...art, bleedMm: 4 }];
+  const contents = JSON.stringify(deck);
+  expect(await decks.restore(contents)).toMatchObject({
+    updatedUploads: 1,
+    deck: { entries: [{ policyArt: [{ bleedMm: 4 }] }] },
+  });
+  expect(await uploads.bleed(url)).toBe(4);
+  expect(await decks.restore(contents)).toMatchObject({ updatedUploads: 0 });
+  expect(processing.setBleed).toHaveBeenCalledOnce();
+});
+
 it("does not mistake an omitted backup bleed for explicit zero", async () => {
   const { art, deck, entry, documents, processing, store } = fixture();
   const uploads = store();
@@ -262,8 +351,43 @@ it("reconnects under the backup ID and counts metadata with a missing file as un
     reconnectedUploads: 1,
     missingUploads: 0,
     deck: {
-      entries: [{ selectedArt: { imageUrl: url, bleedMm: 4, contentHash } }],
+      entries: [
+        {
+          selectedArt: {
+            imageUrl: url,
+            bleedMm: 4,
+            filename: "original.jpg",
+            contentHash,
+          },
+        },
+      ],
     },
   });
   expect([...directory.keys()]).toEqual([`${id}.png`]);
+});
+
+it("requires permission for a different hash and saves the replacement filename and hash", async () => {
+  const { art, deck, entry, documents, store } = fixture();
+  entry.selectedArt = { ...art, contentHash, filename: "original.jpg" };
+  const contents = JSON.stringify(deck);
+  const decks = deckStore(documents, undefined, undefined, store());
+  const replacement = new Uint8Array([5, 6, 7]);
+  const file = new File([replacement], "replacement.png");
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => replacement.buffer,
+  });
+  await expect(decks.restore(contents, [{ id, file }])).rejects.toThrow(
+    "does not match the original",
+  );
+  const result = await decks.restore(contents, [
+    { id, file, allowHashMismatch: true },
+  ]);
+  const saved = await decks.get(result.deck.id);
+  const selected = saved.entries[0]?.selectedArt;
+  expect(result).toMatchObject({ reconnectedUploads: 1, missingUploads: 0 });
+  expect(selected).toMatchObject({
+    imageUrl: url,
+    filename: "replacement.png",
+    contentHash: await uploadHash(replacement),
+  });
 });

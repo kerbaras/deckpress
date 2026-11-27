@@ -282,6 +282,71 @@ fn origin_for_path(path: &str) -> url::Url {
 }
 
 #[tokio::test]
+async fn exact_set_preview_reuses_family_inventory_only_for_covered_sets() {
+    let cards = cards();
+    let base = printing(&cards, "m11", "en");
+    let commander = in_set(base, "ecc", "2026-01-23");
+    let jumpstart = in_set(base, "j25", "2024-11-15");
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = url::Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let (tx, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    let family_card = commander.clone();
+    let mock = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let url = origin_for_path(line.split_whitespace().nth(1).unwrap());
+            let query = url.query_pairs().find(|(key, _)| key == "q").unwrap().1;
+            let data = if query.contains("set:ecc") {
+                vec![family_card.clone()]
+            } else {
+                vec![family_card.clone(), jumpstart.clone()]
+            };
+            tx.send(query.into_owned()).unwrap();
+            while {
+                line.clear();
+                stream.read_line(&mut line).await.unwrap() > 0 && line != "\r\n"
+            } {}
+            let body = json!({"data": data, "has_more": false}).to_string();
+            stream.get_mut().write_all(format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            ).as_bytes()).await.unwrap();
+        }
+    });
+
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::with_scryfall_origin(store.clone(), origin).unwrap());
+    preferences(&providers, "en", PrintLanguagePolicy::Strict);
+    record_sets(&store);
+    let service = ArtPolicies::new(store.clone(), providers);
+    let mut input = common::new_deck("Family inventory reuse");
+    input.entries = vec![entry(base)];
+    let deck = store.create_deck(input).unwrap();
+
+    for (set, family, expected) in [
+        ("ecl", true, "ecc"),
+        ("ecc", false, "ecc"),
+        ("j25", false, "j25"),
+    ] {
+        let preview = service
+            .preview_policy(&deck.id, deck.revision, set_policy(set, family))
+            .await
+            .unwrap();
+        assert_eq!(preview.changes[0].after.as_ref().unwrap().set, expected);
+        match set {
+            "ecl" => assert!(requests.try_recv().unwrap().contains("set:ecc")),
+            "j25" => assert!(!requests.try_recv().unwrap().contains("set:")),
+            _ => {}
+        }
+        assert!(requests.try_recv().is_err(), "extra request for {set}");
+    }
+    mock.abort();
+}
+
+#[tokio::test]
 async fn latest_policy_uses_scan_quality_before_the_set_tie_break() {
     let cards = cards();
     let store = Arc::new(Store::in_memory().unwrap());

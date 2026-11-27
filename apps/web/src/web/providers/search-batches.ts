@@ -10,9 +10,13 @@ export async function searchBatches(
   filters: readonly string[],
   visit: (cards: Record<string, unknown>[], batch: string[]) => boolean,
   batchSize = 12,
-  options?: SearchOptions,
+  options?: SearchOptions & {
+    onProgress?: (done: number, total: number) => void;
+  },
 ) {
+  const { onProgress, ...request } = options ?? {};
   const clauses = [...new Set(terms)].sort();
+  if (clauses.length > 0) onProgress?.(0, clauses.length);
   let complete = true;
   for (let start = 0; start < clauses.length; start += batchSize) {
     const batch = clauses.slice(start, start + batchSize);
@@ -20,7 +24,7 @@ export async function searchBatches(
     for (let page = 1; ; page++) {
       options?.signal?.throwIfAborted();
       const result = options
-        ? await api.search(query, page, options)
+        ? await api.search(query, page, request)
         : await api.search(query, page);
       if (visit(result.cards, batch) || !result.hasMore) break;
       if (page === 100) {
@@ -28,6 +32,7 @@ export async function searchBatches(
         break;
       }
     }
+    if (complete) onProgress?.(start + batch.length, clauses.length);
   }
   return complete;
 }

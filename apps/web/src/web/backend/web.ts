@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ArtPreviewProgress } from "../../api.ts";
 import {
   artPolicySchema,
   artSchema,
@@ -23,6 +24,7 @@ import { isModelCached, MODEL_CACHE } from "../upscale/model-store.ts";
 import { defaultWebModel, webModels } from "../upscale/models.ts";
 import { artHistory } from "./art-history.ts";
 import { downloadBlob, downloadText } from "./download.ts";
+import { planDeckLanguage } from "./language-plan.ts";
 import { setCoverage } from "./set-matching.ts";
 import type { Backend } from "./types.ts";
 
@@ -198,10 +200,39 @@ export const webBackend: Backend = {
         );
       }
       case "preview_deck_language":
+        return art.previewLanguage(
+          text.parse(args.deckId),
+          index.parse(args.expectedRevision),
+          text.parse(args.language),
+          typeof args.onProgress === "function"
+            ? (args.onProgress as (progress: ArtPreviewProgress) => void)
+            : undefined,
+          signal.parse(args.signal),
+        );
       case "override_language_print":
-        return notAvailableYet("Deck language switching");
-      case "related_tokens":
-        return relatedTokens(scryfall, z.array(text).parse(args.cardIds));
+        return art.overrideLanguage(
+          text.parse(args.deckId),
+          index.parse(args.expectedRevision),
+          text.parse(args.previewId),
+          text.parse(args.entryId),
+          text.parse(args.artId),
+        );
+      case "related_tokens": {
+        const tokens = await relatedTokens(
+          scryfall,
+          z.array(text).parse(args.cardIds),
+        );
+        const deckId = text.optional().parse(args.deckId);
+        const deck = deckId ? await decks.get(deckId) : undefined;
+        if (!deck?.printLanguage || !tokens.length) return tokens;
+        const { next } = await planDeckLanguage(
+          policyPrintings,
+          { ...deck, entries: tokens },
+          deck.printLanguage,
+          await settings.printLanguage(),
+        );
+        return next?.entries ?? tokens;
+      }
       case "better_scan":
         return betterScan(
           scryfall,

@@ -29,7 +29,10 @@ export interface SearchOptions extends RequestOptions {
 }
 
 export interface Scryfall {
-  collection(ids: Identifier[]): Promise<Record<string, unknown>[]>;
+  collection(
+    ids: Identifier[],
+    options?: RequestOptions,
+  ): Promise<Record<string, unknown>[]>;
   exact(
     set: string,
     collectorNumber: string,
@@ -255,9 +258,14 @@ export function scryfallClient(
 
   return {
     retry,
-    async collection(identifiers) {
+    async collection(identifiers, options) {
       const response = record(
-        await json("/cards/collection", false, JSON.stringify({ identifiers })),
+        await json(
+          "/cards/collection",
+          false,
+          JSON.stringify({ identifiers }),
+          options,
+        ),
       );
       if (!Array.isArray(response.data))
         throw new Error("Unexpected Scryfall collection data");

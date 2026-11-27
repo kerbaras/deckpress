@@ -183,6 +183,48 @@ it("shows coverage loading and failure without blocking search", async () => {
   expect(input).toHaveValue(ecl.name);
 });
 
+it.each(["reconnect", "reopen", "retry"] as const)(
+  "restores catalog search after an error on %s",
+  async (recovery) => {
+    const user = userEvent.setup();
+    const list = vi
+      .spyOn(api, "listSets")
+      .mockRejectedValue(new Error("Unavailable"));
+    vi.spyOn(api, "setCoverage").mockResolvedValue([]);
+    renderPolicy(
+      { kind: "matchSet", set: "", family: true },
+      new QueryClient({
+        defaultOptions: { queries: { networkMode: "always" } },
+      }),
+    );
+    const input = screen.getByRole("combobox", { name: "Set" });
+    await user.click(input);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not load Scryfall sets.",
+    );
+    list.mockResolvedValue([ecl]);
+
+    if (recovery === "reconnect") {
+      fireEvent(window, new Event("online"));
+    } else if (recovery === "reopen") {
+      await user.keyboard("{Escape}");
+      expect(input).toHaveAttribute("aria-expanded", "false");
+      await user.click(input);
+    } else {
+      const retry = screen.getByRole("button", { name: "Retry" });
+      await user.tab();
+      expect(retry).toHaveFocus();
+      await user.keyboard("{Enter}");
+      expect(input).toHaveFocus();
+    }
+
+    expect(
+      await screen.findByRole("option", { name: /Lorwyn Eclipsed/ }),
+    ).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  },
+);
+
 it("uses the thumbnail URI for set icons and falls back to the code", async () => {
   mockIPC(() => null);
   const user = userEvent.setup();

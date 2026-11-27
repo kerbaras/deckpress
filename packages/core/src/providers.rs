@@ -50,6 +50,13 @@ pub(crate) enum PrintingLookupProgress {
     RateLimited(Duration),
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum PrintingInventoryScope<'a> {
+    All,
+    Exact(&'a str),
+    Family(&'a [String]),
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MpcCard {
@@ -130,6 +137,8 @@ impl MpcCard {
                 back_image_url: String::new(),
                 back_thumbnail_url: String::new(),
                 english_fallback: false,
+                filename: None,
+                content_hash: None,
             },
         }
     }
@@ -270,6 +279,8 @@ pub fn normalize_scryfall(value: &Value) -> AppResult<Card> {
                 bleed_mm: 0.0,
                 back_image_url: String::new(),
                 back_thumbnail_url: String::new(),
+                filename: None,
+                content_hash: None,
             }
         })
         .collect();
@@ -511,13 +522,6 @@ pub(crate) fn validate_language(language: &str) -> AppResult<()> {
     }
 }
 
-pub(crate) fn scryfall_art_id(art_id: &str) -> Option<uuid::Uuid> {
-    art_id
-        .strip_prefix("scryfall:")
-        .and_then(|rest| rest.split(':').next())
-        .and_then(|id| uuid::Uuid::parse_str(id).ok())
-}
-
 fn valid_languages(languages: &[String]) -> bool {
     !languages.is_empty()
         && languages.iter().enumerate().all(|(index, language)| {
@@ -686,7 +690,7 @@ impl Providers {
                     .map(|entry| entry.card.oracle_id.as_str())
                     .collect(),
                 None,
-                None,
+                PrintingInventoryScope::All,
                 |_| {},
             )
             .await?;
@@ -1073,7 +1077,7 @@ impl Providers {
     }
 
     pub(crate) async fn policy_printing(&self, art_id: &str) -> AppResult<Option<Printing>> {
-        let Some(id) = scryfall_art_id(art_id) else {
+        let Some(id) = crate::language_deck::scryfall_art_id(art_id) else {
             return Ok(None);
         };
         let raw = self
@@ -1100,15 +1104,20 @@ impl Providers {
         oracle_ids: BTreeSet<&str>,
         language: &str,
     ) -> AppResult<HashMap<String, Vec<Printing>>> {
-        self.printing_inventory(oracle_ids, Some(language), None, |_| {})
-            .await
+        self.printing_inventory(
+            oracle_ids,
+            Some(language),
+            PrintingInventoryScope::All,
+            |_| {},
+        )
+        .await
     }
 
     pub(crate) async fn printing_inventory(
         &self,
         mut oracle_ids: BTreeSet<&str>,
         language: Option<&str>,
-        family_filter: Option<&str>,
+        scope: PrintingInventoryScope<'_>,
         progress: impl Fn(PrintingLookupProgress),
     ) -> AppResult<HashMap<String, Vec<Printing>>> {
         if let Some(language) = language {
@@ -1118,7 +1127,16 @@ impl Providers {
             Some(language) => format!("language-printings:{language}:{oracle}"),
             None => format!("policy-printings:{oracle}"),
         };
-        let cache_key = |oracle| match family_filter {
+        let family_filter = match scope {
+            PrintingInventoryScope::Family(sets) => {
+                let clauses: Vec<_> = sets.iter().map(|set| format!("set:{set}")).collect();
+                Some(format!("({})", clauses.join(" or ")))
+            }
+            _ => None,
+        };
+        let family_index =
+            |set: &str, oracle| format!("family-printing-index:{set}:{}", broad_key(oracle));
+        let cache_key = |oracle| match &family_filter {
             Some(filter) => format!("family-printings:{filter}:{}", broad_key(oracle)),
             None => broad_key(oracle),
         };
@@ -1128,8 +1146,20 @@ impl Providers {
         let total = oracle_ids.len();
         for oracle in oracle_ids {
             let mut cached = self.store.cached(&cache_key(oracle))?;
-            if cached.is_none() && family_filter.is_some() {
-                cached = self.store.cached(&broad_key(oracle))?;
+            if cached.is_none() {
+                match scope {
+                    PrintingInventoryScope::All => {}
+                    PrintingInventoryScope::Family(_) => {
+                        cached = self.store.cached(&broad_key(oracle))?
+                    }
+                    PrintingInventoryScope::Exact(set) => {
+                        if let Some(Value::String(key)) =
+                            self.store.cached(&family_index(set, oracle))?
+                        {
+                            cached = self.store.cached(&key)?;
+                        }
+                    }
+                }
             }
             match cached {
                 Some(Value::Array(cards)) => {
@@ -1151,7 +1181,7 @@ impl Providers {
             || "game:paper".into(),
             |lang| format!("lang:{lang} game:paper"),
         );
-        if let Some(filter) = family_filter {
+        if let Some(filter) = &family_filter {
             suffix.push(' ');
             suffix.push_str(filter);
         }
@@ -1185,7 +1215,13 @@ impl Providers {
                 ));
             }
             for (oracle, cards) in found {
-                self.store.put("cache", &cache_key(oracle), &cards)?;
+                let key = cache_key(oracle);
+                self.store.put("cache", &key, &cards)?;
+                if let PrintingInventoryScope::Family(sets) = scope {
+                    for set in sets {
+                        self.store.put("cache", &family_index(set, oracle), &key)?;
+                    }
+                }
                 inventory.insert(
                     oracle.to_owned(),
                     cards.iter().filter_map(policy_printing).collect(),

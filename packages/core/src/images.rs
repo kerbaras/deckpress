@@ -455,6 +455,8 @@ impl Images {
     }
 
     /// Restores a backup and its explicit source bleed values for existing uploads.
+    /// The first explicit bleed for each upload wins in entry order. Within an
+    /// entry, card faces and manually selected art precede policy art.
     pub fn restore_deck(&self, contents: &str) -> AppResult<RestoreResult> {
         let backup: Value =
             serde_json::from_str(contents).map_err(|_| AppError::user("Invalid deck backup"))?;
@@ -464,7 +466,8 @@ impl Images {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .chain([&entry["selectedArt"], &entry["selectedBack"]]);
+                .chain([&entry["selectedArt"], &entry["selectedBack"]])
+                .chain(entry["policyArt"].as_array().into_iter().flatten());
             for art in arts {
                 if art["provider"] != "upload" {
                     continue;
@@ -582,7 +585,9 @@ impl Images {
 
     pub fn upload(&self, bytes: &[u8], input: UploadInput) -> AppResult<Art> {
         let id = new_id();
-        let (upload, image) = upload::prepare(bytes, input, &id, now_iso())?;
+        let (mut upload, image) = upload::prepare(bytes, input, &id, now_iso())?;
+        // The stored PNG is normalized. Reconnect must hash the caller's original file.
+        upload.art.content_hash = Some(hex::encode(Sha256::digest(bytes)));
         let path = self.upload_path(&id);
         std::fs::create_dir_all(path.parent().expect("upload dir has a parent"))?;
         image.to_rgba8().save_with_format(&path, ImageFormat::Png)?;

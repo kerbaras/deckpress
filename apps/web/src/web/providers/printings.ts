@@ -15,6 +15,7 @@ export interface Printing {
   border: string;
   fullArt: boolean;
   showcase: boolean;
+  treatments: string[];
   paper: boolean;
   promo: boolean;
   illustrations: (string | undefined)[];
@@ -35,6 +36,11 @@ export function policyPrinting(value: unknown): Printing | undefined {
       ? [illustration(raw)]
       : recordList(raw.card_faces).map(illustration);
   const scans = usableCard(raw)?.faces;
+  const effects = Array.isArray(raw.frame_effects)
+    ? raw.frame_effects.filter(
+        (effect): effect is string => typeof effect === "string",
+      )
+    : [];
   return {
     id,
     oracleId: string(raw.oracle_id) || id,
@@ -45,9 +51,11 @@ export function policyPrinting(value: unknown): Printing | undefined {
     frame: string(raw.frame),
     border: string(raw.border_color),
     fullArt: raw.full_art === true,
-    showcase:
-      Array.isArray(raw.frame_effects) &&
-      raw.frame_effects.includes("showcase"),
+    showcase: effects.includes("showcase"),
+    treatments: [
+      ...effects.filter((effect) => effect !== "showcase"),
+      ...(raw.textless === true ? ["textless"] : []),
+    ],
     paper:
       raw.digital !== true &&
       Array.isArray(raw.games) &&
@@ -171,13 +179,16 @@ export function localized(
 
 // Bound the length of Scryfall search URLs even with a family/language filter.
 const oracleBatchSize = 18;
+const collectionBatchSize = 75;
 
 export function policyProvider(api: Scryfall) {
   async function inventoryBatch(
     oracleIds: string[],
     language?: string,
     sets?: string[],
-    options?: RequestOptions,
+    options?: RequestOptions & {
+      onProgress?: (done: number, total: number) => void;
+    },
   ) {
     const filters = ["game:paper"];
     if (sets?.length) filters.push(anyOf(sets.map((set) => `set:${set}`)));
@@ -189,7 +200,9 @@ export function policyProvider(api: Scryfall) {
     oracleIds: string[],
     filters: string[],
     language: string | undefined,
-    options?: SearchOptions,
+    options?: SearchOptions & {
+      onProgress?: (done: number, total: number) => void;
+    },
   ) {
     const ids = [
       ...new Set(oracleIds.filter((id) => uuid.safeParse(id).success)),
@@ -231,6 +244,28 @@ export function policyProvider(api: Scryfall) {
         undefined,
         { background: true, includeMultilingual: false, signal },
       );
+    },
+    async anchors(ids: string[], options?: RequestOptions) {
+      const ordered = [
+        ...new Set(ids.filter((id) => uuid.safeParse(id).success)),
+      ].sort();
+      const prints = new Map<string, Printing>();
+      for (
+        let start = 0;
+        start < ordered.length;
+        start += collectionBatchSize
+      ) {
+        const batch = ordered.slice(start, start + collectionBatchSize);
+        options?.signal?.throwIfAborted();
+        for (const raw of await api.collection(
+          batch.map((id) => ({ id })),
+          options,
+        )) {
+          const print = policyPrinting(raw);
+          if (print && batch.includes(print.id)) prints.set(print.id, print);
+        }
+      }
+      return prints;
     },
     async get(artId: string, options?: RequestOptions) {
       const id = artId.startsWith("scryfall:")

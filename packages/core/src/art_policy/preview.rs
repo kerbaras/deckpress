@@ -1,24 +1,15 @@
 use serde::Serialize;
 
 use super::selection::{localized, PolicySelection};
-use super::{languages, policy_can_change, ArtPolicies, ArtPolicy, Printing};
+use super::{
+    languages, policy_can_change, ArtChange, ArtChangeKind, ArtPolicies, ArtPolicy, Printing,
+};
 use crate::{
     error::{AppError, AppResult},
-    language_switch::LanguageTier,
     models::{Art, DeckEntry, PrintLanguagePreferences},
-    providers::PrintingLookupProgress,
+    providers::{PrintingInventoryScope, PrintingLookupProgress},
     set_family::family,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ArtChangeKind {
-    Changed,
-    Unchanged,
-    Pinned,
-    Unmatched,
-    Fallback,
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -32,46 +23,6 @@ pub enum ArtPreviewProgress {
         #[serde(rename = "retryAfterSeconds")]
         retry_after_seconds: u64,
     },
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ArtChange {
-    pub entry_id: String,
-    pub name: String,
-    pub quantity: u32,
-    pub before: Art,
-    pub after: Option<Art>,
-    pub kind: ArtChangeKind,
-    pub reason: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tier: Option<LanguageTier>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub before_back: Option<Art>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub after_back: Option<Art>,
-}
-
-impl ArtChange {
-    pub(crate) fn new(
-        entry: &DeckEntry,
-        kind: ArtChangeKind,
-        after: Option<Art>,
-        reason: &str,
-    ) -> Self {
-        Self {
-            entry_id: entry.id.clone(),
-            name: entry.card.name.clone(),
-            quantity: entry.quantity,
-            before: entry.front_art().clone(),
-            after,
-            kind,
-            reason: reason.into(),
-            tier: None,
-            before_back: None,
-            after_back: None,
-        }
-    }
 }
 
 fn plan_change(
@@ -169,14 +120,16 @@ impl ArtPolicies {
             }
             _ => None,
         };
-        let family_filter = family_members.as_ref().map(|members| {
-            let mut clauses: Vec<_> = members
-                .iter()
-                .map(|(set, _)| format!("set:{set}"))
-                .collect();
-            clauses.sort_unstable();
-            format!("({})", clauses.join(" or "))
+        let family_sets = family_members.as_ref().map(|members| {
+            let mut sets: Vec<_> = members.iter().map(|(set, _)| set.clone()).collect();
+            sets.sort_unstable();
+            sets
         });
+        let scope = match (&policy, &family_sets) {
+            (_, Some(sets)) => PrintingInventoryScope::Family(sets),
+            (ArtPolicy::MatchSet { set, family: false }, _) => PrintingInventoryScope::Exact(set),
+            _ => PrintingInventoryScope::All,
+        };
         let family_ranks = family_members.map(|members| members.into_iter().collect());
         let mut next = before.clone();
         next.art_policy = Some(policy.clone());
@@ -208,7 +161,7 @@ impl ArtPolicies {
                     .map(|entry| entry.card.oracle_id.as_str())
                     .collect(),
                 None,
-                family_filter.as_deref(),
+                scope,
                 |update| report(None, update),
             )
             .await?;
@@ -257,7 +210,7 @@ impl ArtPolicies {
                         .map(|(_, anchor)| anchor.oracle_id.as_str())
                         .collect(),
                     Some(language),
-                    family_filter.as_deref(),
+                    scope,
                     |update| report(Some(language), update),
                 )
                 .await?;
