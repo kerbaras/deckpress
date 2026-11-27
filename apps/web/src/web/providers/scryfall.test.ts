@@ -3,6 +3,7 @@ import delver from "../../../../../packages/core/tests/fixtures/scryfall-art-pol
 import fixture from "../../../../../packages/core/tests/fixtures/scryfall-languages.json";
 import type { ImportLine } from "../../core/index.ts";
 import { betterScan, searchArt } from "./art.ts";
+import { policyProvider } from "./printings.ts";
 import { resolveCards } from "./resolve.ts";
 import type { Scryfall } from "./scryfall.ts";
 import { normalizeScryfall } from "./scryfall-card.ts";
@@ -24,9 +25,40 @@ function mockScryfall(overrides: Partial<Scryfall> = {}): Scryfall {
     exact: async () => ({}),
     search: async () => emptyPage,
     printing: async () => undefined,
+    sets: async () => [],
     ...overrides,
   };
 }
+
+it("batches distinct oracle IDs, pages each group and preserves its family and language filters", async () => {
+  const ids = Array.from({ length: 19 }, () => crypto.randomUUID()).sort();
+  const first = ids[0];
+  const last = ids.at(-1);
+  if (!first || !last) throw new Error("Invalid test IDs");
+  const search = vi.fn(async (query: string, page: number) => {
+    const id = query.includes(first) ? first : last;
+    return {
+      cards: [{ ...delver[0], oracle_id: id, lang: "en" }],
+      hasMore: id === first && page === 1,
+      total: 1,
+    };
+  });
+  const prints = await policyProvider(mockScryfall({ search })).inventoryBatch(
+    [...ids, first, "invalid"],
+    "en",
+    ["ecc", "ecl", "tecc"],
+  );
+  expect(search.mock.calls.map(([, page]) => page)).toEqual([1, 2, 1]);
+  expect(
+    search.mock.calls.map(([query]) => query.match(/oracleid:/g)?.length),
+  ).toEqual([18, 18, 1]);
+  for (const [query] of search.mock.calls)
+    expect(query).toContain(
+      "game:paper (set:ecc or set:ecl or set:tecc) lang:en",
+    );
+  expect(prints.get(first)).toHaveLength(2);
+  expect(prints.get(last)).toHaveLength(1);
+});
 
 it("maps double-faced scans, Scryfall metadata and placeholder errors", () => {
   const card = normalizeScryfall(delver[0]);

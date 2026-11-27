@@ -21,6 +21,7 @@ import { isModelCached, MODEL_CACHE } from "../upscale/model-store.ts";
 import { defaultWebModel, webModels } from "../upscale/models.ts";
 import { artHistory } from "./art-history.ts";
 import { downloadBlob, downloadText } from "./download.ts";
+import { setCoverage } from "./set-matching.ts";
 import type { Backend } from "./types.ts";
 
 export class NotAvailableOnWebError extends Error {
@@ -44,7 +45,9 @@ const documents = indexedDbDocuments();
 const decks = deckStore(documents);
 const settings = settingsStore(documents, decks.list);
 const scryfall = scryfallClient(documents);
-const art = artHistory(decks, policyProvider(scryfall), settings.printLanguage);
+export const webScryfallRetry = scryfall.retry;
+const policyPrintings = policyProvider(scryfall);
+const art = artHistory(decks, policyPrintings, settings.printLanguage);
 const text = z.string();
 const index = z.number().int().nonnegative();
 
@@ -69,12 +72,14 @@ export const webBackend: Backend = {
       case "restore_deck":
         return decks.restore(text.parse(args.contents));
       case "scryfall_sets":
+        return policyPrintings.sets();
       case "set_coverage":
-        return notAvailableYet("Deck set suggestions");
+        return setCoverage(
+          policyPrintings,
+          await decks.get(text.parse(args.deckId)),
+        );
       case "preview_art_policy": {
         const policy = artPolicySchema.parse(args.policy);
-        if (policy.kind === "matchSet" && policy.family)
-          return notAvailableYet("Set-family matching");
         return art.previewPolicy(
           text.parse(args.deckId),
           index.parse(args.expectedRevision),
