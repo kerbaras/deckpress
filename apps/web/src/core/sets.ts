@@ -21,12 +21,6 @@ export const setCoverageSchema = z.object({
 export type SetInfo = z.infer<typeof setInfoSchema>;
 export type SetCoverage = z.infer<typeof setCoverageSchema>;
 
-function pickable(set: SetInfo) {
-  return (
-    !set.digital && set.setType !== "memorabilia" && set.setType !== "alchemy"
-  );
-}
-
 function byRelease(a: SetInfo, b: SetInfo) {
   return (
     b.releasedAt.localeCompare(a.releasedAt) || a.code.localeCompare(b.code)
@@ -34,9 +28,15 @@ function byRelease(a: SetInfo, b: SetInfo) {
 }
 
 export function searchSets(sets: readonly SetInfo[], query: string): SetInfo[] {
-  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  return sets
-    .filter(pickable)
+  const normalized = query.toLowerCase().trim().replace(/\s+/g, " ");
+  const tokens = normalized ? normalized.split(" ") : [];
+  const matches = sets
+    .filter(
+      (set) =>
+        !set.digital &&
+        (normalized ||
+          (set.setType !== "memorabilia" && set.setType !== "alchemy")),
+    )
     .flatMap((set) => {
       const code = set.code.toLowerCase();
       const name = set.name.toLowerCase();
@@ -44,25 +44,50 @@ export function searchSets(sets: readonly SetInfo[], query: string): SetInfo[] {
         !tokens.every((token) => code.startsWith(token) || name.includes(token))
       )
         return [];
-      const rank = tokens.includes(code)
-        ? 0
-        : tokens.some((token) => code.startsWith(token))
-          ? 1
-          : 2;
+      const rank =
+        normalized === code || normalized === name
+          ? 0
+          : tokens.includes(code)
+            ? 1
+            : tokens.some((token) => code.startsWith(token))
+              ? 2
+              : 3;
       return [{ set, rank }];
     })
-    .sort((a, b) => a.rank - b.rank || byRelease(a.set, b.set))
-    .map(({ set }) => set);
+    .sort((a, b) => a.rank - b.rank || byRelease(a.set, b.set));
+
+  const remaining = new Map(matches.map((match) => [match.set.code, match]));
+  const ordered: SetInfo[] = [];
+  function append(match: (typeof matches)[number]) {
+    const { set, rank } = match;
+    if (!remaining.delete(set.code)) return;
+    if (
+      rank !== 0 &&
+      set.parentSetCode &&
+      (set.setType === "token" || set.setType === "memorabilia")
+    ) {
+      const parent = remaining.get(set.parentSetCode);
+      if (parent) append(parent);
+    }
+    ordered.push(set);
+  }
+  for (const match of matches) append(match);
+  return ordered;
 }
 
 export function suggestedSets(rows: readonly SetCoverage[]): SetCoverage[] {
   return rows
     .filter(
-      ({ set, count }) => count > 0 && pickable(set) && set.setType !== "token",
+      ({ set, count }) =>
+        count > 0 &&
+        !set.digital &&
+        (set.setType === "expansion" ||
+          set.setType === "core" ||
+          set.setType === "commander"),
     )
     .sort(
       (a, b) =>
-        b.count - a.count || b.exact - a.exact || byRelease(a.set, b.set),
+        b.exact - a.exact || b.count - a.count || byRelease(a.set, b.set),
     );
 }
 

@@ -78,55 +78,48 @@ pub fn family(chosen: &str, sets: &[SetInfo]) -> Vec<(String, u8)> {
     members
 }
 
-pub fn coverage(entry_sets: &[Vec<String>], sets: &[SetInfo]) -> Vec<SetCoverage> {
+pub fn coverage(entry_sets: &[(u32, Vec<String>)], sets: &[SetInfo]) -> Vec<SetCoverage> {
     let roots = roots(sets);
     let member_roots: HashMap<_, _> = sets
         .iter()
         .filter(|set| is_family_member(set))
         .map(|set| (set.code.as_str(), roots[set.code.as_str()]))
         .collect();
-    let mut exact_only_counts = HashMap::new();
     let mut exact_counts = HashMap::new();
     let mut family_counts = HashMap::new();
-    for codes in entry_sets {
+    let mut total = 0;
+    for (quantity, codes) in entry_sets {
+        let quantity = *quantity as usize;
+        total += quantity;
         let covered: HashSet<_> = codes
             .iter()
             .filter_map(|code| member_roots.get(code.as_str()).copied())
             .collect();
         for code in codes.iter().map(String::as_str).collect::<HashSet<_>>() {
-            *exact_counts.entry(code).or_insert(0) += 1;
-            if roots.get(code).is_some_and(|root| !covered.contains(root)) {
-                *exact_only_counts.entry(code).or_insert(0) += 1;
-            }
+            *exact_counts.entry(code).or_insert(0) += quantity;
         }
         for root in covered {
-            *family_counts.entry(root).or_insert(0) += 1;
+            *family_counts.entry(root).or_insert(0) += quantity;
         }
     }
     let mut rows: Vec<_> = sets
         .iter()
-        .filter(|set| {
-            !set.digital && !matches!(set.set_type.as_str(), "memorabilia" | "alchemy" | "token")
-        })
+        .filter(|set| is_family_member(set) && set.set_type != "token")
         .filter_map(|set| {
             let root = roots[set.code.as_str()];
-            let count = family_counts.get(root).copied().unwrap_or(0)
-                + exact_only_counts
-                    .get(set.code.as_str())
-                    .copied()
-                    .unwrap_or(0);
+            let count = family_counts.get(root).copied().unwrap_or(0);
             (count > 0).then(|| SetCoverage {
                 set: set.clone(),
                 count,
                 exact: exact_counts.get(set.code.as_str()).copied().unwrap_or(0),
-                total: entry_sets.len(),
+                total,
             })
         })
         .collect();
     rows.sort_unstable_by(|a, b| {
-        b.count
-            .cmp(&a.count)
-            .then_with(|| b.exact.cmp(&a.exact))
+        b.exact
+            .cmp(&a.exact)
+            .then_with(|| b.count.cmp(&a.count))
             .then_with(|| b.set.released_at.cmp(&a.set.released_at))
             .then_with(|| a.set.code.cmp(&b.set.code))
     });
