@@ -54,7 +54,14 @@ it("matches a renamed image by hash, another by filename, and allows manual assi
   });
   expect(Array.from(picker.files ?? [])).toEqual(files);
   expect(screen.getByText("No matching file selected")).toBeVisible();
-  expect(screen.getAllByRole("combobox")).toHaveLength(1);
+  expect(screen.getAllByRole("combobox")).toHaveLength(2);
+  const override = screen.getByLabelText(/Hash mismatch/);
+  expect(override).toHaveDisplayValue("Leave missing");
+  expect(screen.queryByText(/different contents/)).not.toBeInTheDocument();
+  await user.selectOptions(override, "3");
+  expect(override).toHaveAccessibleDescription(
+    "This file has different contents from the original. Restoring will use it as a replacement.",
+  );
   expect(screen.getByLabelText(/Manual match/)).toHaveDisplayValue(
     "Leave missing",
   );
@@ -66,6 +73,7 @@ it("matches a renamed image by hash, another by filename, and allows manual assi
     { id: "hash", file: renamed },
     { id: "name", file: byName },
     { id: "manual", file: manual },
+    { id: "mismatch", file: wrong, allowHashMismatch: true },
   ]);
 });
 

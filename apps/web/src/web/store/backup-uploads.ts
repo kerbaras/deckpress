@@ -39,12 +39,14 @@ export const uploadAttachmentsSchema = z.array(
   z.object({
     id: z.string(),
     file: z.instanceof(File),
+    allowHashMismatch: z.literal(true).optional(),
   }),
 );
 export type UploadAttachment = z.infer<typeof uploadAttachmentsSchema>[number];
 
 export function backupUploads(backup: unknown) {
   const refs = new Map<string, BackupUpload>();
+  // Like native restore, the first explicit bleed wins for an upload ID.
   for (const entry of entries.parse(backup).entries) {
     for (const art of [
       ...entry.card.faces,
@@ -87,12 +89,14 @@ export async function inspectUploads(
 export async function prepareReconnection(
   uploads: ReturnType<typeof uploadStore>,
   ref: BackupUpload,
-  { id, file }: UploadAttachment,
+  { id, file, allowHashMismatch }: UploadAttachment,
 ) {
   checkUploadSize(file.size);
   const bytes = new Uint8Array(await file.arrayBuffer());
   const hash = await uploadHash(bytes);
-  if (ref.contentHash && ref.contentHash.toLowerCase() !== hash)
+  const hashMismatch =
+    ref.contentHash && ref.contentHash.toLowerCase() !== hash;
+  if (hashMismatch && !allowHashMismatch)
     throw new Error(
       `“${file.name}” does not match the original for ${ref.name}.`,
     );
@@ -102,6 +106,6 @@ export async function prepareReconnection(
     bytes,
     { oracleId, name, artist, ...(bleedMm !== undefined && { bleedMm }) },
     hash,
-    ref.filename ?? file.name,
+    hashMismatch ? file.name : (ref.filename ?? file.name),
   );
 }

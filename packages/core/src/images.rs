@@ -455,6 +455,8 @@ impl Images {
     }
 
     /// Restores a backup and its explicit source bleed values for existing uploads.
+    /// The first explicit bleed for each upload wins in entry order. Within an
+    /// entry, card faces and manually selected art precede policy art.
     pub fn restore_deck(&self, contents: &str) -> AppResult<RestoreResult> {
         let backup: Value =
             serde_json::from_str(contents).map_err(|_| AppError::user("Invalid deck backup"))?;
