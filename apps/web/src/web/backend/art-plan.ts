@@ -1,22 +1,11 @@
-import type { ArtPreview, PrintLanguagePreferences } from "../../api.ts";
-import {
-  type ArtPolicy,
-  backArt,
-  type Deck,
-  type DeckEntry,
-  frontArt,
-} from "../../core/index.ts";
-import {
-  comparePrints,
-  localized,
-  type Printing,
-  permits,
-  type policyProvider,
-  samePrintingNumber,
-} from "../providers/printings.ts";
+import { z } from "zod";
+import type { PrintLanguagePreferences } from "../../api.ts";
+import { artChangeSchema } from "../../core/art-preview.ts";
+import { type ArtPolicy, type Deck, entrySchema } from "../../core/index.ts";
+import { webAssetBase } from "../asset-base.ts";
+import { loadCoreWasm } from "../core-wasm.ts";
+import type { Printing, policyProvider } from "../providers/printings.ts";
 import { canChangeArt, setFamilyRanks } from "./set-matching.ts";
-
-type ArtChange = ArtPreview["changes"][number];
 
 export function validatePolicy(policy: ArtPolicy) {
   if (policy.kind === "matchSet" && !/^[a-z0-9]{1,20}$/.test(policy.set)) {
@@ -46,84 +35,26 @@ function jsonEquals(a: unknown, b: unknown) {
   return canonical(a) === canonical(b);
 }
 
-function languageOrder(preferences: PrintLanguagePreferences) {
-  const { languages, policy } = preferences;
-  return policy === "fallback-to-english" && !languages.includes("en")
-    ? [...languages, "en"]
-    : languages;
-}
-
-function change(
-  entry: DeckEntry,
-  kind: ArtChange["kind"],
-  after: ArtChange["after"],
-  reason: string,
-): ArtChange {
-  return {
-    entryId: entry.id,
-    name: entry.card.name,
-    quantity: entry.quantity,
-    before: frontArt(entry),
-    kind,
-    after,
-    reason,
-  };
-}
-
-function planChange(
-  entry: DeckEntry,
-  print: Printing | undefined,
-  preferences: PrintLanguagePreferences,
-  manual: boolean,
-) {
-  const scans = print?.scans;
-  const first = scans?.[0];
-  if (!scans || !first || !print) {
-    return {
-      entry,
-      change: change(
-        entry,
-        "unmatched",
-        null,
-        "No usable same-illustration scan matches the requested language and policy.",
-      ),
-    };
-  }
-  const fallback =
-    print.language === "en" && !preferences.languages.includes("en");
-  const next = {
-    ...entry,
-    requestedLanguages: preferences.languages,
-    ...(manual
-      ? {
-          artPinned: true,
-          selectedArt: { ...first, englishFallback: fallback },
-          selectedBack: scans[1]
-            ? { ...scans[1], englishFallback: fallback }
-            : null,
-        }
-      : { policyArt: scans }),
-  };
-  const result = fallback
-    ? change(
-        entry,
-        "fallback",
-        first,
-        manual
-          ? "Same illustration; using the English scan."
-          : "No preferred-language scan for the policy illustration; using English.",
-      )
-    : jsonEquals(frontArt(next), frontArt(entry)) &&
-        jsonEquals(backArt(next), backArt(entry))
-      ? change(
-          entry,
-          "unchanged",
-          first,
-          "The displayed printing already matches.",
-        )
-      : change(entry, "changed", first, "A matching printing is available.");
-  return { entry: jsonEquals(entry, next) ? entry : next, change: result };
-}
+const planSchema = z.object({
+  changes: z.array(artChangeSchema),
+  updates: z.array(
+    entrySchema
+      .pick({ id: true, policyArt: true, requestedLanguages: true })
+      .extend({ languageAnchor: z.null() })
+      .transform((update) => ({ ...update, languageAnchor: undefined })),
+  ),
+});
+const localizationSchema = z.object({
+  change: artChangeSchema,
+  update: entrySchema
+    .pick({
+      selectedArt: true,
+      selectedBack: true,
+      artPinned: true,
+      requestedLanguages: true,
+    })
+    .nullable(),
+});
 
 export async function planPolicy(
   provider: ReturnType<typeof policyProvider>,
@@ -146,68 +77,37 @@ export async function planPolicy(
         ? [...ranks.keys()]
         : [policy.set]
       : undefined;
-  const batchMemo = new Map<string, Promise<Map<string, Printing[]>>>();
-  const memo = new Map<string, Promise<Printing[]>>();
-  async function inventory(oracleId: string, lang?: string) {
-    if (setFilter) {
-      const key = lang ?? "";
-      const cached =
-        batchMemo.get(key) ??
-        provider.inventoryBatch(oracleIds, lang, setFilter, ...request);
-      batchMemo.set(key, cached);
-      return (await cached).get(oracleId) ?? [];
-    }
-    const key = `${oracleId}:${lang ?? ""}`;
-    const cached =
-      memo.get(key) ?? provider.inventory(oracleId, lang, ...request);
-    memo.set(key, cached);
-    return cached;
-  }
-  const changes: ArtChange[] = [];
-  const entries: DeckEntry[] = [];
-  for (const entry of deck.entries) {
-    signal?.throwIfAborted();
-    if (!canChangeArt(entry)) {
-      changes.push(change(entry, "pinned", null, "Manual art is protected."));
-      entries.push(entry);
-      continue;
-    }
-    const oracleId = entry.card.oracleId;
-    const options = await inventory(oracleId);
-    const anchor = options
-      .filter(
-        (p) =>
-          permits(policy, p, ranks) &&
-          p.illustrations.length === entry.card.faces.length,
-      )
-      .sort((a, b) => comparePrints(policy, a, b, true, ranks))[0];
-    let candidate: Printing | undefined;
-    if (anchor) {
-      for (const language of languageOrder(preferences)) {
-        const known = localized(anchor, options, language, policy, ranks);
-        candidate =
-          known && samePrintingNumber(anchor, known)
-            ? known
-            : localized(
-                anchor,
-                [...options, ...(await inventory(oracleId, language))],
-                language,
-                policy,
-                ranks,
-              );
-        if (candidate) break;
-      }
-    }
-    const result = planChange(entry, candidate, preferences, false);
-    changes.push(result.change);
-    entries.push(result.entry);
-  }
-  const changed =
-    !jsonEquals(deck.artPolicy, policy) ||
-    entries.some((entry, i) => entry !== deck.entries[i]);
+  // Search includes multilingual printings, so collect the set inventory once.
+  const [wasm, inventory] = await Promise.all([
+    loadCoreWasm(webAssetBase()),
+    provider.inventoryBatch(oracleIds, undefined, setFilter, ...request),
+  ]);
+  signal?.throwIfAborted();
+  const { changes, updates } = planSchema.parse(
+    JSON.parse(
+      wasm.planDeckArtPolicy(
+        JSON.stringify(deck),
+        JSON.stringify(policy),
+        JSON.stringify(preferences),
+        JSON.stringify(ranks ? Object.fromEntries(ranks) : null),
+        JSON.stringify(Object.fromEntries(inventory)),
+      ),
+    ),
+  );
+  const byId = new Map(updates.map((update) => [update.id, update]));
   return {
     changes,
-    next: changed ? { ...deck, artPolicy: policy, entries } : null,
+    next:
+      updates.length || !jsonEquals(deck.artPolicy, policy)
+        ? {
+            ...deck,
+            artPolicy: policy,
+            entries: deck.entries.map((entry) => {
+              const update = byId.get(entry.id);
+              return update ? { ...entry, ...update } : entry;
+            }),
+          }
+        : null,
   };
 }
 
@@ -222,37 +122,65 @@ export async function planLocalization(
   const request = signal ? ([{ signal }] as const) : ([] as const);
   const entry = deck.entries.find((entry) => entry.id === entryId);
   if (!entry) throw new Error("Card not found");
-  const anchor = await provider.get(artId, ...request);
-  let candidate: Printing | undefined;
+  const [wasm, anchor] = await Promise.all([
+    loadCoreWasm(webAssetBase()),
+    provider.get(artId, ...request),
+  ]);
+  const preferred = deck.printLanguage
+    ? [deck.printLanguage]
+    : preferences.languages;
+  const languages =
+    preferences.policy === "fallback-to-english" && !preferred.includes("en")
+      ? [...preferred, "en"]
+      : preferred;
+  const entryJson = JSON.stringify(entry);
+  const anchorJson = JSON.stringify(anchor ?? null);
+  const preferredJson = JSON.stringify(preferred);
+  function plan(candidates: Printing[], language?: string) {
+    return localizationSchema.parse(
+      JSON.parse(
+        wasm.planPrintLocalization(
+          entryJson,
+          anchorJson,
+          JSON.stringify(candidates),
+          preferredJson,
+          language,
+        ),
+      ),
+    );
+  }
+  function proposal({ change, update }: z.infer<typeof localizationSchema>) {
+    return {
+      changes: [change],
+      next: update
+        ? {
+            ...deck,
+            entries: deck.entries.map((item) =>
+              item === entry ? { ...item, ...update } : item,
+            ),
+          }
+        : null,
+    };
+  }
   if (
     anchor?.oracleId === entry.card.oracleId &&
     anchor.illustrations.length === entry.card.faces.length
   ) {
-    for (const language of languageOrder(preferences)) {
-      candidate = localized(anchor, [anchor], language);
-      if (candidate) break;
+    for (const language of languages) {
+      signal?.throwIfAborted();
+      const original = plan([anchor], language);
+      if (original.change.kind !== "unmatched") return proposal(original);
       const exact = await provider.exact(anchor, language, ...request);
-      if (exact) candidate = localized(anchor, [exact], language);
-      if (candidate) break;
-      candidate = localized(
-        anchor,
+      if (exact) {
+        const result = plan([exact], language);
+        if (result.change.kind !== "unmatched") return proposal(result);
+      }
+      const inventory = plan(
         await provider.inventory(anchor.oracleId, language, ...request),
         language,
       );
-      if (candidate) break;
+      if (inventory.change.kind !== "unmatched") return proposal(inventory);
     }
   }
-  const result = planChange(entry, candidate, preferences, true);
-  return {
-    changes: [result.change],
-    next:
-      result.entry === entry
-        ? null
-        : {
-            ...deck,
-            entries: deck.entries.map((item) =>
-              item === entry ? result.entry : item,
-            ),
-          },
-  };
+  return proposal(plan([]));
 }

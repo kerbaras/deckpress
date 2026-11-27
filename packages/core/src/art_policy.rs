@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::Art;
+use crate::models::{Art, DeckEntry, PrintLanguagePolicy};
 
 #[cfg(feature = "native")]
 use std::{
@@ -12,7 +12,7 @@ use std::{
 use crate::{
     error::{AppError, AppResult},
     language_deck,
-    models::{new_id, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences},
+    models::{new_id, Deck},
     providers::{validate_language, Providers},
     store::Store,
 };
@@ -21,9 +21,10 @@ mod change;
 #[cfg(feature = "native")]
 mod preview;
 pub(crate) mod selection;
-pub use change::{ArtChange, ArtChangeKind};
+pub use change::{plan_change, ArtChange, ArtChangeKind};
 #[cfg(feature = "native")]
 pub use preview::{ArtPreview, ArtPreviewProgress};
+pub use selection::{choose_printing, PolicySelection};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -114,8 +115,7 @@ pub struct Printing {
     pub scans: Option<Vec<Art>>,
 }
 
-#[cfg(feature = "native")]
-pub(crate) fn policy_can_change(entry: &DeckEntry) -> bool {
+pub fn policy_can_change(entry: &DeckEntry) -> bool {
     !entry.is_art_pinned()
         && entry
             .card
@@ -124,11 +124,22 @@ pub(crate) fn policy_can_change(entry: &DeckEntry) -> bool {
             .all(|art| art.provider == crate::models::Provider::Scryfall)
 }
 
-#[cfg(feature = "native")]
-fn languages(preferences: &PrintLanguagePreferences) -> impl Iterator<Item = &str> {
-    preferences.languages.iter().map(String::as_str).chain(
-        (preferences.policy == PrintLanguagePolicy::FallbackToEnglish
-            && !preferences.languages.iter().any(|lang| lang == "en"))
+pub fn requested_languages<'a>(
+    entry: &'a DeckEntry,
+    deck_language: Option<&'a String>,
+    defaults: &'a [String],
+) -> &'a [String] {
+    if !entry.requested_languages.is_empty() {
+        &entry.requested_languages
+    } else {
+        deck_language.map_or(defaults, std::slice::from_ref)
+    }
+}
+
+pub fn languages(preferred: &[String], policy: PrintLanguagePolicy) -> impl Iterator<Item = &str> {
+    preferred.iter().map(String::as_str).chain(
+        (policy == PrintLanguagePolicy::FallbackToEnglish
+            && !preferred.iter().any(|lang| lang == "en"))
         .then_some("en"),
     )
 }

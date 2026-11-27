@@ -1,13 +1,14 @@
 import { expect, it, vi } from "vitest";
 import fixture from "../../../../../packages/core/tests/fixtures/scryfall-art-policy.json";
-import type { PrintLanguagePreferences } from "../../api.ts";
-import { entrySchema, frontArt } from "../../core/index.ts";
-import * as coreWasm from "../core-wasm.ts";
+import type { ArtChange, PrintLanguagePreferences } from "../../api.ts";
 import {
-  localized,
-  type Printing,
-  policyPrinting,
-} from "../providers/printings.ts";
+  type Art,
+  type DeckEntry,
+  entrySchema,
+  frontArt,
+} from "../../core/index.ts";
+import * as coreWasm from "../core-wasm.ts";
+import { type Printing, policyPrinting } from "../providers/printings.ts";
 import { normalizeScryfall } from "../providers/scryfall-card.ts";
 import { deckStore } from "../store/decks.ts";
 import { memoryDocuments } from "../store/memory.test-helper.ts";
@@ -35,6 +36,87 @@ function entry(set: string, artPinned = false) {
     card: normalizeScryfall(raw(set)),
     artPinned,
   });
+}
+
+function change(entry: DeckEntry, after: Art | null, kind: ArtChange["kind"]) {
+  return {
+    entryId: entry.id,
+    name: entry.card.name,
+    quantity: entry.quantity,
+    before: frontArt(entry),
+    after,
+    kind,
+    reason: "",
+  };
+}
+
+function mockPolicyPlan(
+  entries: DeckEntry[],
+  results: (Art[] | "pinned" | null)[],
+) {
+  const planDeckArtPolicy = vi.fn(() =>
+    JSON.stringify({
+      changes: entries.map((entry, index) => {
+        const scans = results[index];
+        return change(
+          entry,
+          Array.isArray(scans) ? (scans[0] ?? null) : null,
+          scans === "pinned" ? "pinned" : scans ? "changed" : "unmatched",
+        );
+      }),
+      updates: entries.flatMap((entry, index) => {
+        const scans = results[index];
+        return Array.isArray(scans)
+          ? [
+              {
+                id: entry.id,
+                policyArt: scans,
+                languageAnchor: null,
+                requestedLanguages: entry.requestedLanguages ?? ["en"],
+              },
+            ]
+          : [];
+      }),
+    }),
+  );
+  vi.spyOn(coreWasm, "loadCoreWasm");
+  vi.mocked(coreWasm.loadCoreWasm, { partial: true }).mockResolvedValue({
+    planDeckArtPolicy,
+  });
+  return planDeckArtPolicy;
+}
+
+function mockLocalization(entry: DeckEntry, result: Printing) {
+  const scan = result.scans?.[0];
+  if (!scan) throw new Error("Missing scan fixture");
+  const planPrintLocalization = vi.fn(
+    (_, _anchor, inventory, preferred, language) => {
+      const match =
+        language === scan.language &&
+        (JSON.parse(inventory) as Printing[]).some(
+          ({ id }) => id === result.id,
+        );
+      const fallback = language === "en";
+      return JSON.stringify(
+        match
+          ? {
+              change: change(entry, scan, fallback ? "fallback" : "changed"),
+              update: {
+                selectedArt: { ...scan, englishFallback: fallback },
+                selectedBack: null,
+                artPinned: true,
+                requestedLanguages: JSON.parse(preferred),
+              },
+            }
+          : { change: change(entry, null, "unmatched"), update: null },
+      );
+    },
+  );
+  vi.spyOn(coreWasm, "loadCoreWasm");
+  vi.mocked(coreWasm.loadCoreWasm, { partial: true }).mockResolvedValue({
+    planPrintLocalization,
+  });
+  return planPrintLocalization;
 }
 
 async function setup(entries = [entry("m11")]) {
@@ -82,6 +164,7 @@ async function setup(entries = [entry("m11")]) {
 it("localizes around unusable exact scans without changing illustrations, then persists and undoes", async () => {
   const initial = entry("m11");
   const { decks, deck, history, provider } = await setup([initial]);
+  mockLocalization(initial, fromFixture("m10", "es"));
   const preview = await history.previewLocalization(
     deck.id,
     0,
@@ -226,9 +309,47 @@ it("aborts the language preview's outstanding anchor lookup when dismissed", asy
   await result;
 });
 
+it("aborts the policy preview's batched inventory when dismissed", async () => {
+  const initial = entry("lea");
+  const { deck, history, provider } = await setup([initial]);
+  const wasm = mockPolicyPlan([initial], [null]);
+  const controller = new AbortController();
+  const started = Promise.withResolvers<void>();
+  provider.inventoryBatch.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        controller.signal.addEventListener(
+          "abort",
+          () => reject(controller.signal.reason),
+          { once: true },
+        );
+        started.resolve();
+      }),
+  );
+  const result = expect(
+    history.previewPolicy(
+      deck.id,
+      deck.revision,
+      { kind: "matchSet", set: "m11" },
+      controller.signal,
+    ),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  await started.promise;
+  controller.abort();
+  await result;
+  expect(provider.inventoryBatch).toHaveBeenCalledExactlyOnceWith(
+    [initial.card.oracleId],
+    undefined,
+    ["m11"],
+    { signal: controller.signal },
+  );
+  expect(wasm).not.toHaveBeenCalled();
+});
+
 it("reports empty translations in strict mode and marks English fallback when allowed", async () => {
   const initial = entry("lea");
   const { deck, history, preferences } = await setup([initial]);
+  mockLocalization(initial, fromFixture("lea"));
   preferences({ languages: ["es"], policy: "strict" });
   const args = [deck.id, 0, initial.id, frontArt(initial).id] as const;
   const strict = await history.previewLocalization(...args);
@@ -251,21 +372,15 @@ it("reports empty translations in strict mode and marks English fallback when al
   });
 });
 
-it("ranks policy scans, protects pinned cards, rejects invalid and stale previews", async () => {
+it("stages policy updates and rejects invalid and stale previews", async () => {
   const { deck, decks, history, provider, preferences } = await setup([
     entry("lea"),
     entry("lea", true),
   ]);
   preferences({ languages: ["en"], policy: "strict" });
   const high = fromFixture("m11");
-  const low = policyPrinting({
-    ...raw("m10"),
-    released_at: high.date,
-    image_status: "lowres",
-    highres_image: false,
-  });
-  if (!low) throw new Error("Invalid fixture");
-  provider.inventory.mockResolvedValue([low, high]);
+  provider.inventoryBatch.mockResolvedValue(new Map([[high.oracleId, [high]]]));
+  mockPolicyPlan(deck.entries, [high.scans ?? [], "pinned"]);
   await expect(
     Promise.resolve().then(() =>
       history.previewPolicy(deck.id, 0, { kind: "matchSet", set: "bad code" }),
@@ -292,32 +407,6 @@ it("ranks policy scans, protects pinned cards, rejects invalid and stale preview
   await expect(history.undo(deck.id, 2)).rejects.toThrow(
     "Undo would overwrite",
   );
-});
-
-it("requires known, ordered illustration IDs on every face across distinct printings", () => {
-  const front = fromFixture("m11");
-  const back = fromFixture("lea");
-  const anchor = {
-    ...front,
-    illustrations: [...front.illustrations, ...back.illustrations],
-  };
-  const candidate = { ...anchor, id: "another-printing" };
-  expect(localized(anchor, [candidate], "en")).toBe(candidate);
-  expect(
-    localized(
-      anchor,
-      [{ ...candidate, illustrations: [...anchor.illustrations].reverse() }],
-      "en",
-    ),
-  ).toBeUndefined();
-  const unknown = {
-    ...anchor,
-    illustrations: [anchor.illustrations[0], undefined],
-  };
-  expect(
-    localized(unknown, [{ ...unknown, id: candidate.id }], "en"),
-  ).toBeUndefined();
-  expect(localized(unknown, [unknown], "en")).toBe(unknown);
 });
 
 it("passes copy quantities and keeps pinned copies in the coverage total", async () => {
@@ -353,20 +442,25 @@ it("passes copy quantities and keeps pinned copies in the coverage total", async
 it.each([false, undefined])(
   "batches the exact set for matchSet policies with family=%s",
   async (family) => {
-    const matching = entry("lea");
+    const matching = { ...entry("lea"), requestedLanguages: ["es"] };
     const unmatched = entry("lea");
     unmatched.card.oracleId = crypto.randomUUID();
-    const { deck, history, provider, preferences } = await setup([
+    const { deck, decks, history, provider, preferences } = await setup([
       matching,
       unmatched,
     ]);
     preferences({ languages: ["en"], policy: "strict" });
-    provider.inventoryBatch.mockResolvedValue(
-      new Map([
-        [matching.card.oracleId, [fromFixture("m11")]],
-        [unmatched.card.oracleId, [fromFixture("m10")]],
-      ]),
-    );
+    const spanish = fromFixture("m10", "es");
+    const scans = spanish.scans?.map((scan) => ({ ...scan, set: "m11" })) ?? [];
+    const inventory = new Map([
+      [
+        matching.card.oracleId,
+        [fromFixture("m11"), { ...spanish, set: "m11", scans }],
+      ],
+      [unmatched.card.oracleId, [fromFixture("m10")]],
+    ]);
+    provider.inventoryBatch.mockResolvedValue(inventory);
+    const plan = mockPolicyPlan(deck.entries, [scans, null]);
     const preview = await history.previewPolicy(deck.id, deck.revision, {
       kind: "matchSet",
       set: "m11",
@@ -375,7 +469,7 @@ it.each([false, undefined])(
     expect(preview).toMatchObject({
       canApply: true,
       changes: [
-        { kind: "changed", after: { set: "m11" } },
+        { kind: "changed", after: { set: "m11", language: "es" } },
         { kind: "unmatched", after: null },
       ],
     });
@@ -386,6 +480,19 @@ it.each([false, undefined])(
     );
     expect(provider.inventory).not.toHaveBeenCalled();
     expect(provider.sets).not.toHaveBeenCalled();
+    expect(plan).toHaveBeenCalledExactlyOnceWith(
+      JSON.stringify(await decks.get(deck.id)),
+      JSON.stringify({
+        kind: "matchSet",
+        set: "m11",
+        ...(family === false && { family }),
+      }),
+      JSON.stringify({ languages: ["en"], policy: "strict" }),
+      "null",
+      JSON.stringify(Object.fromEntries(inventory)),
+    );
+    const applied = await history.apply(deck.id, 0, preview.previewId);
+    expect(applied.entries[0]?.requestedLanguages).toEqual(["es"]);
   },
 );
 
@@ -426,6 +533,13 @@ it.each([
     );
     const printing = fromFixture("m11");
     const scans = printing.scans ?? [];
+    mockPolicyPlan(deck.entries, [
+      scans.map((scan) => ({ ...scan, set: chosen })),
+      scans.map((scan) => ({ ...scan, set: sibling })),
+      scans.map((scan) => ({ ...scan, set: token })),
+      null,
+      "pinned",
+    ]);
     provider.inventoryBatch.mockResolvedValue(
       new Map(
         scenarios.map(

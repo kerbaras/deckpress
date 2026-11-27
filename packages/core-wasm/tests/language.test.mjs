@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
-  deckLanguageLookups, initSync, overrideDeckLanguagePrint, planDeckLanguage,
+  deckLanguageLookups, initSync, overrideDeckLanguagePrint, planDeckArtPolicy, planDeckLanguage, planPrintLocalization,
 } from '../dist/deckpress_core_wasm.js';
 
 initSync({ module: readFileSync(new URL('../dist/deckpress_core_wasm_bg.wasm', import.meta.url)) });
@@ -98,4 +98,52 @@ test('English inventory is requested only for unresolved non-English entries whe
   assert.deepEqual(result.changes.map(({ tier }) => tier), ['keptEnglish', 'keptEnglish']);
   assert.equal(result.changes[0].after.language, 'en');
   assert.equal(plan(localized, 'ja', {}, 'strict').changes[0].after.language, 'es');
+});
+
+test('art policy uses each entry language and only chooses same-illustration scans', () => {
+  const samePrintingEs = printing(17, 'fdc', 'es', english.illustrations);
+  const siblingEs = printing(18, 'fdn', 'es', english.illustrations);
+  const exact = { kind: 'matchSet', set: 'fdc', family: false };
+  const family = { ...exact, family: true };
+  const localized = { ...original, requestedLanguages: ['es'], policyArt: sameArt.scans,
+    languageAnchor: english.scans[0].id, languageChoices: { es: sameArt.id } };
+  const explicitlyEnglish = { ...entry(19, english), requestedLanguages: ['en'] };
+  const legacy = entry(20, english);
+  const fixture = { ...deck, printLanguage: 'es', entries: [localized, explicitlyEnglish, legacy, pinned, uploaded] };
+  const run = (policy, options, missing = 'strict') => JSON.parse(planDeckArtPolicy(
+    stringify(fixture), stringify(policy),
+    stringify({ languages: ['en'], policy: missing }),
+    stringify(policy.family ? { fdc: 0, fdn: 1 } : null),
+    stringify({ [oracle]: options }),
+  ));
+  const exactPreview = run(exact, [english, samePrintingEs, siblingEs]);
+  assert.deepEqual(exactPreview.changes.map(({ kind }) => kind),
+    ['changed', 'unchanged', 'changed', 'pinned', 'pinned']);
+  assert.deepEqual(exactPreview.updates.map(({ requestedLanguages }) => requestedLanguages),
+    [['es'], ['en'], ['es']]);
+  assert.deepEqual(exactPreview.updates[0].policyArt.map(({ id }) => id), samePrintingEs.scans.map(({ id }) => id));
+  assert.equal(exactPreview.updates[0].languageAnchor, null);
+  assert.deepEqual(run(exact, [english, siblingEs]).changes.map(({ kind }) => kind),
+    ['unmatched', 'unchanged', 'unmatched', 'pinned', 'pinned']);
+  assert.equal(run(family, [english, spanish, siblingEs]).changes[0].after.id, siblingEs.scans[0].id);
+  const fallback = run(family, [english, spanish], 'fallback-to-english');
+  assert.equal(fallback.changes[0].kind, 'fallback');
+  assert.deepEqual(fallback.updates[0].requestedLanguages, ['es']);
+});
+
+test('manual localization requires complete, ordered illustrations for distinct printings', () => {
+  const candidate = printing(17, 'fdc', 'es', english.illustrations);
+  function localize(anchor, candidate, language = 'es') {
+    return JSON.parse(planPrintLocalization(
+      stringify(original), stringify(anchor), stringify([candidate]), stringify(['es']), language,
+    ));
+  }
+  const result = localize(english, candidate);
+  assert.equal(result.update.selectedArt.id, candidate.scans[0].id);
+  assert.equal(result.update.selectedBack.id, candidate.scans[1].id);
+  assert.equal(result.update.artPinned, true);
+  assert.equal(localize(english, { ...candidate, illustrations: [...candidate.illustrations].reverse() }).update, null);
+  const unknown = { ...english, illustrations: [english.illustrations[0], null] };
+  assert.equal(localize(unknown, { ...candidate, illustrations: unknown.illustrations }).update, null);
+  assert.equal(localize(unknown, unknown, 'en').change.kind, 'fallback');
 });
