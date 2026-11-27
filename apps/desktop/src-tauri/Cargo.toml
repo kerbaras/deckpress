@@ -1,6 +1,6 @@
 [package]
 name = "deckpress"
-version = "0.1.0"
+version = "0.1.1"
 description = "Deckpress desktop: Tauri shell around deckpress-core"
 edition = "2021"
 rust-version = "1.85"
