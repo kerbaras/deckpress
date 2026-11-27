@@ -3,7 +3,7 @@ use std::io::Cursor;
 use image::{DynamicImage, ImageFormat, RgbImage};
 use serde::Deserialize;
 
-use crate::models::{Art, Provider, Upload};
+use crate::models::{cap_upload_filename, Art, Provider, Upload};
 use crate::raster::{decode, detect_upload_bleed, encode_png, strip_bleed, to_rgb, UPLOAD_CARD_MM};
 use crate::{AppError, AppResult};
 
@@ -76,7 +76,10 @@ pub fn prepare(
         back_image_url: String::new(),
         back_thumbnail_url: String::new(),
         english_fallback: false,
-        filename: input.filename.filter(|name| !name.is_empty()),
+        filename: input
+            .filename
+            .filter(|name| !name.is_empty())
+            .map(cap_upload_filename),
         content_hash: None,
     };
     Ok((

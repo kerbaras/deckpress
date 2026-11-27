@@ -80,10 +80,18 @@ export function ReconnectUploads({
           event.preventDefault();
           void task.run(() =>
             onRestore(
-              missing.flatMap(({ id }) => {
-                const index = matches.get(id) ?? assignments.get(id);
-                const file = files[index ?? -1]?.file;
-                return file ? [{ id, file }] : [];
+              missing.flatMap<UploadAttachment>(({ id, contentHash }) => {
+                const match = matches.get(id);
+                const file = files[match ?? assignments.get(id) ?? -1]?.file;
+                if (!file) return [];
+                return [
+                  {
+                    id,
+                    file,
+                    ...(match === undefined &&
+                      contentHash && { allowHashMismatch: true }),
+                  },
+                ];
               }),
             ),
           );
@@ -120,21 +128,25 @@ export function ReconnectUploads({
         {missing.map((upload) => {
           const label = `${upload.name} · ${upload.filename ?? upload.id}`;
           const matched = files[matches.get(upload.id) ?? -1]?.file;
-          return matched || upload.contentHash ? (
+          if (matched)
+            return (
+              <div className="field" key={upload.id}>
+                {label}
+                <span>Matched to {matched.name}</span>
+              </div>
+            );
+          const assigned = assignments.get(upload.id);
+          const assignmentId = `reconnect-${upload.id}`;
+          return (
             <div className="field" key={upload.id}>
-              {label}
-              <span>
-                {matched
-                  ? `Matched to ${matched.name}`
-                  : "No matching file selected"}
-              </span>
-            </div>
-          ) : (
-            <label className="field" key={upload.id}>
-              {label}
+              <label htmlFor={assignmentId}>{label}</label>
               <select
-                value={assignments.get(upload.id) ?? ""}
-                disabled={task.busy}
+                id={assignmentId}
+                aria-describedby={
+                  upload.contentHash ? `${assignmentId}-status` : undefined
+                }
+                value={assigned ?? ""}
+                disabled={task.busy || !files.length}
                 onChange={(event) => {
                   const next = new Map(assignments);
                   if (event.target.value === "") next.delete(upload.id);
@@ -149,7 +161,20 @@ export function ReconnectUploads({
                   </option>
                 ))}
               </select>
-            </label>
+              {upload.contentHash && (
+                <span
+                  id={`${assignmentId}-status`}
+                  role="status"
+                  className={
+                    assigned === undefined ? undefined : "warning-text"
+                  }
+                >
+                  {assigned === undefined
+                    ? "No matching file selected"
+                    : "This file has different contents from the original. Restoring will use it as a replacement."}
+                </span>
+              )}
+            </div>
           );
         })}
         <ErrorNotice error={task.error} />
