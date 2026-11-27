@@ -10,6 +10,7 @@ export const scryfallCacheKind = "cache";
 const cacheTtl = 24 * 60 * 60 * 1000;
 const interval = 100;
 const backoff = 30_000;
+const retries = 3;
 
 type Identifier =
   | { id: string }
@@ -37,15 +38,29 @@ export interface Scryfall {
 function rateLimiter() {
   let tail = Promise.resolve();
   let next = 0;
-  return function enqueue<T>(send: (defer: () => void) => Promise<T>) {
+  async function waitForSlot() {
+    for (
+      let wait = next - performance.now();
+      wait > 0;
+      wait = next - performance.now()
+    ) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(Math.ceil(wait), 2_147_483_647)),
+      );
+    }
+    next = performance.now() + interval;
+  }
+  return function enqueue<T>(
+    send: (
+      defer: (delay: number) => void,
+      wait: () => Promise<void>,
+    ) => Promise<T>,
+  ) {
     const pending = tail.then(async () => {
-      const wait = next - performance.now();
-      if (wait > 0)
-        await new Promise((resolve) => setTimeout(resolve, Math.ceil(wait)));
-      next = performance.now() + interval;
-      return send(() => {
-        next = performance.now() + backoff;
-      });
+      await waitForSlot();
+      return send((delay) => {
+        next = Math.max(next, performance.now() + delay);
+      }, waitForSlot);
     });
     tail = pending.then(
       () => {},
@@ -53,6 +68,17 @@ function rateLimiter() {
     );
     return pending;
   };
+}
+
+function retryDelay(response: Response, attempt: number) {
+  const header = response.headers.get("Retry-After")?.trim();
+  if (header) {
+    const milliseconds = /^\d+$/.test(header)
+      ? Number(header) * 1000
+      : Date.parse(header) - Date.now();
+    if (Number.isSafeInteger(milliseconds)) return Math.max(0, milliseconds);
+  }
+  return backoff * 2 ** attempt;
 }
 
 export function scryfallClient(
@@ -77,7 +103,7 @@ export function scryfallClient(
       if (hit && hit.updatedAt > Date.now() - cacheTtl) {
         return readDocument(hit);
       }
-      return enqueue(async (defer) => {
+      return enqueue(async (defer, wait) => {
         const headers = { Accept: "application/json" };
         const init = body
           ? {
@@ -87,19 +113,23 @@ export function scryfallClient(
             }
           : { headers };
         let response: Response;
-        try {
-          response = await fetcher(origin + path, {
-            ...init,
-            signal: AbortSignal.timeout(30_000),
-          });
-        } catch {
-          throw new Error("Could not reach api.scryfall.com. Try again.");
-        }
-        if (response.status === 429) {
-          defer();
-          throw new Error(
-            "Scryfall is rate-limiting requests. Wait 30 seconds and try again.",
-          );
+        for (let attempt = 0; ; attempt++) {
+          try {
+            response = await fetcher(origin + path, {
+              ...init,
+              signal: AbortSignal.timeout(30_000),
+            });
+          } catch {
+            throw new Error("Could not reach api.scryfall.com. Try again.");
+          }
+          if (response.status !== 429) break;
+          defer(retryDelay(response, attempt));
+          if (attempt === retries) {
+            throw new Error(
+              "Scryfall is still rate-limiting requests. Try again later.",
+            );
+          }
+          await wait();
         }
         const missing = response.status === 404 && allowMissing;
         if (!missing && !response.ok) {

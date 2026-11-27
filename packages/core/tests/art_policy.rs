@@ -1,13 +1,22 @@
 mod common;
 
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use deckpress_core::art_policy::{ArtChangeKind, ArtPolicies, ArtPolicy, Border, Frame, Treatment};
+use deckpress_core::art_policy::{
+    ArtChangeKind, ArtPolicies, ArtPolicy, ArtPreviewProgress, Border, Frame, Treatment,
+};
 use deckpress_core::models::{PrintLanguagePolicy, PrintLanguagePreferences, Provider, Zone};
 use deckpress_core::providers::{normalize_scryfall, Providers};
 use deckpress_core::store::Store;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::TcpListener,
+};
 
 const ORACLE: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
 const SETS_URL: &str = "https://api.scryfall.com/sets";
@@ -40,10 +49,26 @@ fn search_oracle(
     has_more: bool,
     data: &[Value],
 ) {
+    let query = match language {
+        Some(language) => {
+            store
+                .remove("cache", &format!("language-printings:{language}:{oracle}"))
+                .unwrap();
+            format!("(oracleid:{oracle}) lang:{language} game:paper")
+        }
+        None => {
+            store
+                .remove("cache", &format!("policy-printings:{oracle}"))
+                .unwrap();
+            format!("oracleid:{oracle} game:paper")
+        }
+    };
+    record_search(store, &query, page, has_more, data);
+}
+
+fn record_search(store: &Store, query: &str, page: u32, has_more: bool, data: &[Value]) {
     let mut url = url::Url::parse("https://api.scryfall.com/cards/search").unwrap();
-    let suffix = language.map_or(String::new(), |lang| format!(" lang:{lang}"));
-    url.query_pairs_mut()
-        .append_pair("q", &format!("oracleid:{oracle} game:paper{suffix}"));
+    url.query_pairs_mut().append_pair("q", query);
     record(
         store,
         &format!(
@@ -90,6 +115,147 @@ fn preferences(providers: &Providers, language: &str, policy: PrintLanguagePolic
             policy,
         })
         .unwrap();
+}
+
+#[tokio::test]
+async fn set_preview_batches_and_caches_pages_and_retries_the_throttled_page() {
+    let cards = cards();
+    let base = printing(&cards, "m11", "en");
+    let mut input = common::new_deck("Batched set preview");
+    for id in 1..=100 {
+        let mut raw = base.clone();
+        raw["oracle_id"] = json!(uuid::Uuid::from_u128(id));
+        input.entries.push(entry(&raw));
+    }
+    let mut duplicate = input.entries[0].clone();
+    duplicate.id = deckpress_core::models::new_id();
+    input.entries.push(duplicate);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = url::Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let fixture = base.clone();
+    let (tx, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    let mock = tokio::spawn(async move {
+        let mut throttled = false;
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let path = line.split_whitespace().nth(1).unwrap();
+            let url = origin_for_path(path);
+            let params: std::collections::HashMap<_, _> = url.query_pairs().collect();
+            let q = &params["q"];
+            let page = params["page"].parse::<u32>().unwrap();
+            let language = if q.contains("lang:es") { "es" } else { "en" };
+            let ids: Vec<_> = q
+                .split("oracleid:")
+                .skip(1)
+                .map(|term| &term[..36])
+                .collect();
+            while {
+                line.clear();
+                stream.read_line(&mut line).await.unwrap() > 0 && line != "\r\n"
+            } {}
+            let paginated = ids[0] == "00000000-0000-0000-0000-000000000001" && language == "en";
+            let rate_limited = paginated && page == 2 && !throttled;
+            let (status, header, body) = if rate_limited {
+                throttled = true;
+                (
+                    "429 Too Many Requests",
+                    "Retry-After: 1\r\n",
+                    "{}".to_owned(),
+                )
+            } else {
+                let page_ids = match (paginated, page) {
+                    (true, 1) => &ids[..6],
+                    (true, 2) => &ids[6..],
+                    (false, 1) => &ids[..],
+                    _ => panic!("Unexpected page: {page}"),
+                };
+                let data: Vec<_> = page_ids
+                    .iter()
+                    .map(|id| {
+                        let mut raw = in_set(&fixture, "fdc", "2024-11-15");
+                        raw["oracle_id"] = json!(id);
+                        raw["lang"] = json!(language);
+                        raw
+                    })
+                    .collect();
+                (
+                    "200 OK",
+                    "",
+                    json!({"data": data, "has_more": paginated && page == 1}).to_string(),
+                )
+            };
+            tx.send((q.to_string(), page, ids.len(), rate_limited, Instant::now()))
+                .unwrap();
+            stream.get_mut().write_all(format!(
+                "HTTP/1.1 {status}\r\n{header}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            ).as_bytes()).await.unwrap();
+        }
+    });
+
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::with_scryfall_origin(store.clone(), origin).unwrap());
+    preferences(&providers, "es", PrintLanguagePolicy::Strict);
+    let service = ArtPolicies::new(store.clone(), providers);
+    let deck = store.create_deck(input).unwrap();
+    let updates = std::sync::Mutex::new(Vec::new());
+    let preview = service
+        .preview_policy_with_progress(
+            &deck.id,
+            deck.revision,
+            set_policy("fdc", false),
+            |update| {
+                updates.lock().unwrap().push(update);
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.changes.len(), 101);
+    assert!(preview.changes.iter().all(|change| change
+        .after
+        .as_ref()
+        .is_some_and(|art| { art.set == "fdc" && art.language == "es" })));
+    let observed: Vec<_> = std::iter::from_fn(|| requests.try_recv().ok()).collect();
+    assert_eq!(observed.len(), 20);
+    assert_eq!(observed.iter().map(|entry| entry.2).max(), Some(12));
+    let throttled = &observed[1];
+    let retry = &observed[2];
+    assert!(throttled.3);
+    assert!(!retry.3);
+    assert_eq!((&throttled.0, throttled.1), (&retry.0, retry.1));
+    assert!(retry.4.duration_since(throttled.4) >= Duration::from_secs(1));
+    let updates = updates.into_inner().unwrap();
+    assert!(updates.iter().any(|update| matches!(
+        update,
+        ArtPreviewProgress::RateLimited {
+            retry_after_seconds: 1
+        }
+    )));
+    assert!(
+        matches!(updates.last(), Some(ArtPreviewProgress::Printings { language: Some(language), done: 100, total: 100 }) if language == "es")
+    );
+
+    let mut input = common::new_deck("Different deck, shared printing cache");
+    input.entries = deck.entries[4..25].to_vec();
+    let subset = store.create_deck(input).unwrap();
+    let warm = service
+        .preview_policy(&subset.id, subset.revision, set_policy("fdc", false))
+        .await
+        .unwrap();
+    assert_eq!(warm.changes.len(), 21);
+    assert!(
+        requests.try_recv().is_err(),
+        "cached cards must not make requests for a new batch composition"
+    );
+    mock.abort();
+}
+
+fn origin_for_path(path: &str) -> url::Url {
+    url::Url::parse(&format!("http://localhost{path}")).unwrap()
 }
 
 #[tokio::test]
@@ -227,15 +393,21 @@ async fn family_matches_commander_and_leaves_unmatched_and_protected_art_untouch
     preferences(&providers, "en", PrintLanguagePolicy::Strict);
     let service = ArtPolicies::new(store.clone(), providers.clone());
     record_sets(&store);
-    search(&store, None, 1, false, &[in_set(base, "ecc", "2026-01-23")]);
     let dfc_oracle = old_dfc["oracle_id"].as_str().unwrap();
-    search_oracle(
+    let mut oracles = [ORACLE, dfc_oracle];
+    oracles.sort_unstable();
+    record_search(
         &store,
-        dfc_oracle,
-        None,
+        &format!(
+            "(oracleid:{} or oracleid:{}) game:paper",
+            oracles[0], oracles[1]
+        ),
         1,
         false,
-        &[in_set(old_dfc, "pecl", "2026-01-23")],
+        &[
+            in_set(base, "ecc", "2026-01-23"),
+            in_set(old_dfc, "pecl", "2026-01-23"),
+        ],
     );
 
     let mut pinned = entry(base);
@@ -506,17 +678,13 @@ async fn double_faced_localization_requires_both_illustrations() {
         "https://api.scryfall.com/cards/isd/51/es",
         &wrong_back,
     );
-    let mut search_url = url::Url::parse("https://api.scryfall.com/cards/search").unwrap();
-    search_url.query_pairs_mut().append_pair(
-        "q",
-        &format!("oracleid:{} game:paper lang:es", old.card.oracle_id),
-    );
-    record(
+    search_oracle(
         &store,
-        &format!(
-            "{search_url}&unique=prints&include_multilingual=true&order=released&dir=desc&page=1"
-        ),
-        &json!({"data": [wrong_back], "has_more": false}),
+        &old.card.oracle_id,
+        Some("es"),
+        1,
+        false,
+        &[wrong_back],
     );
     let mismatch = service
         .preview_localization(&deck.id, applied.revision, &old.id, &old.front_art().id)
