@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { deckSchema, printSettingsSchema } from "../../core/index.ts";
+import { downloadBlob } from "../backend/download.ts";
 import { PRINT_INIT_TIMEOUT_MS, runPrintWorker, webJobs } from "./jobs.ts";
 import type { PrintResponse } from "./protocol.ts";
 
@@ -9,6 +10,7 @@ vi.mock("./print-worker.ts?worker", () => ({
     return createWorker();
   },
 }));
+vi.mock("../backend/download.ts");
 
 const settings = printSettingsSchema.parse({});
 const calibration = { kind: "calibration", settings } as const;
@@ -101,6 +103,10 @@ it("fails a silent worker, advances the queue and allows a fresh retry with the 
     status: "completed",
   });
   expect(retry.terminate).toHaveBeenCalledOnce();
+  expect(webJobs.list()[0]?.downloadStarted).toBeUndefined();
+  webJobs.save(retried.id, retried.fileName);
+  expect(downloadBlob).toHaveBeenCalledWith(retried.fileName, result.file);
+  expect(webJobs.list()[0]?.downloadStarted).toBe(true);
 });
 
 it("bounds model initialization separately without extending it for download progress", async () => {

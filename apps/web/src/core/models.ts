@@ -256,6 +256,7 @@ export const jobSchema = z.object({
   settings: printSettingsSchema.optional(),
   failureTarget: printFailureTargetSchema.optional(),
   initTimedOut: z.literal(true).optional(),
+  downloadStarted: z.literal(true).optional(),
 });
 export type PrintJob = z.infer<typeof jobSchema>;
 

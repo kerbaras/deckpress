@@ -189,6 +189,7 @@ export const webJobs = {
     const record = records.get(id);
     if (!record?.file) throw new Error("This export is not ready to download");
     downloadBlob(destination, record.file);
+    record.job.downloadStarted = true;
     return record.file.size;
   },
   get busy() {
