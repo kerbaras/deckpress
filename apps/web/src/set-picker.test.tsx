@@ -26,6 +26,48 @@ const ecc: SetInfo = {
   parentSetCode: "ecl",
 };
 
+it("selects Foundations Commander rather than its tokens with Down and Enter", async () => {
+  const user = userEvent.setup();
+  const fdc: SetInfo = {
+    ...ecc,
+    code: "fdc",
+    name: "Foundations Commander",
+    parentSetCode: "fdn",
+    releasedAt: "2024-11-15",
+  };
+  vi.spyOn(api, "listSets").mockResolvedValue([
+    {
+      ...fdc,
+      code: "tfdc",
+      name: "Foundations Commander Tokens",
+      setType: "token",
+      parentSetCode: "fdc",
+      releasedAt: "2026-10-02",
+    },
+    fdc,
+  ]);
+  vi.spyOn(api, "setCoverage").mockResolvedValue([]);
+  const { onPreview } = renderPolicy({
+    kind: "matchSet",
+    set: "",
+    family: true,
+  });
+  const input = screen.getByRole("combobox", { name: "Set" });
+  await user.type(input, "Foundations Commander");
+  const options = await within(
+    await screen.findByRole("listbox"),
+  ).findAllByRole("option");
+  expect(options[0]).toHaveAccessibleName(/^Foundations Commander\s*FDC\b/);
+  await user.keyboard("{ArrowDown}{Enter}");
+  expect(input).toHaveValue(fdc.name);
+  await user.click(screen.getByRole("button", { name: "Preview art policy" }));
+  expect(onPreview).toHaveBeenCalledWith({
+    kind: "matchSet",
+    set: "fdc",
+    family: true,
+  });
+});
+
 function renderPolicy(current?: ArtPolicy, client = new QueryClient()) {
   const onPreview = vi.fn();
   return {

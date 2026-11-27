@@ -9,6 +9,7 @@
     {"code":"yecl","name":"Alchemy: Lorwyn Eclipsed","set_type":"alchemy","parent_set_code":"ecl","digital":true,"released_at":"2026-02-03","icon_svg_uri":"https://svgs.scryfall.io/sets/yecl.svg","card_count":33},
     {"code":"fdn","name":"Foundations","set_type":"core","digital":false,"released_at":"2024-11-15","icon_svg_uri":"https://svgs.scryfall.io/sets/fdn.svg","card_count":771},
     {"code":"fdc","name":"Foundations Commander","set_type":"commander","parent_set_code":"fdn","digital":false,"released_at":"2024-11-15","icon_svg_uri":"https://svgs.scryfall.io/sets/fdc.svg","card_count":319},
+    {"code":"pfdn","name":"Foundations Promos","set_type":"promo","parent_set_code":"fdn","digital":false,"released_at":"2024-11-15","icon_svg_uri":"https://svgs.scryfall.io/sets/pfdn.svg","card_count":80},
     {"code":"tfdc","name":"Foundations Commander Tokens","set_type":"token","parent_set_code":"fdc","digital":false,"released_at":"2026-10-02","icon_svg_uri":"https://svgs.scryfall.io/sets/tfdc.svg","card_count":17},
     {"code":"tfdn","name":"Foundations Tokens","set_type":"token","parent_set_code":"fdn","digital":false,"released_at":"2024-11-15","icon_svg_uri":"https://svgs.scryfall.io/sets/tfdn.svg","card_count":33},
     {"code":"afdn","name":"Foundations Art Series","set_type":"memorabilia","parent_set_code":"fdn","digital":false,"released_at":"2024-11-15","icon_svg_uri":"https://svgs.scryfall.io/sets/afdn.svg","card_count":55},

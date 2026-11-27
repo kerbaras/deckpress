@@ -412,10 +412,13 @@ async fn family_matches_commander_and_leaves_unmatched_and_protected_art_untouch
 
     let mut pinned = entry(base);
     pinned.art_pinned = true;
+    pinned.quantity = 2;
     let mut non_scryfall = entry(base);
     non_scryfall.card.faces[0].provider = Provider::Mpc;
     let mut input = common::new_deck("Lorwyn");
-    input.entries = vec![entry(base), entry(old_dfc), pinned, non_scryfall];
+    let mut matched = entry(base);
+    matched.quantity = 3;
+    input.entries = vec![matched, entry(old_dfc), pinned, non_scryfall];
     let deck = store.create_deck(input).unwrap();
     let legacy: ArtPolicy =
         serde_json::from_value(json!({"kind": "matchSet", "set": "ecl"})).unwrap();
@@ -451,7 +454,9 @@ async fn family_matches_commander_and_leaves_unmatched_and_protected_art_untouch
 
     let rows = providers.set_coverage(&deck.entries).await.unwrap();
     let lorwyn = rows.iter().find(|row| row.set.code == "ecl").unwrap();
-    assert_eq!((lorwyn.count, lorwyn.total), (1, 2));
+    assert_eq!((lorwyn.count, lorwyn.total), (3, 7));
+    let commander = rows.iter().find(|row| row.set.code == "ecc").unwrap();
+    assert_eq!(commander.exact, 3);
     assert!(providers
         .set_coverage(&deck.entries[2..])
         .await

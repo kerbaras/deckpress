@@ -621,6 +621,7 @@ impl Providers {
         let mut entry_sets = Vec::new();
         for entry in entries {
             if !policy_can_change(entry) {
+                entry_sets.push((entry.quantity, Vec::new()));
                 continue;
             }
             let codes = inventory
@@ -634,7 +635,7 @@ impl Providers {
                 })
                 .map(|print| print.set.clone())
                 .collect();
-            entry_sets.push(codes);
+            entry_sets.push((entry.quantity, codes));
         }
         Ok(coverage(&entry_sets, &sets))
     }
