@@ -1,8 +1,12 @@
 use std::{cmp::Ordering, collections::HashMap};
 
-use super::{ArtPolicy, Printing, Treatment};
+use super::{
+    languages, plan_change, policy_can_change, ArtChange, ArtChangeKind, ArtPolicy, Printing,
+    Treatment,
+};
 #[cfg(feature = "native")]
 use crate::error::{AppError, AppResult};
+use crate::models::{DeckEntry, PrintLanguagePolicy};
 
 #[cfg(feature = "native")]
 impl ArtPolicy {
@@ -27,12 +31,46 @@ impl ArtPolicy {
     }
 }
 
-pub(crate) struct PolicySelection<'a> {
-    pub(crate) policy: &'a ArtPolicy,
-    pub(crate) family_ranks: Option<&'a HashMap<String, u8>>,
+pub struct PolicySelection<'a> {
+    pub policy: &'a ArtPolicy,
+    pub family_ranks: Option<&'a HashMap<String, u8>>,
 }
 
 impl PolicySelection<'_> {
+    pub fn plan_entry(
+        &self,
+        entry: &DeckEntry,
+        candidates: &[Printing],
+        preferred: &[String],
+        missing: PrintLanguagePolicy,
+    ) -> (ArtChange, Option<DeckEntry>) {
+        if !policy_can_change(entry) {
+            return (
+                ArtChange::new(
+                    entry,
+                    ArtChangeKind::Pinned,
+                    None,
+                    "Manual art is protected.",
+                ),
+                None,
+            );
+        }
+        let print = self
+            .anchor(candidates, entry.card.faces.len())
+            .and_then(|anchor| {
+                languages(preferred, missing)
+                    .find_map(|language| choose_printing(anchor, candidates, language, Some(self)))
+            });
+        plan_change(entry, print, preferred, false)
+    }
+
+    pub fn anchor<'a>(&self, candidates: &'a [Printing], faces: usize) -> Option<&'a Printing> {
+        candidates
+            .iter()
+            .filter(|print| self.permits(print) && print.illustrations.len() == faces)
+            .min_by(|a, b| self.compare(a, b, true))
+    }
+
     pub(crate) fn permits(&self, printing: &Printing) -> bool {
         printing.paper
             && !printing.promo
@@ -73,8 +111,7 @@ impl PolicySelection<'_> {
         self.treatment_matches(b).cmp(&self.treatment_matches(a))
     }
 
-    #[cfg(feature = "native")]
-    pub(super) fn compare(&self, a: &Printing, b: &Printing, deck_policy: bool) -> Ordering {
+    fn compare(&self, a: &Printing, b: &Printing, deck_policy: bool) -> Ordering {
         self.family_ranks
             .as_ref()
             .map_or(Ordering::Equal, |ranks| {
@@ -119,8 +156,8 @@ pub(crate) fn same_illustrations(anchor: &Printing, candidate: &Printing) -> boo
                 && anchor.illustrations == candidate.illustrations))
 }
 
-#[cfg(feature = "native")]
-pub(super) fn localized<'a>(
+/// Select a scan for the policy's chosen illustration, or for a manual art pick.
+pub fn choose_printing<'a>(
     anchor: &Printing,
     candidates: impl IntoIterator<Item = &'a Printing>,
     language: &str,

@@ -1,12 +1,12 @@
 use serde::Serialize;
+use std::collections::BTreeMap;
 
-use super::selection::{localized, PolicySelection};
 use super::{
-    languages, policy_can_change, ArtChange, ArtChangeKind, ArtPolicies, ArtPolicy, Printing,
+    choose_printing, languages, plan_change, policy_can_change, requested_languages, ArtChange,
+    ArtChangeKind, ArtPolicies, ArtPolicy, PolicySelection,
 };
 use crate::{
     error::{AppError, AppResult},
-    models::{Art, DeckEntry, PrintLanguagePreferences},
     providers::PrintingLookupProgress,
     set_family::family,
 };
@@ -23,62 +23,6 @@ pub enum ArtPreviewProgress {
         #[serde(rename = "retryAfterSeconds")]
         retry_after_seconds: u64,
     },
-}
-
-fn plan_change(
-    entry: &DeckEntry,
-    candidate: Option<&Printing>,
-    preferences: &PrintLanguagePreferences,
-    manual: bool,
-) -> (ArtChange, Option<DeckEntry>) {
-    let Some((print, scans)) = candidate.and_then(|print| Some((print, print.scans.as_ref()?)))
-    else {
-        return (
-            ArtChange::new(
-                entry,
-                ArtChangeKind::Unmatched,
-                None,
-                "No usable same-illustration scan matches the requested language and policy.",
-            ),
-            None,
-        );
-    };
-    let fallback = print.language == "en" && !preferences.languages.iter().any(|lang| lang == "en");
-    let mut next = entry.clone();
-    if manual {
-        next.art_pinned = true;
-        let mark_fallback = |scan: &Art| Art {
-            english_fallback: fallback,
-            ..scan.clone()
-        };
-        next.selected_art = scans.first().map(mark_fallback);
-        next.selected_back = scans.get(1).map(mark_fallback);
-    } else {
-        next.policy_art = Some(scans.clone());
-        next.language_anchor = None;
-    }
-    next.requested_languages = preferences.languages.clone();
-    let (kind, reason) = if fallback {
-        (
-            ArtChangeKind::Fallback,
-            if manual {
-                "Same illustration; using the English scan."
-            } else {
-                "No preferred-language scan for the policy illustration; using English."
-            },
-        )
-    } else if next.front_art() == entry.front_art() && next.back_art() == entry.back_art() {
-        (
-            ArtChangeKind::Unchanged,
-            "The displayed printing already matches.",
-        )
-    } else {
-        (ArtChangeKind::Changed, "A matching printing is available.")
-    };
-    (
-        ArtChange::new(entry, kind, scans.first().cloned(), reason),
-        (next != *entry).then_some(next),
-    )
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -164,62 +108,71 @@ impl ArtPolicies {
             .map(|entry| {
                 policy_can_change(entry)
                     .then(|| {
-                        options(&entry.card.oracle_id)
-                            .iter()
-                            .filter(|print| {
-                                selection.permits(print)
-                                    && print.illustrations.len() == entry.card.faces.len()
-                            })
-                            .min_by(|a, b| selection.compare(a, b, true))
+                        selection.anchor(options(&entry.card.oracle_id), entry.card.faces.len())
                     })
                     .flatten()
             })
             .collect();
+        let preferred: Vec<_> = before
+            .entries
+            .iter()
+            .map(|entry| requested_languages(entry, None, &preferences.languages))
+            .collect();
+        let mut language_orders: Vec<_> = preferred
+            .iter()
+            .map(|preferred| languages(preferred, preferences.policy))
+            .collect();
         let mut selected = vec![None; anchors.len()];
-        for language in languages(&preferences) {
-            let mut missing = Vec::new();
+        loop {
+            let mut missing = BTreeMap::<_, Vec<_>>::new();
             for (index, anchor) in anchors.iter().enumerate() {
                 let Some(anchor) = anchor.filter(|_| selected[index].is_none()) else {
                     continue;
                 };
+                let Some(language) = language_orders[index].next() else {
+                    continue;
+                };
                 let oracle = anchor.oracle_id.as_str();
-                let exact = localized(anchor, options(oracle), language, Some(&selection))
+                let exact = choose_printing(anchor, options(oracle), language, Some(&selection))
                     .filter(|print| print.set == anchor.set && print.collector == anchor.collector);
                 if let Some(print) = exact {
                     selected[index] = Some(print.clone());
                 } else {
-                    missing.push((index, anchor));
+                    missing.entry(language).or_default().push((index, anchor));
                 }
             }
             if missing.is_empty() {
-                continue;
+                break;
             }
-            let translations = self
-                .providers
-                .printing_inventory(
-                    missing
-                        .iter()
-                        .map(|(_, anchor)| anchor.oracle_id.as_str())
-                        .collect(),
-                    Some(language),
-                    |update| report(Some(language), update),
-                )
-                .await?;
-            for (index, anchor) in missing {
-                let oracle = anchor.oracle_id.as_str();
-                selected[index] = localized(
-                    anchor,
-                    options(oracle)
-                        .iter()
-                        .chain(translations.get(oracle).into_iter().flatten()),
-                    language,
-                    Some(&selection),
-                )
-                .cloned();
+            for (language, entries) in missing {
+                let translations = self
+                    .providers
+                    .printing_inventory(
+                        entries
+                            .iter()
+                            .map(|(_, anchor)| anchor.oracle_id.as_str())
+                            .collect(),
+                        Some(language),
+                        |update| report(Some(language), update),
+                    )
+                    .await?;
+                for (index, anchor) in entries {
+                    let oracle = anchor.oracle_id.as_str();
+                    selected[index] = choose_printing(
+                        anchor,
+                        options(oracle)
+                            .iter()
+                            .chain(translations.get(oracle).into_iter().flatten()),
+                        language,
+                        Some(&selection),
+                    )
+                    .cloned();
+                }
             }
         }
         let mut changes = Vec::with_capacity(before.entries.len());
-        for (entry, selected) in next.entries.iter_mut().zip(&selected) {
+        for ((entry, selected), preferred) in next.entries.iter_mut().zip(&selected).zip(preferred)
+        {
             if !policy_can_change(entry) {
                 changes.push(ArtChange::new(
                     entry,
@@ -229,7 +182,7 @@ impl ArtPolicies {
                 ));
                 continue;
             }
-            let (change, replacement) = plan_change(entry, selected.as_ref(), &preferences, false);
+            let (change, replacement) = plan_change(entry, selected.as_ref(), preferred, false);
             changes.push(change);
             if let Some(replacement) = replacement {
                 *entry = replacement;
@@ -258,13 +211,13 @@ impl ArtPolicies {
             anchor.oracle_id == entry.card.oracle_id
                 && anchor.illustrations.len() == entry.card.faces.len()
         }) {
-            for language in languages(&preferences) {
-                if localized(&anchor, [&anchor], language, None).is_some() {
+            for language in languages(&preferences.languages, preferences.policy) {
+                if choose_printing(&anchor, [&anchor], language, None).is_some() {
                     candidate = Some(anchor);
                     break;
                 }
                 if let Some(exact) = self.providers.policy_exact(&anchor, language).await? {
-                    if localized(&anchor, [&exact], language, None).is_some() {
+                    if choose_printing(&anchor, [&exact], language, None).is_some() {
                         candidate = Some(exact);
                         break;
                     }
@@ -274,13 +227,14 @@ impl ArtPolicies {
                     .language_printings([anchor.oracle_id.as_str()].into(), language)
                     .await?;
                 let options = inventory.remove(&anchor.oracle_id).unwrap_or_default();
-                if let Some(print) = localized(&anchor, &options, language, None) {
+                if let Some(print) = choose_printing(&anchor, &options, language, None) {
                     candidate = Some(print.clone());
                     break;
                 }
             }
         }
-        let (change, replacement) = plan_change(entry, candidate.as_ref(), &preferences, true);
+        let (change, replacement) =
+            plan_change(entry, candidate.as_ref(), &preferences.languages, true);
         let mut next = before.clone();
         if let Some(replacement) = replacement {
             if let Some(entry) = next.entries.iter_mut().find(|item| item.id == entry_id) {
