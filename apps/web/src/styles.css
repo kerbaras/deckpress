@@ -1504,6 +1504,10 @@ button.first-run-empty {
 .import-line {
   font-weight: 600;
 }
+.import-input {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .import-boards {
   list-style: none;
   margin: 0;

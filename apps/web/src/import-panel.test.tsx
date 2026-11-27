@@ -478,6 +478,61 @@ it("announces a new resolution after a previous save failed", async () => {
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
+it("shows board labels in the warning list with their whitespace as written", async () => {
+  const user = userEvent.setup();
+  mockResolver();
+  const style = document.createElement("style");
+  style.textContent = readFileSync(
+    join(import.meta.dirname, "styles.css"),
+    "utf8",
+  );
+  document.head.append(style);
+  try {
+    render(<ImportPanel existing={0} onApply={vi.fn()} />);
+    await user.click(screen.getByLabelText("Decklist"));
+    await user.paste(
+      [
+        "// Exported",
+        "Name,Quantity,Board",
+        'Opt,1,"Testing',
+        '  // Board: notes"',
+        'Opt,2,"Testing',
+        '// Board: notes"',
+        "Shock,1,Two  spaces",
+        "Lurrus of the Dream-Den,1,Companion",
+        "Negate,x,Sideboard",
+      ].join("\n"),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Resolve on Scryfall" }),
+    );
+
+    const warnings = await screen.findByRole("list", {
+      name: "Imported with warnings",
+    });
+    const labels = within(warnings)
+      .getAllByRole("listitem")
+      .map((item) => item.querySelector("code"));
+    expect(labels.map((label) => label?.textContent)).toEqual([
+      "Testing\n  // Board: notes",
+      "Testing\n// Board: notes",
+      "Two  spaces",
+    ]);
+    for (const label of labels)
+      expect(getComputedStyle(label as Element).whiteSpace).toBe("pre-wrap");
+    expect(warnings).toHaveTextContent("Line 3");
+    expect(warnings).toHaveTextContent("Line 5");
+    expect(warnings).toHaveTextContent("Line 7");
+    const csvErrors = screen.getByRole("list", { name: "CSV errors" });
+    expect(csvErrors).toHaveTextContent("Line 9");
+    expect(
+      screen.getByRole("list", { name: "Resolved cards by board" }),
+    ).toHaveTextContent(/Companion/);
+  } finally {
+    style.remove();
+  }
+});
+
 it("keeps the import status region rendered before it has anything to say", async () => {
   const user = userEvent.setup();
   mockResolver();
