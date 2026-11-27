@@ -5,6 +5,31 @@ import { scryfallClient } from "./scryfall.ts";
 
 afterEach(() => vi.useRealTimers());
 
+it("honors Retry-After before retrying a throttled search and caches the result", async () => {
+  vi.useFakeTimers({ toFake: ["performance", "setTimeout", "Date"] });
+  const fakeFetch = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "2" },
+      }),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: [fixture.exact_fr] })),
+    );
+  const client = scryfallClient(memoryDocuments(), fakeFetch);
+  const pending = client.search("set:m10", 1);
+  await vi.advanceTimersByTimeAsync(1999);
+  expect(fakeFetch).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  await expect(pending).resolves.toMatchObject({ cards: [fixture.exact_fr] });
+  await expect(client.search("set:m10", 1)).resolves.toMatchObject({
+    cards: [fixture.exact_fr],
+  });
+  expect(fakeFetch).toHaveBeenCalledTimes(2);
+});
+
 it("serializes requests, spaces their starts by 100 ms, and uses cached responses including 404", async () => {
   vi.useFakeTimers({ toFake: ["performance", "setTimeout", "Date"] });
   const starts: number[] = [];

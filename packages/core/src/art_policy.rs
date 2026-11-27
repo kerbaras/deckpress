@@ -15,7 +15,7 @@ use crate::{
     language_deck,
     language_switch::LanguageTier,
     models::{new_id, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences},
-    providers::{validate_language, Providers},
+    providers::{validate_language, PrintingLookupProgress, Providers},
     set_family::family,
     store::Store,
 };
@@ -282,6 +282,21 @@ pub enum ArtChangeKind {
 
 #[cfg(feature = "native")]
 #[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ArtPreviewProgress {
+    Printings {
+        language: Option<String>,
+        done: usize,
+        total: usize,
+    },
+    RateLimited {
+        #[serde(rename = "retryAfterSeconds")]
+        retry_after_seconds: u64,
+    },
+}
+
+#[cfg(feature = "native")]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtChange {
     pub entry_id: String,
@@ -503,6 +518,17 @@ impl ArtPolicies {
         revision: u64,
         policy: ArtPolicy,
     ) -> AppResult<ArtPreview> {
+        self.preview_policy_with_progress(deck_id, revision, policy, |_| {})
+            .await
+    }
+
+    pub async fn preview_policy_with_progress(
+        &self,
+        deck_id: &str,
+        revision: u64,
+        policy: ArtPolicy,
+        progress: impl Fn(ArtPreviewProgress),
+    ) -> AppResult<ArtPreview> {
         policy.validate()?;
         let (before, preview_id) = self.begin_preview(deck_id, revision)?;
         let preferences = self.providers.preferences_for_deck(&before)?;
@@ -524,10 +550,96 @@ impl ArtPolicies {
             policy: &policy,
             family_ranks,
         };
-        let mut inventory = HashMap::<String, Vec<Printing>>::new();
-        let mut translations = HashMap::<(String, String), Vec<Printing>>::new();
+        let report = |language: Option<&str>, update| {
+            progress(match update {
+                PrintingLookupProgress::Cards { done, total } => ArtPreviewProgress::Printings {
+                    language: language.map(str::to_owned),
+                    done,
+                    total,
+                },
+                PrintingLookupProgress::RateLimited(delay) => ArtPreviewProgress::RateLimited {
+                    retry_after_seconds: delay
+                        .as_secs()
+                        .saturating_add(u64::from(delay.subsec_nanos() > 0)),
+                },
+            });
+        };
+        let inventory = self
+            .providers
+            .printing_inventory(
+                before
+                    .entries
+                    .iter()
+                    .filter(|entry| policy_can_change(entry))
+                    .map(|entry| entry.card.oracle_id.as_str())
+                    .collect(),
+                None,
+                |update| report(None, update),
+            )
+            .await?;
+        let options = |oracle: &str| inventory.get(oracle).map_or(&[][..], Vec::as_slice);
+        let anchors: Vec<_> = before
+            .entries
+            .iter()
+            .map(|entry| {
+                policy_can_change(entry)
+                    .then(|| {
+                        options(&entry.card.oracle_id)
+                            .iter()
+                            .filter(|print| {
+                                selection.permits(print)
+                                    && print.illustrations.len() == entry.card.faces.len()
+                            })
+                            .min_by(|a, b| selection.compare(a, b, true))
+                    })
+                    .flatten()
+            })
+            .collect();
+        let mut selected = vec![None; anchors.len()];
+        for language in languages(&preferences) {
+            let mut missing = Vec::new();
+            for (index, anchor) in anchors.iter().enumerate() {
+                let Some(anchor) = anchor.filter(|_| selected[index].is_none()) else {
+                    continue;
+                };
+                let oracle = anchor.oracle_id.as_str();
+                let exact = localized(anchor, options(oracle), language, Some(&selection))
+                    .filter(|print| print.set == anchor.set && print.collector == anchor.collector);
+                if let Some(print) = exact {
+                    selected[index] = Some(print.clone());
+                } else {
+                    missing.push((index, anchor));
+                }
+            }
+            if missing.is_empty() {
+                continue;
+            }
+            let translations = self
+                .providers
+                .printing_inventory(
+                    missing
+                        .iter()
+                        .map(|(_, anchor)| anchor.oracle_id.as_str())
+                        .collect(),
+                    Some(language),
+                    |update| report(Some(language), update),
+                )
+                .await?;
+            for (index, anchor) in missing {
+                let oracle = anchor.oracle_id.as_str();
+                selected[index] = localized(
+                    anchor,
+                    options(oracle)
+                        .iter()
+                        .chain(translations.get(oracle).into_iter().flatten()),
+                    language,
+                    Some(&selection),
+                )
+                .cloned();
+            }
+        }
         let mut changes = Vec::with_capacity(before.entries.len());
-        for entry in &mut next.entries {
+        for (entry, selected) in next.entries.iter_mut().zip(&selected) {
             if !policy_can_change(entry) {
                 changes.push(ArtChange::new(
                     entry,
@@ -537,54 +649,6 @@ impl ArtPolicies {
                 ));
                 continue;
             }
-            let oracle = entry.card.oracle_id.as_str();
-            if let std::collections::hash_map::Entry::Vacant(slot) =
-                inventory.entry(oracle.to_owned())
-            {
-                slot.insert(self.providers.policy_printings(oracle, None).await?);
-            }
-            let options = &inventory[oracle];
-            let anchor = options
-                .iter()
-                .filter(|print| {
-                    selection.permits(print) && print.illustrations.len() == entry.card.faces.len()
-                })
-                .min_by(|a, b| selection.compare(a, b, true));
-            let selected = if let Some(anchor) = anchor {
-                let mut selected = None;
-                for language in languages(&preferences) {
-                    let known = localized(anchor, options, language, Some(&selection));
-                    if let Some(print) = known.filter(|print| {
-                        print.set == anchor.set && print.collector == anchor.collector
-                    }) {
-                        selected = Some(print.clone());
-                        break;
-                    }
-                    // The general search does not necessarily include each localized printing.
-                    let key = (oracle.to_owned(), language.to_owned());
-                    if let std::collections::hash_map::Entry::Vacant(slot) =
-                        translations.entry(key.clone())
-                    {
-                        slot.insert(
-                            self.providers
-                                .policy_printings(oracle, Some(language))
-                                .await?,
-                        );
-                    }
-                    if let Some(print) = localized(
-                        anchor,
-                        options.iter().chain(&translations[&key]),
-                        language,
-                        Some(&selection),
-                    ) {
-                        selected = Some(print.clone());
-                        break;
-                    }
-                }
-                selected
-            } else {
-                None
-            };
             let (change, replacement) = plan_change(entry, selected.as_ref(), &preferences, false);
             changes.push(change);
             if let Some(replacement) = replacement {
@@ -625,14 +689,13 @@ impl ArtPolicies {
                         break;
                     }
                 }
-                let options = self
+                let mut inventory = self
                     .providers
-                    .policy_printings(&anchor.oracle_id, Some(language))
+                    .language_printings([anchor.oracle_id.as_str()].into(), language)
                     .await?;
-                if let Some(index) = localized(&anchor, &options, language, None)
-                    .and_then(|print| options.iter().position(|item| item.id == print.id))
-                {
-                    candidate = options.into_iter().nth(index);
+                let options = inventory.remove(&anchor.oracle_id).unwrap_or_default();
+                if let Some(print) = localized(&anchor, &options, language, None) {
+                    candidate = Some(print.clone());
                     break;
                 }
             }

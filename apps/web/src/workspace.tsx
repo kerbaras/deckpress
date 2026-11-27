@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type ArtPreview,
+  type ArtPreviewProgress,
   api,
   confirmAction,
   downloadJson,
@@ -214,6 +215,7 @@ function DeckWorkspace({
     result?: ArtPreview;
     error?: unknown;
     language?: string | undefined;
+    progress?: ArtPreviewProgress;
   } | null>(null);
   const [preserveStudioPreview, setPreserveStudioPreview] = useState(false);
   const [canUndoArt, setCanUndoArt] = useState(false);
@@ -311,7 +313,9 @@ function DeckWorkspace({
     setArtPreview(null);
   }, [registerPolicyPreview]);
   const previewArt = async (
-    request: () => Promise<ArtPreview>,
+    request: (
+      onProgress: (progress: ArtPreviewProgress) => void,
+    ) => Promise<ArtPreview>,
     opener: () => HTMLElement | null,
     language?: string,
   ) => {
@@ -326,7 +330,16 @@ function DeckWorkspace({
     setArtStatus("");
     setArtPreview({ language });
     try {
-      const result = await request();
+      const result = await request((progress) =>
+        setArtPreview((current) =>
+          previewRequest.current === id &&
+          current &&
+          !current.result &&
+          !current.error
+            ? { ...current, progress }
+            : current,
+        ),
+      );
       if (previewRequest.current === id) setArtPreview({ result, language });
     } catch (error) {
       if (previewRequest.current === id) setArtPreview({ error, language });
@@ -334,7 +347,8 @@ function DeckWorkspace({
   };
   const previewPolicy = (policy: ArtPolicy, opener?: HTMLButtonElement) =>
     void previewArt(
-      () => api.previewArtPolicy(deck.id, deck.revision, policy),
+      (onProgress) =>
+        api.previewArtPolicy(deck.id, deck.revision, policy, onProgress),
       () => opener ?? previewButton.current,
     );
   const previewLanguage = (language: string, opener: HTMLSelectElement) =>
@@ -744,6 +758,7 @@ function DeckWorkspace({
         artPreview && (
           <ArtPreviewDialog
             preview={artPreview.result}
+            progress={artPreview.progress}
             busy={artTask.busy}
             error={artPreview.error}
             onKeep={keepArt}

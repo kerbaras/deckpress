@@ -1,3 +1,4 @@
+import { Channel } from "@tauri-apps/api/core";
 import type { SaveDialogOptions } from "@tauri-apps/plugin-dialog";
 import { z } from "zod";
 import {
@@ -242,6 +243,9 @@ export interface StyleProgress {
   done: number;
   total: number;
 }
+export type ArtPreviewProgress =
+  | { kind: "printings"; language: string | null; done: number; total: number }
+  | { kind: "rateLimited"; retryAfterSeconds: number };
 export const windowChromeSchema = z.object({
   platform: z.enum(["macos", "windows", "linux"]),
   customControls: z.boolean(),
@@ -451,12 +455,23 @@ export const api = {
     deckId: string,
     expectedRevision: number,
     policy: ArtPolicy,
-  ) =>
-    command("preview_art_policy", artPreviewSchema, {
-      deckId,
-      expectedRevision,
-      policy,
-    }),
+    onProgress?: (progress: ArtPreviewProgress) => void,
+  ) => {
+    const backend = getBackend();
+    const progress =
+      backend !== webBackend && onProgress
+        ? new Channel(onProgress)
+        : undefined;
+    return parseResponse(
+      backend.call("preview_art_policy", {
+        deckId,
+        expectedRevision,
+        policy,
+        ...(progress && { progress }),
+      }),
+      artPreviewSchema,
+    );
+  },
   previewArtLocalization: (
     deckId: string,
     expectedRevision: number,
