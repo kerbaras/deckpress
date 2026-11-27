@@ -1,7 +1,9 @@
 // Start Chromium with --remote-debugging-port=9222 and a separate user data dir.
 // Build and preview with VITE_TARGET=web, then run:
 // node scripts/check-card-stack-hits.mjs http://localhost:4173/deckpress/ deck.json
-// The deck backup must put Opt first and Ponder second in the same stack.
+// The deck backup must put Opt first and Ponder second in the same stack,
+// with an in-strip English fallback badge on Ponder.
+// Add --before to probe the previous instantaneous :hover raise.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -28,56 +30,89 @@ function paths(selector) {
   const center = (r) => [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)];
   const badge = (card, name) => rect(card.querySelector(name));
   const frame = rect(card);
-  const status = center(badge(card, ".card-status"));
+  const statusBadge = card.querySelector(".card-status");
+  const statusRect = rect(statusBadge);
+  const status = center(statusRect);
+  while (status[0] > Math.ceil(statusRect.left) && document.elementFromPoint(...status) !== statusBadge) {
+    status[0]--;
+  }
   const top = Math.round(frame.top + 14);
   const start = (x) => [Math.round(x), top];
-  const make = (name, type, from, to, expected = "Opt", overlay = null) => {
-    const steps = Math.max(1, Math.ceil(Math.hypot(to[0] - from[0], to[1] - from[1]) / 2));
-    let painted = "Opt";
-    const samples = Array.from({ length: steps + 1 }, (_, i) => {
-      const point = from.map((start, axis) => Math.round(start + (to[axis] - start) * i / steps));
-      if (overlay && document.elementsFromPoint(...point).includes(overlay)) painted = expected;
-      return { point, painted };
-    });
-    return { name, type, to, expected, samples };
-  };
-  const middle = start(frame.left + frame.width / 2);
-  const right = start(frame.right - 18);
-  const result = [
-    make("status", "straight", start(status[0]), status),
-    make("status from center", "diagonal", middle, status),
-    make("status from right", "diagonal", right, status),
-    make("covered Ponder strip", "straight", middle, [middle[0], Math.round(rect(next).top + 30)]),
-  ];
-  for (const badgeName of [".quantity", ".card-language"]) {
-    const own = center(badge(card, badgeName));
-    const overlay = next.querySelector(badgeName);
-    const neighbor = rect(overlay);
-    const target = center(neighbor);
-    if (badgeName === ".card-language" && neighbor.bottom > rect(next).top + 43) {
-      throw new Error("The probe fixture requires Ponder's language label to fit in its strip");
+  const make = (name, type, waypoints, expected = "Opt", dwell = false) => {
+    const points = [waypoints[0]];
+    for (let index = 1; index < waypoints.length; index++) {
+      const from = waypoints[index - 1];
+      const to = waypoints[index];
+      const stepSize = type === "down-then-across" && from[1] === to[1] ? 5 : 2;
+      const steps = Math.ceil(Math.hypot(to[0] - from[0], to[1] - from[1]) / stepSize);
+      for (let i = 1; i <= steps; i++) {
+        const point = from.map((start, axis) => Math.round(start + (to[axis] - start) * i / steps));
+        if (point.some((value, axis) => value !== points.at(-1)[axis])) points.push(point);
+      }
     }
-    result.push(
-      make(`Opt ${badgeName}`, "straight", start(own[0]), own),
-      make(`Opt ${badgeName}`, "diagonal", middle, own),
-      make(`Ponder ${badgeName}`, "straight", start(target[0]), target, "Ponder", overlay),
-      make(`Ponder ${badgeName}`, "diagonal", middle, target, "Ponder", overlay),
-    );
+    const samples = points.map((point) => {
+      const element = document.elementFromPoint(...point);
+      const owner = element?.closest(".playing-card");
+      return {
+        point,
+        painted: owner?.ariaLabel?.replace("Choose art for ", "") ?? null,
+        languageCrossing: owner !== card && !!element?.closest(".card-language"),
+      };
+    });
+    if (samples.at(-1).painted !== expected) throw new Error(`${name}: unexpected painted target`);
+    return { name, type, to:points.at(-1), expected, samples, dwell };
+  };
+  const strip = start(frame.left + 32);
+  const language = next.querySelector(".card-language[data-in-stack-strip]");
+  if (!language || language.textContent !== "English fallback") {
+    throw new Error("Ponder must have an in-strip English fallback language badge");
+  }
+  const crossing = center(rect(language));
+  const right = start(crossing[0]);
+  const diagonal = start(Math.min(frame.right - 3, crossing[0] + 14));
+  const quantity = center(badge(next, ".quantity"));
+  const result = [
+    make("status", "straight", [start(status[0]), status]),
+    make("status from right", "diagonal", [diagonal, crossing, status]),
+    make("status from right", "down-then-across", [right, [right[0], status[1]], status]),
+    make("covered Ponder strip", "straight", [strip, [strip[0], Math.round(rect(next).top + 40)]]),
+    make("Ponder copy", "straight", [start(quantity[0]), quantity], "Ponder"),
+    make("Ponder language", "straight", [right, crossing], "Ponder"),
+    make("Ponder language", "dwell", [right, crossing], "Ponder", true),
+  ];
+  for (const path of result.filter(({name}) => name === "status from right")) {
+    if (!path.samples.some(({languageCrossing}) => languageCrossing)) {
+      throw new Error(`${path.type} never intersects a promoted language badge`);
+    }
   }
   return result;
 }
 
+export async function traceStackPointer(evaluate, points, travel) {
+  await evaluate(([x, y]) => {
+    const read = (x, y) => document.elementFromPoint(x, y)
+      ?.closest(".playing-card")?.ariaLabel?.replace("Choose art for ", "") ?? null;
+    const hits = { [`${x}:${y}`]: read(x, y) };
+    const move = ({ clientX: x, clientY: y }) => {
+      hits[`${x}:${y}`] = read(x, y);
+    };
+    window.stackProbeFinish = () => {
+      document.removeEventListener("pointermove", move, true);
+      return hits;
+    };
+    document.addEventListener("pointermove", move, true);
+  }, points[0]);
+  await travel(points.slice(1));
+  const hits = await evaluate(() => {
+    const result = window.stackProbeFinish();
+    delete window.stackProbeFinish;
+    return result;
+  });
+  return points.map(([x, y]) => hits[`${x}:${y}`]);
+}
+
 export async function checkCardStackHits(driver, { widths, report, before = false }) {
-  const { evaluate, move, click, tab, resize } = driver;
-  const trace = async (points) => {
-    const hits = [];
-    for (const point of points) {
-      await move(point);
-      hits.push(await evaluate((x, y) => document.elementFromPoint(x, y)
-        ?.closest(".playing-card")?.ariaLabel?.replace("Choose art for ", "") ?? null, ...point));
-    }
-    return hits;
-  };
+  const { evaluate, move, click, tab, resize, trace } = driver;
   const find = (selector) => evaluate((s) => !!document.querySelector(s), selector);
   const editor = async () => {
     if (await find(art)) {
@@ -96,24 +131,29 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
 
   async function raise(state) {
     await move([2, 2]);
+    await delay(220);
     const point = await evaluate((selector) => {
       document.activeElement.blur();
       const card = document.querySelector(selector);
       card.removeAttribute("title");
-      document.querySelector(".card-groups").scrollIntoView({ block: "center" });
+      card.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
       const r = card.getBoundingClientRect();
-      return [Math.round(r.left + r.width / 2), Math.round(r.top + 18)];
+      const point = [Math.round(r.left + r.width / 2), Math.round(r.top + 18)];
+      if (!document.elementFromPoint(...point)?.closest(selector)) {
+        throw new Error(`Opt's start is not visible: ${point}`);
+      }
+      return point;
     }, opt);
     if (state === "hover") await move(point);
     else {
       await tab();
       await evaluate((selector) => document.querySelector(selector).focus({ preventScroll: true }), opt);
     }
-    await until(() => evaluate((selector, state) => {
+    await until(() => evaluate((selector, state, before) => {
       const card = document.querySelector(selector);
-      return card.matches(state === "hover" ? ":hover" : ":focus-visible") &&
+      return card.matches(state === "hover" ? (before ? ":hover" : ".raised") : ":focus-visible") &&
         getComputedStyle(card).transform === "matrix(1, 0, 0, 1, 0, -8)";
-    }, opt, state));
+    }, opt, state, before));
   }
 
   let failures = 0;
@@ -129,23 +169,37 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
       for (const state of ["hover", "focus"]) {
         await raise(state);
         const cases = await evaluate(paths, opt);
-        for (const { name, type, to, expected, samples } of cases) {
+        for (const { name, type } of cases) {
           await raise(state);
+          const { to, expected, samples, dwell } = (await evaluate(paths, opt))
+            .find((path) => path.name === name && path.type === type);
           let misses = 0;
           let firstMiss;
           const points = samples.map(({ point }) => point);
-          let hits = await (driver.trace ?? trace)(points);
-          if (hits.includes(undefined)) {
-            await raise(state);
-            hits = await trace(points);
-          }
+          await move(points[0]);
+          const hits = await trace(points);
+          let observed = 0;
+          let crossings = 0;
           for (const [index, { point, painted }] of samples.entries()) {
             const hit = hits[index];
+            if (hit === undefined) continue;
+            observed++;
+            if (samples[index].languageCrossing) crossings++;
             if (hit !== painted) {
               misses++;
               firstMiss ??= { point, painted, hit };
             }
           }
+          const raised = () => evaluate((selector, before) => {
+            const card = document.querySelector(selector);
+            return card.parentElement.querySelector(before ? ".playing-card:hover" : ".playing-card.raised")
+              ?.ariaLabel?.replace("Choose art for ", "") ?? null;
+          }, opt, before);
+          const beforeDwell = dwell ? await raised() : null;
+          if (dwell) await delay(240);
+          const afterDwell = dwell ? await raised() : null;
+          const paintedAtClick = await evaluate(([x,y]) => document.elementFromPoint(x,y)
+            ?.closest(".playing-card")?.ariaLabel?.replace("Choose art for ", "") ?? null, to);
           await click(to);
           let opened = null;
           try {
@@ -154,8 +208,12 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
           } catch {
             // A click missing all cards is a failed path, too.
           }
-          report({ before, width, sidebar, state, name, type, samples: samples.length, misses, firstMiss, expected, opened });
-          if (misses || opened !== expected) failures++;
+          const dwellPassed = !dwell || (beforeDwell === "Opt" && afterDwell === "Ponder");
+          const crossed = name !== "status from right" || crossings > 0;
+          const passed = crossed && dwellPassed && opened === expected && opened === paintedAtClick && !misses;
+          report({ before, width, sidebar, state, name, type, samples: samples.length, observed, crossings,
+            misses, firstMiss, expected, paintedAtClick, opened, beforeDwell, afterDwell, passed });
+          if (!passed) failures++;
           await editor();
         }
       }
@@ -164,7 +222,7 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
   return failures;
 }
 
-async function runWeb(url, backupPath) {
+async function runWeb(url, backupPath, before) {
   const backup = await readFile(backupPath, "utf8");
   const debug = process.env.CHROME_DEBUG_URL ?? "http://127.0.0.1:9222";
   const targets = await (await fetch(`${debug}/json/list`)).json();
@@ -224,6 +282,14 @@ async function runWeb(url, backupPath) {
     process.exitCode = (await checkCardStackHits({
       evaluate,
       move: (point) => mouse("mouseMoved", point),
+      trace: (points) => traceStackPointer(evaluate, points, async (rest) => {
+        const dispatched = [];
+        for (const point of rest) {
+          dispatched.push(mouse("mouseMoved", point));
+          await delay(8);
+        }
+        await Promise.all(dispatched);
+      }),
       click: async (point) => {
         await mouse("mousePressed", point);
         await mouse("mouseReleased", point);
@@ -236,7 +302,7 @@ async function runWeb(url, backupPath) {
       resize: (width) => send("Emulation.setDeviceMetricsOverride", {
         width, height: 1100, deviceScaleFactor: 1, mobile: false,
       }),
-    }, { widths: [1440, 1024, 768], report: (row) => console.log(JSON.stringify(row)) })) ? 1 : 0;
+    }, { widths: [1440, 1024, 768], before, report: (row) => console.log(JSON.stringify(row)) })) && !before ? 1 : 0;
   } finally {
     await send("Network.setBypassServiceWorker", { bypass: false });
     await send("Emulation.clearDeviceMetricsOverride");
@@ -247,5 +313,5 @@ async function runWeb(url, backupPath) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [, , url, backup] = process.argv;
   if (!url || !backup) throw new Error("Usage: node scripts/check-card-stack-hits.mjs <preview URL> <deck backup>");
-  await runWeb(url, backup);
+  await runWeb(url, backup, process.argv.includes("--before"));
 }

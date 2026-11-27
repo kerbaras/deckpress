@@ -1650,7 +1650,7 @@ button.first-run-empty {
 .card-stack > .playing-card {
   align-self: start;
 }
-.card-stack > .playing-card:hover,
+.card-stack > .playing-card.raised,
 .card-stack > .playing-card:focus-visible {
   z-index: 10;
   transform: translateY(-8px);
@@ -1692,11 +1692,11 @@ button.first-run-empty {
   display: block;
 }
 .card-stack
-  > .playing-card:is(:hover, :focus-visible)
+  > .playing-card:is(.raised, :focus-visible)
   ~ .playing-card
   > .quantity,
 .card-stack
-  > .playing-card:is(:hover, :focus-visible)
+  > .playing-card:is(.raised, :focus-visible)
   ~ .playing-card
   > .card-language[data-in-stack-strip] {
   z-index: 11;

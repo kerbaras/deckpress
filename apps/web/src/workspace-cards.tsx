@@ -20,6 +20,7 @@ import {
 } from "./core/index.ts";
 import { ImportPanel } from "./import-panel.tsx";
 import { DeckLanguageSummary, entryLanguageLabel } from "./print-language.tsx";
+import { useStackHoverIntent } from "./stack-hover-intent.ts";
 import { TokenSuggestions } from "./token-suggestions.tsx";
 import {
   ArtThumbnail,
@@ -353,40 +354,12 @@ function DeckCards({
                 <h3>{label}</h3>
                 <span>{countCards(cards)}</span>
               </div>
-              <div
-                className={display === "stacks" ? "card-stack" : "card-grid"}
-              >
-                {cards.map((entry) => (
-                  <button
-                    type="button"
-                    key={entry.id}
-                    className={`playing-card ${hasChosenArt(entry) ? "custom-art" : ""} ${entry.excluded ? "excluded" : ""}`}
-                    aria-label={`Choose art for ${entry.card.name}`}
-                    aria-description={entryLanguageLabel(entry)}
-                    title={entryLanguageLabel(entry)}
-                    onClick={() => onArt(entry)}
-                  >
-                    <ArtThumbnail
-                      art={frontArt(entry)}
-                      name={entry.card.name}
-                    />
-                    <span className="quantity">{entry.quantity}</span>
-                    <span
-                      className="badge card-language"
-                      ref={
-                        display === "stacks"
-                          ? observeStackLanguageBadge
-                          : undefined
-                      }
-                    >
-                      {entryLanguageLabel(entry)}
-                    </span>
-                    {entry.excluded && (
-                      <span className="card-status">Not printing</span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              <CardTiles
+                key={display}
+                stacked={display === "stacks"}
+                cards={cards}
+                onArt={onArt}
+              />
             </section>
           ))}
         </div>
@@ -411,5 +384,49 @@ function DeckCards({
         />
       </div>
     </section>
+  );
+}
+
+function CardTiles({
+  stacked,
+  cards,
+  onArt,
+}: {
+  stacked: boolean;
+  cards: DeckEntry[];
+  onArt: (entry: DeckEntry) => void;
+}) {
+  const intent = useStackHoverIntent();
+  return (
+    <div
+      className={stacked ? "card-stack" : "card-grid"}
+      onPointerEnter={stacked ? intent.onPointerEnterStack : undefined}
+      onPointerLeave={stacked ? intent.onPointerLeaveStack : undefined}
+    >
+      {cards.map((entry) => (
+        <button
+          type="button"
+          key={entry.id}
+          className={`playing-card ${hasChosenArt(entry) ? "custom-art" : ""} ${entry.excluded ? "excluded" : ""} ${stacked && intent.raisedId === entry.id ? "raised" : ""}`}
+          aria-label={`Choose art for ${entry.card.name}`}
+          aria-description={entryLanguageLabel(entry)}
+          title={entryLanguageLabel(entry)}
+          onClick={() => onArt(entry)}
+          onPointerEnter={
+            stacked ? () => intent.onPointerEnterCard(entry.id) : undefined
+          }
+        >
+          <ArtThumbnail art={frontArt(entry)} name={entry.card.name} />
+          <span className="quantity">{entry.quantity}</span>
+          <span
+            className="badge card-language"
+            ref={stacked ? observeStackLanguageBadge : undefined}
+          >
+            {entryLanguageLabel(entry)}
+          </span>
+          {entry.excluded && <span className="card-status">Not printing</span>}
+        </button>
+      ))}
+    </div>
   );
 }
