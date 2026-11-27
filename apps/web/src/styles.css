@@ -1642,17 +1642,29 @@ button.first-run-empty {
   opacity: 0.55;
 }
 .card-stack {
+  --card-stack-step: 43px;
   display: grid;
-  grid-auto-rows: 43px;
-  padding-bottom: calc(139.7% - 43px);
+  grid-auto-rows: var(--card-stack-step);
+  padding-bottom: calc(139.7% - var(--card-stack-step));
 }
 .card-stack > .playing-card {
   align-self: start;
 }
 .card-stack > .playing-card:hover,
 .card-stack > .playing-card:focus-visible {
+  z-index: 10;
   transform: translateY(-8px);
   border-color: var(--accent);
+}
+.card-stack > .playing-card:not(:last-child):is(:hover, :focus-visible) {
+  pointer-events: none;
+}
+.card-stack > .playing-card:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: calc(var(--card-stack-step) + 8px);
+  pointer-events: auto;
 }
 .quantity {
   position: absolute;
