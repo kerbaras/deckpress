@@ -1651,7 +1651,6 @@ button.first-run-empty {
 }
 .card-stack > .playing-card:hover,
 .card-stack > .playing-card:focus-visible {
-  z-index: 10;
   transform: translateY(-8px);
   border-color: var(--accent);
 }
