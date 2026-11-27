@@ -17,6 +17,7 @@ export type CommandName =
   | "builder_summary"
   | "cancel_job"
   | "cancel_upscale_comparison"
+  | "clear_web_cache"
   | "compare_upscalers"
   | "create_deck"
   | "create_job"
@@ -37,10 +38,12 @@ export type CommandName =
   | "mpc_artwork"
   | "open_data_dir"
   | "open_pdf"
+  | "override_language_print"
   | "picker_dpi"
   | "preferences"
   | "preview_art_localization"
   | "preview_art_policy"
+  | "preview_deck_language"
   | "related_tokens"
   | "resolve_cards"
   | "restore_deck"
@@ -64,6 +67,7 @@ export type CommandName =
   | "undo_art_change"
   | "update_upload_bleed"
   | "upload_bleed"
+  | "web_storage_usage"
   | "window_chrome";
 
 export interface UploadMetadata {

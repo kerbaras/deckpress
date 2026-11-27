@@ -1409,6 +1409,13 @@ button.first-run-empty {
 .workspace > .notice {
   margin: 14px 24px 0;
 }
+.deck-language-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6) 0;
+}
 .editor-layout {
   display: grid;
   grid-template-columns: 290px minmax(0, 1fr);
@@ -3904,6 +3911,14 @@ progress::-webkit-progress-value {
   padding-block: var(--space-2) var(--space-6);
   border-block-start: 1px solid var(--line-subtle);
   background: var(--panel);
+}
+.language-preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
 }
 .art-change-list > li {
   border-block-start: 1px solid var(--line-subtle);

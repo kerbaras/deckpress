@@ -17,7 +17,7 @@ use crate::art_policy::{policy_can_change, Printing};
 use crate::art_quality::{prefer_high_res, scryfall_quality, ScanQuality};
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    new_id, Art, ArtPage, Card, DeckEntry, ImportIssue, ImportIssueKind, ImportLine,
+    new_id, Art, ArtPage, Card, Deck, DeckEntry, ImportIssue, ImportIssueKind, ImportLine,
     ImportPrintLookup, MissingPrint, PrintLanguagePolicy, PrintLanguagePreferences, Provider,
     ResolvedCards, Zone,
 };
@@ -28,6 +28,7 @@ pub const USER_AGENT: &str = "Deckpress/0.1 (local playtest tool)";
 const SCRYFALL_INTERVAL: Duration = Duration::from_millis(550);
 const SCRYFALL_BACKOFF: Duration = Duration::from_secs(30);
 const COLLECTION_BATCH: usize = 75;
+const LANGUAGE_SEARCH_BATCH: usize = 12;
 const MPC_PAGE: usize = 48;
 const MPC_PROJECT_LIMIT: usize = 612;
 const SCRYFALL_LANGUAGES: &[&str] = &[
@@ -359,6 +360,15 @@ fn policy_printing(raw: &Value) -> Option<Printing> {
         showcase: raw["frame_effects"]
             .as_array()
             .is_some_and(|effects| effects.iter().any(|effect| effect == "showcase")),
+        treatments: raw["frame_effects"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|effect| *effect != "showcase")
+            .chain(flag("textless").then_some("textless"))
+            .map(str::to_owned)
+            .collect(),
         paper: !flag("digital")
             && raw["games"]
                 .as_array()
@@ -400,6 +410,21 @@ fn scryfall_oracle_id(raw: &Value) -> Option<&str> {
     raw.get("oracle_id")
         .and_then(Value::as_str)
         .or_else(|| raw.get("id").and_then(Value::as_str))
+}
+
+pub(crate) fn validate_language(language: &str) -> AppResult<()> {
+    if SCRYFALL_LANGUAGES.contains(&language) {
+        Ok(())
+    } else {
+        Err(AppError::user("Unsupported print language."))
+    }
+}
+
+pub(crate) fn scryfall_art_id(art_id: &str) -> Option<uuid::Uuid> {
+    art_id
+        .strip_prefix("scryfall:")
+        .and_then(|rest| rest.split(':').next())
+        .and_then(|id| uuid::Uuid::parse_str(id).ok())
 }
 
 fn valid_languages(languages: &[String]) -> bool {
@@ -546,6 +571,14 @@ impl Providers {
             .unwrap_or_default())
     }
 
+    pub(crate) fn preferences_for_deck(&self, deck: &Deck) -> AppResult<PrintLanguagePreferences> {
+        let mut preferences = self.print_language_preferences()?;
+        if let Some(language) = &deck.print_language {
+            preferences.languages = vec![language.clone()];
+        }
+        Ok(preferences)
+    }
+
     pub fn save_print_language_preferences(
         &self,
         preferences: PrintLanguagePreferences,
@@ -562,6 +595,34 @@ impl Providers {
     pub async fn resolve_import(&self, lines: Vec<ImportLine>) -> AppResult<ResolvedCards> {
         self.resolve_with_languages(lines, &self.print_language_preferences()?)
             .await
+    }
+
+    pub async fn resolve_deck_import(
+        &self,
+        deck: &Deck,
+        lines: Vec<ImportLine>,
+    ) -> AppResult<ResolvedCards> {
+        self.resolve_with_languages(lines, &self.preferences_for_deck(deck)?)
+            .await
+    }
+
+    pub async fn related_deck_tokens(
+        &self,
+        deck: &Deck,
+        card_ids: Vec<String>,
+    ) -> AppResult<Vec<DeckEntry>> {
+        let mut tokens = self.related_tokens(card_ids).await?;
+        if let Some(language) = &deck.print_language {
+            crate::language_deck::plan(
+                self,
+                &mut tokens,
+                deck.art_policy.as_ref(),
+                language,
+                self.print_language_preferences()?.policy,
+            )
+            .await?;
+        }
+        Ok(tokens)
     }
 
     pub async fn resolve(&self, lines: Vec<ImportLine>) -> AppResult<ResolvedCards> {
@@ -671,6 +732,8 @@ impl Providers {
                         selected_back: None,
                         art_pinned: false,
                         policy_art: None,
+                        language_anchor: None,
+                        language_choices: Default::default(),
                         excluded: false,
                         requested_languages: if english_only { Vec::new() } else { languages.clone() },
                     }),
@@ -773,6 +836,8 @@ impl Providers {
                 selected_back: None,
                 art_pinned: false,
                 policy_art: None,
+                language_anchor: None,
+                language_choices: Default::default(),
                 excluded: false,
                 requested_languages: Vec::new(),
             })
@@ -859,17 +924,89 @@ impl Providers {
     }
 
     pub(crate) async fn policy_printing(&self, art_id: &str) -> AppResult<Option<Printing>> {
-        let Some(id) = art_id
-            .strip_prefix("scryfall:")
-            .and_then(|rest| rest.split(':').next())
-            .and_then(|id| uuid::Uuid::parse_str(id).ok())
-        else {
+        let Some(id) = scryfall_art_id(art_id) else {
             return Ok(None);
         };
         let raw = self
             .scryfall_json(&format!("https://api.scryfall.com/cards/{id}"))
             .await?;
         Ok(policy_printing(&raw).filter(|print| print.id == id.to_string()))
+    }
+
+    pub(crate) async fn language_anchors(
+        &self,
+        ids: BTreeSet<uuid::Uuid>,
+    ) -> AppResult<HashMap<String, Printing>> {
+        Ok(self
+            .collection_by_id(ids)
+            .await?
+            .iter()
+            .filter_map(policy_printing)
+            .map(|print| (print.id.clone(), print))
+            .collect())
+    }
+
+    pub(crate) async fn language_printings(
+        &self,
+        oracle_ids: BTreeSet<&str>,
+        language: &str,
+    ) -> AppResult<HashMap<String, Vec<Printing>>> {
+        validate_language(language)?;
+        let cache_key = |oracle| format!("language-printings:{language}:{oracle}");
+        let mut inventory = HashMap::new();
+        let mut missing = Vec::new();
+        for oracle in oracle_ids {
+            if uuid::Uuid::parse_str(oracle).is_err() {
+                continue;
+            }
+            match self.store.cached(&cache_key(oracle))? {
+                Some(Value::Array(cards)) => {
+                    inventory.insert(
+                        oracle.to_owned(),
+                        cards.iter().filter_map(policy_printing).collect(),
+                    );
+                }
+                _ => missing.push(oracle),
+            }
+        }
+        for batch in missing.chunks(LANGUAGE_SEARCH_BATCH) {
+            let clauses = batch
+                .iter()
+                .map(|id| format!("oracleid:{id}"))
+                .collect::<Vec<_>>()
+                .join(" or ");
+            let query = format!("({clauses}) lang:{language} game:paper");
+            let mut found: HashMap<_, Vec<Value>> =
+                batch.iter().map(|&oracle| (oracle, Vec::new())).collect();
+            for page in 1..=100 {
+                let url = print_search(&query, page);
+                let response = self.scryfall_json(url.as_str()).await?;
+                for raw in cards_in(&response) {
+                    if let Some(bucket) = scryfall_oracle_id(raw)
+                        .and_then(|oracle| found.get_mut(oracle))
+                        .filter(|_| raw["lang"] == language)
+                    {
+                        bucket.push(raw.clone());
+                    }
+                }
+                if !has_more(&response) {
+                    break;
+                }
+                if page == 100 {
+                    return Err(AppError::user(
+                        "Scryfall has too many printings for this language switch.",
+                    ));
+                }
+            }
+            for (oracle, cards) in found {
+                self.store.put("cache", &cache_key(oracle), &cards)?;
+                inventory.insert(
+                    oracle.to_owned(),
+                    cards.iter().filter_map(policy_printing).collect(),
+                );
+            }
+        }
+        Ok(inventory)
     }
 
     pub(crate) async fn policy_exact(

@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import { ZodError } from "zod";
-import { imageSrc, uploadTrimSrc } from "./api.ts";
+import { cardImageCrossOrigin, imageSrc, uploadTrimSrc } from "./api.ts";
 import type { Art, DeckEntry } from "./core/index.ts";
 import { ModalWindowChrome } from "./titlebar.tsx";
 
@@ -304,6 +304,7 @@ function ImageContent({
         </span>
       ) : (
         <img
+          crossOrigin={cardImageCrossOrigin(src)}
           src={src}
           alt={name}
           loading={eager ? "eager" : "lazy"}

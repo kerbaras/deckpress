@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Deckpress</title>
+  <rect width="32" height="32" rx="7" fill="#131417" />
+  <g fill="none" stroke="#e2b25a" stroke-width="1.7">
+    <rect x="7" y="10" width="13" height="17" rx="2" />
+    <path d="M13 5h11a2 2 0 0 1 2 2v16" />
+  </g>
+</svg>

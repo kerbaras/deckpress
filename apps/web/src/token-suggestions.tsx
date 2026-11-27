@@ -8,9 +8,11 @@ const noTokens = "No additional tokens or emblems found.";
 
 export function TokenSuggestions({
   entries,
+  languageDeck,
   onAdd,
 }: {
   entries: DeckEntry[];
+  languageDeck?: { id: string; revision: number } | undefined;
   onAdd: (entry: DeckEntry) => void;
 }) {
   const [show, setShow] = useState(false);
@@ -27,8 +29,8 @@ export function TokenSuggestions({
     ),
   ].sort();
   const suggestions = useQuery({
-    queryKey: ["related-tokens", producerIds],
-    queryFn: () => api.relatedTokens(producerIds),
+    queryKey: ["related-tokens", producerIds, languageDeck],
+    queryFn: () => api.relatedTokens(producerIds, languageDeck?.id),
     enabled: show && producerIds.length > 0,
     staleTime: 24 * 60 * 60 * 1000,
   });

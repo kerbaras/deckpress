@@ -14,7 +14,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { api, type Preferences, uploadTrimSrc } from "./api.ts";
+import { api, isWebPreview, type Preferences, uploadTrimSrc } from "./api.ts";
 import { ScanQualityBadge, scanLabel } from "./art-quality.tsx";
 import {
   type Art,
@@ -32,6 +32,7 @@ import {
   languageCode,
   printLanguages,
 } from "./print-language.tsx";
+import { useScryfallPrints } from "./scryfall-editions.ts";
 import { StyleMatch } from "./style-match.tsx";
 import {
   ArtThumbnail,
@@ -280,6 +281,7 @@ function ArtSession({
   const [zoom, setZoom] = useState(1);
   const [scope, setScope] = useState("entry");
   const [upload, setUpload] = useState(false);
+  const web = isWebPreview();
   const [editBleed, setEditBleed] = useState<{
     art: Art;
     bleed: number | null;
@@ -296,25 +298,12 @@ function ArtSession({
     queryFn: ({ signal }) => api.preferences(signal),
   });
   const personal = prefs.data ?? { preferences: {}, usage: {} };
-  const prints = useInfiniteQuery({
-    queryKey: ["art", "scryfall", entry.card.oracleId, face, language],
-    queryFn: ({ pageParam, signal }) =>
-      api.art(
-        "scryfall",
-        entry.card.oracleId,
-        entry.card.name,
-        face,
-        pageParam,
-        signal,
-        language || undefined,
-      ),
-    initialPageParam: 1,
-    getNextPageParam: (page) => (page.hasMore ? page.page + 1 : undefined),
-    enabled:
-      !!original && (official || provider === "all" || provider === "scryfall"),
-    staleTime: 86_400_000,
-    retry: false,
-  });
+  const prints = useScryfallPrints(
+    entry.card,
+    face,
+    language,
+    !!original && (official || provider === "all" || provider === "scryfall"),
+  );
   const community = useInfiniteQuery({
     queryKey: ["art", "mpc", entry.card.oracleId, face],
     queryFn: ({ pageParam, signal }) =>
@@ -329,13 +318,17 @@ function ArtSession({
     initialPageParam: 1,
     getNextPageParam: (page) => (page.hasMore ? page.page + 1 : undefined),
     enabled:
-      !!original && !official && (provider === "all" || provider === "mpc"),
+      !web &&
+      !!original &&
+      !official &&
+      (provider === "all" || provider === "mpc"),
     staleTime: 86_400_000,
     retry: false,
   });
   const uploads = useQuery({
     queryKey: ["uploads", entry.card.oracleId],
     queryFn: ({ signal }) => api.uploads(entry.card.oracleId, signal),
+    enabled: !web,
   });
   const items = [
     ...(original ? [original] : []),
@@ -364,7 +357,7 @@ function ArtSession({
       loadedSources,
     ],
     queryFn: () => api.pickerDpi(measuredItems, printSettings),
-    enabled: measuredItems.length > 0,
+    enabled: !web && measuredItems.length > 0,
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -522,7 +515,8 @@ function ArtSession({
       });
   };
   const showPrints = official || provider === "all" || provider === "scryfall";
-  const showCommunity = !official && (provider === "all" || provider === "mpc");
+  const showCommunity =
+    !web && !official && (provider === "all" || provider === "mpc");
   const editionsLoading =
     (showPrints && prints.isFetching && !prints.data) ||
     (showCommunity && community.isFetching && !community.data);
@@ -640,7 +634,7 @@ function ArtSession({
               Follow deck art policy
             </button>
           )}
-          {face === 0 && candidate && deck.entries.length > 1 && (
+          {!web && face === 0 && candidate && deck.entries.length > 1 && (
             <button
               type="button"
               className="icon-button"
@@ -890,21 +884,25 @@ function ArtSession({
                 ["scryfall", "Scryfall"],
                 ["mpc", "MPC Autofill"],
                 ["upload", "My uploads"],
-              ].map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  aria-pressed={provider === value && !official}
-                  onClick={() => {
-                    setProvider(value ?? "all");
-                    setOfficial(false);
-                    setArtist("");
-                    setTag("");
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
+              ]
+                .filter(
+                  ([value]) => !web || value === "all" || value === "scryfall",
+                )
+                .map(([value, label]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    aria-pressed={provider === value && !official}
+                    onClick={() => {
+                      setProvider(value ?? "all");
+                      setOfficial(false);
+                      setArtist("");
+                      setTag("");
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
             </div>
             <label className="check-label official-toggle">
               <input
@@ -932,16 +930,23 @@ function ArtSession({
               Choose a better official scan when the illustration and language
               match.
             </span>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Upload your own art"
-              title="Upload your own art"
-              disabled={busy}
-              onClick={() => setUpload(true)}
-            >
-              <Upload size={15} />
-            </button>
+            {!web && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Upload your own art"
+                title="Upload your own art"
+                disabled={busy}
+                onClick={() => setUpload(true)}
+              >
+                <Upload size={15} />
+              </button>
+            )}
+            {web && (
+              <span className="hint">
+                MPC Autofill and custom uploads require the desktop app.
+              </span>
+            )}
           </div>
           <div className="toolbar filter-toolbar">
             <label className="inline-label">
@@ -1110,8 +1115,9 @@ function ArtSession({
             <div className="empty-state">
               <h3>No matching art</h3>
               <p>
-                Clear a filter, load more results, or upload an image for this{" "}
-                {face ? "back" : "front"}.
+                {web
+                  ? "Clear a filter or load more results."
+                  : `Clear a filter, load more results, or upload an image for this ${face ? "back" : "front"}.`}
               </p>
               <button
                 type="button"

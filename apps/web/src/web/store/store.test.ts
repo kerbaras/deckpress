@@ -8,7 +8,7 @@ const time = 1_800_000_000_000;
 const id = "3aa57318-68b9-45ed-b289-f085f8202184";
 const input = { name: "  Example   ", format: "Modern" };
 
-it("creates a deck with the desktop defaults, trims its name and persists a JSON document", async () => {
+it("creates a deck at 600 DPI, trims its name and persists a JSON document", async () => {
   const documents = memoryDocuments();
   const decks = deckStore(
     documents,
@@ -25,7 +25,7 @@ it("creates a deck with the desktop defaults, trims its name and persists a JSON
     revision: 0,
     createdAt: new Date(time).toISOString(),
     updatedAt: new Date(time).toISOString(),
-    printSettings: { paper: "a4", dpi: 800, cardWidthMm: 63, cardHeightMm: 88 },
+    printSettings: { paper: "a4", dpi: 600, cardWidthMm: 63, cardHeightMm: 88 },
   });
   expect(await deckStore(documents).get(id)).toEqual(created);
   await expect(decks.create({ ...input, name: "   " })).rejects.toThrow();
@@ -60,7 +60,7 @@ it("atomically rejects stale saves and preserves creation time", async () => {
   await expect(decks.save(saved)).rejects.toThrow("Deck not found");
 });
 
-it("restores an older Rust backup as a new deck without changing uploads", async () => {
+it("restores an older Rust backup as a new deck and preserves its DPI", async () => {
   const decks = deckStore(
     memoryDocuments(),
     () => time,
@@ -72,6 +72,22 @@ it("restores an older Rust backup as a new deck without changing uploads", async
     deck: { id, name: backup.name, revision: 0, entries: [{ quantity: 2 }] },
   });
   await expect(decks.restore("{")).rejects.toThrow("Invalid deck backup");
+  const explicit = {
+    ...backup,
+    printSettings: { ...restored.deck.printSettings, dpi: 800 },
+  };
+  expect(
+    (await decks.restore(JSON.stringify(explicit))).deck.printSettings.dpi,
+  ).toBe(800);
+  const uploads = structuredClone(restored.deck);
+  const first = uploads.entries[0];
+  const front = first?.card.faces[0];
+  if (!first || !front)
+    throw new Error("Backup fixture requires a front image");
+  first.selectedArt = { ...front, provider: "upload" };
+  await expect(decks.restore(JSON.stringify(uploads))).rejects.toThrow(
+    "Backups with custom uploads",
+  );
 });
 
 it("stores preferences, including ordered languages and normalized art labels", async () => {

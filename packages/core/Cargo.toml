@@ -26,7 +26,7 @@ ndarray = { version = "0.17", optional = true }
 sha2 = "0.11"
 hex = "0.4"
 uuid = { version = "1", features = ["serde"] }
-chrono = { version = "0.4", optional = true, default-features = false, features = ["clock", "std"] }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 url = { version = "2", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false }
 log = "0.4"
@@ -45,7 +45,7 @@ ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, fea
 [features]
 default = ["native"]
 native = [
-    "dep:chrono", "dep:futures-util", "dep:ndarray", "dep:ort", "dep:reqwest",
+    "chrono/clock", "dep:futures-util", "dep:ndarray", "dep:ort", "dep:reqwest",
     "dep:rusqlite", "dep:tokio", "dep:url", "fast_image_resize/rayon", "uuid/v4",
 ]
 # NVIDIA support on Linux/Windows. Requires the CUDA/cuDNN runtime on the target machine.

@@ -1,4 +1,4 @@
-import type { RgbImage } from "../upscale.ts";
+import type { RgbImage } from "./tiling.ts";
 
 function canvasContext(width: number, height: number) {
   const canvas = new OffscreenCanvas(width, height);
@@ -7,13 +7,20 @@ function canvasContext(width: number, height: number) {
   return ctx;
 }
 
-export async function decodeRgb(file: File): Promise<RgbImage> {
+export async function decodeRgb(
+  file: Blob,
+  background = "#000000",
+  shouldDecode = (_width: number, _height: number) => true,
+): Promise<RgbImage | null> {
   const bitmap = await createImageBitmap(file, {
     colorSpaceConversion: "none",
   });
   const { width, height } = bitmap;
   try {
+    if (!shouldDecode(width, height)) return null;
     const ctx = canvasContext(width, height);
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, width, height);
     ctx.drawImage(bitmap, 0, 0);
     const rgba = ctx.getImageData(0, 0, width, height).data;
     const pixels = new Uint8Array(width * height * 3);

@@ -9,9 +9,13 @@ import {
   UrlImportError,
 } from "../../api.ts";
 import { deckSchema } from "../../core/index.ts";
-import { NotAvailableOnWebError } from "./web.ts";
+import * as printJobs from "../print/jobs.ts";
+import * as downloads from "./download.ts";
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 it("routes commands and image URLs through Tauri when the runtime is present", async () => {
   vi.stubEnv("VITE_TARGET", "");
@@ -66,20 +70,27 @@ it("does not silently apply an exact policy when a set family is requested on we
 });
 
 it.each(["svg", "dxf", "studio3"] as const)(
-  "reports that %s cut template export is not available on the web",
+  "downloads a %s cut template from the web print worker",
   async (format) => {
     vi.stubEnv("VITE_TARGET", "web");
     const ipc = vi.fn();
     mockIPC(ipc);
 
-    const error = await downloadCutTemplate(
-      deckSchema.parse(legacyBackup),
+    const deck = deckSchema.parse(legacyBackup);
+    const file = new Blob(["cut file"]);
+    const worker = vi
+      .spyOn(printJobs, "runPrintWorker")
+      .mockResolvedValue({ kind: "cut", file });
+    const download = vi.spyOn(downloads, "downloadBlob").mockReturnValue(null);
+
+    const destination = await downloadCutTemplate(deck, format);
+    expect(destination?.endsWith(`-cut-template.${format}`)).toBe(true);
+    expect(worker).toHaveBeenCalledWith({
+      kind: "cut",
       format,
-    ).catch((error: unknown) => error);
-    expect(error).toBeInstanceOf(NotAvailableOnWebError);
-    expect(error).toMatchObject({
-      message: "Cut template export is not available yet on the web.",
+      settings: deck.printSettings,
     });
+    expect(download).toHaveBeenCalledWith(destination, file);
     expect(ipc).not.toHaveBeenCalled();
   },
 );
