@@ -38,7 +38,7 @@ it("uses the web backend when Tauri internals are missing", async () => {
     status: "ok",
     service: "@deckpress/desktop",
   });
-  expect(imageSrc("art.png")).toBe("about:blank");
+  expect(imageSrc("art.png")).toBeUndefined();
   const cdnUrl = "https://cards.scryfall.io/normal/art.jpg";
   expect(imageSrc(cdnUrl)).toBe(cdnUrl);
 });

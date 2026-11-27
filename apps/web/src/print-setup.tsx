@@ -2033,22 +2033,34 @@ function PreviewImage({
     bleedColor: settings.bleedColor,
   };
   const upload = useUploadImage(art, preview);
-  const url = isWebPreview()
-    ? (upload ?? imageSrc(art.imageUrl))
+  const web = isWebPreview();
+  const pending = web && art.provider === "upload" && !upload.failed;
+  const url = web
+    ? (upload.src ?? imageSrc(art.imageUrl))
     : previewSrc(art, preview);
   return (
-    <ProofImage key={url} url={url} x={x} y={y} width={width} height={height} />
+    <ProofImage
+      key={url}
+      url={url}
+      pending={pending}
+      x={x}
+      y={y}
+      width={width}
+      height={height}
+    />
   );
 }
 
 function ProofImage({
   url,
+  pending,
   x,
   y,
   width,
   height,
 }: {
-  url: string;
+  url: string | undefined;
+  pending: boolean;
   x: number;
   y: number;
   width: number;
@@ -2056,7 +2068,7 @@ function ProofImage({
 }) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  return failed ? (
+  return failed || (!url && !pending) ? (
     <g>
       <rect
         x={x}
@@ -2076,18 +2088,20 @@ function ProofImage({
     </g>
   ) : (
     <g>
-      <image
-        crossOrigin={cardImageCrossOrigin(url)}
-        href={url}
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        preserveAspectRatio="none"
-        data-loaded={loaded}
-        onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
-      />
+      {url && (
+        <image
+          crossOrigin={cardImageCrossOrigin(url)}
+          href={url}
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          preserveAspectRatio="none"
+          data-loaded={loaded}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+        />
+      )}
       {!loaded && (
         <>
           <rect

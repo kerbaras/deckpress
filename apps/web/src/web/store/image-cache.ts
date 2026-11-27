@@ -54,6 +54,6 @@ export async function downloadImage(url: URL): Promise<Blob> {
   return image;
 }
 
-export function imageSrc(source: string): string {
-  return scryfallImage(source)?.href ?? "about:blank";
+export function imageSrc(source: string): string | undefined {
+  return scryfallImage(source)?.href;
 }

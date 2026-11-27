@@ -40,7 +40,7 @@ async function sourceDimensions(art: Art, signal: AbortSignal) {
 
 async function sourceImage(url: string, signal: AbortSignal) {
   const src = imageSrc(url);
-  if (src === "about:blank") throw new Error("Unrecognized source image");
+  if (!src) throw new Error("Unrecognized source image");
   const cache = await untilAborted(
     caches.open("deckpress-web-art-v1").catch(() => undefined),
     signal,

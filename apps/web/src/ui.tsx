@@ -255,19 +255,19 @@ export function ArtImage({
   url?: string;
 }) {
   const upload = useUploadImage(art, thumbnail);
+  const web = isWebPreview() && art.provider === "upload";
   return (
     <CardImage
       {...props}
       url={url}
       src={
-        art.provider !== "upload"
-          ? undefined
-          : isWebPreview()
-            ? (upload ?? "about:blank")
-            : art.bleedMm > 0
-              ? uploadTrimSrc(art, thumbnail)
-              : undefined
+        web
+          ? upload.src
+          : art.provider === "upload" && art.bleedMm > 0
+            ? uploadTrimSrc(art, thumbnail)
+            : imageSrc(url)
       }
+      pending={web && !upload.failed}
     />
   );
 }
@@ -278,6 +278,7 @@ export function CardImage({
   name,
   className = "",
   eager = false,
+  pending = false,
   onLoad,
 }: {
   url: string;
@@ -285,12 +286,15 @@ export function CardImage({
   name: string;
   className?: string;
   eager?: boolean;
+  /** No `src` yet because it is still loading; otherwise a missing `src` is a failure. */
+  pending?: boolean;
   onLoad?: (() => void) | undefined;
 }) {
   return (
     <ImageContent
       key={src}
       src={src}
+      pending={pending}
       name={name}
       className={className}
       eager={eager}
@@ -301,12 +305,14 @@ export function CardImage({
 
 function ImageContent({
   src,
+  pending,
   name,
   className,
   eager,
   onLoad,
 }: {
-  src: string;
+  src: string | undefined;
+  pending: boolean;
   name: string;
   className: string;
   eager: boolean;
@@ -315,22 +321,24 @@ function ImageContent({
   const [failed, setFailed] = useState(false);
   return (
     <span className={`card-image ${className}`}>
-      {failed ? (
+      {failed || (!src && !pending) ? (
         <span className="image-fallback">
           <ImageOff size={22} />
           <span>{name}</span>
           <small>Image unavailable</small>
         </span>
       ) : (
-        <img
-          crossOrigin={cardImageCrossOrigin(src)}
-          src={src}
-          alt={name}
-          loading={eager ? "eager" : "lazy"}
-          decoding="async"
-          onLoad={onLoad}
-          onError={() => setFailed(true)}
-        />
+        src && (
+          <img
+            crossOrigin={cardImageCrossOrigin(src)}
+            src={src}
+            alt={name}
+            loading={eager ? "eager" : "lazy"}
+            decoding="async"
+            onLoad={onLoad}
+            onError={() => setFailed(true)}
+          />
+        )
       )}
     </span>
   );

@@ -94,10 +94,10 @@ export interface Backend {
     request: StyleRequest,
     onProgress?: (progress: StyleProgress) => void,
   ): Promise<unknown>;
-  imageSrc(url: string): string;
+  imageSrc(url: string): string | undefined;
   uploadTrimSrc?(art: Art, thumbnail?: boolean): string;
-  comparisonThumbnailSrc(art: Art, settings: PrintSettings): string;
-  previewSrc(art: unknown, settings: PreviewSettings): string;
+  comparisonThumbnailSrc(art: Art, settings: PrintSettings): string | undefined;
+  previewSrc(art: unknown, settings: PreviewSettings): string | undefined;
   save(options: SaveDialogOptions): Promise<string | null>;
   ask(message: string, options: ConfirmDialogOptions): Promise<boolean>;
 }
