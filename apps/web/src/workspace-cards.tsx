@@ -400,6 +400,7 @@ function CardTiles({
   return (
     <div
       className={stacked ? "card-stack" : "card-grid"}
+      ref={stacked ? intent.stackRef : undefined}
       onPointerEnter={stacked ? intent.onPointerEnterStack : undefined}
       onPointerLeave={stacked ? intent.onPointerLeaveStack : undefined}
     >

@@ -1,16 +1,25 @@
 // Start Chromium with --remote-debugging-port=9222 and a separate user data dir.
 // Build and preview with VITE_TARGET=web, then run:
-// node scripts/check-card-stack-hits.mjs http://localhost:4173/deckpress/ deck.json
+// DECKPRESS_STACK_FIXTURE=long-language node scripts/check-card-stack-hits.mjs http://localhost:4173/deckpress/
+// The default fixture is "engineer"; an explicit deck backup path overrides it.
+// Playwright must be installed for the web runner (NODE_PATH may point to an external node_modules).
 // The deck backup must put Opt first and Ponder second in the same stack,
 // with an in-strip English fallback badge on Ponder.
 // Add --before to probe the previous instantaneous :hover raise.
-import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const art = ".art-studio .studio-toolbar h2";
 const opt = '.card-stack > [aria-label="Choose art for Opt"]';
+
+export function stackFixturePath(fixture = process.env.DECKPRESS_STACK_FIXTURE ?? "engineer") {
+  if (fixture !== "engineer" && fixture !== "long-language") {
+    throw new Error(`Unknown stack fixture: ${fixture} (expected engineer or long-language)`);
+  }
+  return fileURLToPath(new URL(`check-card-stack-hits.${fixture}.json`, import.meta.url));
+}
 
 async function until(read) {
   for (let attempt = 0; attempt < 60; attempt++) {
@@ -115,12 +124,41 @@ export async function traceStackPointer(evaluate, points, travel) {
   return points.map(([x, y]) => hits[`${x}:${y}`]);
 }
 
-export async function checkCardStackHits(driver, { widths, report, before = false }) {
-  const { evaluate, move, click, tab, resize, trace } = driver;
+export async function checkCardStackHits(driver, { widths, report, before = false, verifyLongBadges = false }) {
+  const { evaluate, tab, resize } = driver;
+  const outside = [2, 2];
+  let pointer = outside;
+  const move = async (point) => {
+    await driver.move(point);
+    pointer = point;
+  };
+  const click = async (point) => {
+    await driver.click(point);
+    pointer = point;
+  };
+  const trace = async (points) => {
+    const hits = await driver.trace(points);
+    pointer = points.at(-1);
+    return hits;
+  };
+  async function moveOffStack() {
+    const from = pointer;
+    for (let step = 1; step <= 6; step++) {
+      const point = from.map((value, axis) =>
+        Math.round(value + (outside[axis] - value) * step / 6));
+      if (step === 6 || point.some((value, axis) => value !== pointer[axis])) await move(point);
+    }
+  }
   const find = (selector) => evaluate((s) => !!document.querySelector(s), selector);
   const editor = async () => {
     if (await find(art)) {
-      await evaluate(() => document.querySelector('.workspace-views [title="Deck editor"]').click());
+      const back = await evaluate(() => {
+        const tab = document.querySelector('.workspace-views [title="Deck editor"]');
+        const { x, y, width, height } = tab.getBoundingClientRect();
+        return [Math.round(x + width / 2), Math.round(y + height / 2)];
+      });
+      await move(back);
+      await click(back);
       await until(() => find(opt));
     }
   };
@@ -135,7 +173,7 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
 
   async function resetRaise() {
     await evaluate(() => document.activeElement.blur());
-    await move([2, 2]);
+    await moveOffStack();
     await delay(380);
     if (!before && await find(".card-stack > .playing-card.raised")) {
       throw new Error("Expected no raised card after resetting focus and pointer");
@@ -182,8 +220,18 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
   }, opt);
   const onlyRaised = (state, id) =>
     state.raised.join() === id && state.lifted.join() === id;
+  async function settledStackState() {
+    await evaluate(async (selector) => {
+      const stack = document.querySelector(selector).parentElement;
+      const lifts = stack.getAnimations({ subtree: true })
+        .filter(animation => animation.transitionProperty === "transform");
+      await Promise.allSettled(lifts.map(animation => animation.finished));
+    }, opt);
+    return stackState();
+  }
 
   let failures = 0;
+  let wrappedBadges = 0;
   for (const width of widths) {
     await resize(width);
     for (const sidebar of ["open", "closed"]) {
@@ -193,6 +241,21 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
         document.querySelector(`[aria-label="${label}"]`).click();
       }, sidebar);
       await until(() => evaluate((desired) => document.querySelector(".app-shell").dataset.sidebar === desired, sidebar));
+      if (verifyLongBadges) {
+        const { total, fallback, wrapped } = await evaluate(() => {
+          const badges = [...document.querySelectorAll(".card-stack .card-language")];
+          const fallback = badges.filter(badge => badge.textContent === "English fallback");
+          const wrapped = fallback.filter(badge => {
+            const text = document.createRange();
+            text.selectNodeContents(badge);
+            return text.getClientRects().length > 1;
+          });
+          return { total: badges.length, fallback: fallback.length, wrapped: wrapped.length };
+        });
+        if (fallback <= total / 2) throw new Error("Expected most stack badges to show English fallback");
+        wrappedBadges += wrapped;
+        console.error(`Long-language badges at ${width}px, sidebar ${sidebar}: ${fallback}/${total} fallback, ${wrapped} wrapped`);
+      }
       for (const state of ["hover", "focus"]) {
         await raise(state);
         const cases = await evaluate(paths, opt);
@@ -252,10 +315,10 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
           .find(path => path.type === "dwell");
         await move(to);
         await delay(380);
-        const handoff = await stackState();
-        await move([2, 2]);
+        const handoff = await settledStackState();
+        await moveOffStack();
         await delay(380);
-        const restored = await stackState();
+        const restored = await settledStackState();
         const passed = onlyRaised(focused, "Opt") && focused.optFocusRing &&
           onlyRaised(handoff, "Ponder") && handoff.optFocusRing &&
           onlyRaised(restored, "Opt") && restored.optFocusRing;
@@ -288,99 +351,66 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
       }
     }
   }
+  if (verifyLongBadges && !wrappedBadges) throw new Error("Expected a wrapped English fallback badge");
   return failures;
 }
 
 async function runWeb(url, backupPath, before) {
-  const backup = await readFile(backupPath, "utf8");
+  const { chromium } = createRequire(import.meta.url)("playwright");
   const debug = process.env.CHROME_DEBUG_URL ?? "http://127.0.0.1:9222";
-  const targets = await (await fetch(`${debug}/json/list`)).json();
-  const target = targets.find((page) => page.url.split("#")[0] === url) ??
-    await (await fetch(`${debug}/json/new?about:blank`, { method: "PUT" })).json();
-  const socket = new WebSocket(target.webSocketDebuggerUrl);
-  const pending = new Map();
-  let id = 0;
-  socket.addEventListener("message", ({ data }) => {
-    const message = JSON.parse(data);
-    const request = pending.get(message.id);
-    if (!request) return;
-    pending.delete(message.id);
-    if (message.error) request.reject(new Error(message.error.message));
-    else request.resolve(message.result);
-  });
-  await new Promise((resolve, reject) => {
-    socket.addEventListener("open", resolve, { once: true });
-    socket.addEventListener("error", reject, { once: true });
-  });
-  const send = (method, params = {}) => new Promise((resolve, reject) => {
-    const request = ++id;
-    pending.set(request, { resolve, reject });
-    socket.send(JSON.stringify({ id: request, method, params }));
-  });
-  const evaluate = async (fn, ...args) => {
-    const result = await send("Runtime.evaluate", {
-      expression: `(${fn})(...${JSON.stringify(args)})`,
-      returnByValue: true,
-    });
-    if (result.exceptionDetails) throw new Error(result.result.description);
-    return result.result.value;
-  };
-  const mouse = (type, [x, y]) => send("Input.dispatchMouseEvent", {
-    type, x, y, button: type === "mouseMoved" ? "none" : "left", clickCount: 1,
-  });
+  const browser = await chromium.connectOverCDP(debug);
   try {
-    await send("Page.bringToFront");
-    const html = await (await fetch(url)).text();
-    const stylesheet = html.match(/href="([^"]+\.css)"/)?.[1];
-    if (!stylesheet) throw new Error("Expected a production build stylesheet");
-    await send("Network.setBypassServiceWorker", { bypass: true });
-    await send("Page.navigate", { url });
-    await until(() => evaluate((href) =>
-      crossOriginIsolated && !!document.querySelector(`link[href="${href}"]`), stylesheet));
-    await until(() => evaluate(() => !!document.querySelector('.playing-card, .art-studio, input[accept=".json"]')));
-    if (!(await evaluate(() => !!document.querySelector(".playing-card, .art-studio")))) {
-      await evaluate((content) => {
-        const input = document.querySelector('input[accept=".json"]');
-        const transfer = new DataTransfer();
-        transfer.items.add(new File([content], "deck.json", { type: "application/json" }));
-        input.files = transfer.files;
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-      }, backup);
+    const context = await browser.newContext();
+    try {
+      const page = await context.newPage();
+      const session = await context.newCDPSession(page);
+      const evaluate = (fn, ...args) =>
+        page.evaluate(`(${fn})(...${JSON.stringify(args)})`);
+      await page.goto(url);
+      const html = await (await fetch(url)).text();
+      const stylesheet = html.match(/href="([^"]+\.css)"/)?.[1];
+      if (!stylesheet) throw new Error("Expected a production build stylesheet");
+      await page.waitForFunction((href) =>
+        crossOriginIsolated && !!document.querySelector(`link[href="${href}"]`), stylesheet, { timeout: 10_000 });
+      await page.locator('input[accept=".json"]').setInputFiles(backupPath);
       await until(() => evaluate(() => !!document.querySelector(".playing-card")));
+
+      const failures = await checkCardStackHits({
+        evaluate,
+        move: ([x, y]) => page.mouse.move(x, y),
+        trace: (points) => traceStackPointer(evaluate, points, async (rest) => {
+          const dispatched = [];
+          const start = performance.now();
+          for (const [index, [x, y]] of rest.entries()) {
+            const remaining = start + index * 8 - performance.now();
+            if (remaining > 0) await delay(remaining);
+            dispatched.push(session.send("Input.dispatchMouseEvent", {
+              type: "mouseMoved", x, y,
+            }));
+          }
+          await Promise.all(dispatched);
+        }),
+        click: ([x, y]) => page.mouse.click(x, y),
+        tab: () => page.keyboard.press("Tab"),
+        resize: (width) => page.setViewportSize({ width, height: 1100 }),
+      }, {
+        widths: [1440, 1024, 768],
+        before,
+        verifyLongBadges: backupPath === stackFixturePath("long-language"),
+        report: (row) => console.log(JSON.stringify(row)),
+      });
+      process.exitCode = failures && !before ? 1 : 0;
+    } finally {
+      await context.close();
     }
-    process.exitCode = (await checkCardStackHits({
-      evaluate,
-      move: (point) => mouse("mouseMoved", point),
-      trace: (points) => traceStackPointer(evaluate, points, async (rest) => {
-        const dispatched = [];
-        for (const point of rest) {
-          dispatched.push(mouse("mouseMoved", point));
-          await delay(8);
-        }
-        await Promise.all(dispatched);
-      }),
-      click: async (point) => {
-        await mouse("mousePressed", point);
-        await mouse("mouseReleased", point);
-      },
-      tab: async () => {
-        for (const type of ["keyDown", "keyUp"]) {
-          await send("Input.dispatchKeyEvent", { type, key: "Tab", windowsVirtualKeyCode: 9 });
-        }
-      },
-      resize: (width) => send("Emulation.setDeviceMetricsOverride", {
-        width, height: 1100, deviceScaleFactor: 1, mobile: false,
-      }),
-    }, { widths: [1440, 1024, 768], before, report: (row) => console.log(JSON.stringify(row)) })) && !before ? 1 : 0;
   } finally {
-    await send("Network.setBypassServiceWorker", { bypass: false });
-    await send("Emulation.clearDeviceMetricsOverride");
-    socket.close();
+    await browser.close();
   }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const [, , url, backup] = process.argv;
-  if (!url || !backup) throw new Error("Usage: node scripts/check-card-stack-hits.mjs <preview URL> <deck backup>");
-  await runWeb(url, backup, process.argv.includes("--before"));
+  const [, , url, ...args] = process.argv;
+  if (!url) throw new Error("Usage: node scripts/check-card-stack-hits.mjs <preview URL> [deck backup] [--before]");
+  const backup = args.find(arg => arg !== "--before") ?? stackFixturePath();
+  await runWeb(url, backup, args.includes("--before"));
 }

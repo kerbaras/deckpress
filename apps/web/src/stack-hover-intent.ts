@@ -1,20 +1,69 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 export function useStackHoverIntent(delayMs = 200) {
-  const [raisedId, setRaisedId] = useState<string>();
+  const [hoveredId, setHoveredId] = useState<string>();
+  const [focusedId, setFocusedId] = useState<string>();
+  const stackRef = useRef<HTMLDivElement>(null);
   const hovered = useRef<string>(undefined);
   const focused = useRef<string>(undefined);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const timer = useRef<{
+    handle: ReturnType<typeof setTimeout>;
+    clear: boolean;
+  }>(undefined);
 
   const cancelHandoff = useCallback(() => {
-    clearTimeout(timer.current);
+    clearTimeout(timer.current?.handle);
     timer.current = undefined;
   }, []);
 
   const raiseFromPointer = useCallback((id: string | undefined) => {
     hovered.current = id;
-    setRaisedId(id ?? focused.current);
+    setHoveredId(id);
   }, []);
+
+  const scheduleHandoff = useCallback(
+    (id: string | undefined) => {
+      if (id === undefined && timer.current?.clear) return;
+      cancelHandoff();
+      timer.current = {
+        handle: setTimeout(() => {
+          timer.current = undefined;
+          raiseFromPointer(id);
+        }, delayMs),
+        clear: id === undefined,
+      };
+    },
+    [cancelHandoff, delayMs, raiseFromPointer],
+  );
+
+  const hoverActive = hoveredId !== undefined;
+  useLayoutEffect(() => {
+    if (!hoverActive || !stackRef.current) return;
+    const stack = stackRef.current;
+    function onDocumentPointer(event: PointerEvent) {
+      if (hovered.current === undefined || !(event.target instanceof Node))
+        return;
+      if (stack.contains(event.target)) {
+        if (timer.current?.clear) cancelHandoff();
+      } else scheduleHandoff(undefined);
+    }
+    document.addEventListener("pointermove", onDocumentPointer, {
+      passive: true,
+    });
+    document.addEventListener("pointerover", onDocumentPointer, {
+      passive: true,
+    });
+    return () => {
+      document.removeEventListener("pointermove", onDocumentPointer);
+      document.removeEventListener("pointerover", onDocumentPointer);
+    };
+  }, [hoverActive, cancelHandoff, scheduleHandoff]);
 
   useEffect(() => {
     function clearHover() {
@@ -35,16 +84,9 @@ export function useStackHoverIntent(delayMs = 200) {
     };
   }, [cancelHandoff, raiseFromPointer]);
 
-  function scheduleHandoff(id: string | undefined) {
-    cancelHandoff();
-    timer.current = setTimeout(() => {
-      timer.current = undefined;
-      raiseFromPointer(id);
-    }, delayMs);
-  }
-
   return {
-    raisedId,
+    raisedId: hoveredId ?? focusedId,
+    stackRef,
     onPointerEnterStack: cancelHandoff,
     onPointerEnterCard(id: string) {
       const current = hovered.current ?? focused.current;
@@ -60,12 +102,13 @@ export function useStackHoverIntent(delayMs = 200) {
     onFocusCard(id: string) {
       cancelHandoff();
       focused.current = id;
+      setFocusedId(id);
       raiseFromPointer(undefined);
     },
     onBlurCard(id: string) {
       if (focused.current !== id) return;
       focused.current = undefined;
-      setRaisedId(hovered.current);
+      setFocusedId(undefined);
     },
   };
 }

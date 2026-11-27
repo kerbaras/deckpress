@@ -1,0 +1,221 @@
+{
+  "id": "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240",
+  "name": "Stack hit areas",
+  "format": "Modern",
+  "entries": [
+    {
+      "id": "15b103a7-07a4-4935-a4aa-469e242d4856",
+      "zone": "main",
+      "quantity": 1,
+      "excluded": false,
+      "card": {
+        "id": "bbc99a51-1501-4525-a3cc-f48249b64bed",
+        "oracleId": "713332c1-5bd8-400f-bfff-c1ca0697a043",
+        "name": "Opt",
+        "typeLine": "Instant",
+        "manaValue": 1,
+        "manaCost": "{U}",
+        "colors": [
+          "U"
+        ],
+        "faces": [
+          {
+            "id": "scryfall:bbc99a51-1501-4525-a3cc-f48249b64bed:0",
+            "provider": "scryfall",
+            "name": "Opt",
+            "imageUrl": "https://cards.scryfall.io/png/front/b/b/bbc99a51-1501-4525-a3cc-f48249b64bed.png?1783907102",
+            "thumbnailUrl": "https://cards.scryfall.io/small/front/b/b/bbc99a51-1501-4525-a3cc-f48249b64bed.jpg?1783907102",
+            "source": "Tarkir: Dragonstorm Commander",
+            "language": "en",
+            "set": "tdc"
+          }
+        ]
+      }
+    },
+    {
+      "id": "26bfc0bb-9f94-4780-83fe-5f8c9dd2fcbe",
+      "zone": "main",
+      "quantity": 2,
+      "excluded": false,
+      "card": {
+        "id": "0cb673af-dae0-478c-a5d3-b697338f6c0e",
+        "oracleId": "02090581-61aa-4348-ad57-451be8ee91c2",
+        "name": "Ponder",
+        "typeLine": "Sorcery",
+        "manaValue": 1,
+        "manaCost": "{U}",
+        "colors": [
+          "U"
+        ],
+        "faces": [
+          {
+            "id": "scryfall:0cb673af-dae0-478c-a5d3-b697338f6c0e:0",
+            "provider": "scryfall",
+            "name": "Ponder",
+            "imageUrl": "https://cards.scryfall.io/png/front/0/c/0cb673af-dae0-478c-a5d3-b697338f6c0e.png?1793281344",
+            "thumbnailUrl": "https://cards.scryfall.io/small/front/0/c/0cb673af-dae0-478c-a5d3-b697338f6c0e.jpg?1793281344",
+            "source": "Star Trek Commander",
+            "language": "en",
+            "set": "trc"
+          }
+        ]
+      },
+      "requestedLanguages": [
+        "ja"
+      ]
+    },
+    {
+      "id": "9c5afe5f-3a60-4f6f-a365-f5726bd12ab8",
+      "zone": "main",
+      "quantity": 3,
+      "excluded": false,
+      "card": {
+        "id": "dd29a0e5-c1de-4e8a-8866-715e9f9cde1f",
+        "oracleId": "ac641490-ca14-48d7-8cc4-b69ce984befa",
+        "name": "Preordain",
+        "typeLine": "Sorcery",
+        "manaValue": 1,
+        "manaCost": "{U}",
+        "colors": [
+          "U"
+        ],
+        "faces": [
+          {
+            "id": "scryfall:dd29a0e5-c1de-4e8a-8866-715e9f9cde1f:0",
+            "provider": "scryfall",
+            "name": "Preordain",
+            "imageUrl": "https://cards.scryfall.io/png/front/d/d/dd29a0e5-c1de-4e8a-8866-715e9f9cde1f.png?1783907099",
+            "thumbnailUrl": "https://cards.scryfall.io/small/front/d/d/dd29a0e5-c1de-4e8a-8866-715e9f9cde1f.jpg?1783907099",
+            "source": "Tarkir: Dragonstorm Commander",
+            "language": "en",
+            "set": "tdc"
+          }
+        ]
+      },
+      "requestedLanguages": [
+        "ja"
+      ]
+    },
+    {
+      "id": "7c534464-e0fe-4101-b9dc-bfc296f14c75",
+      "zone": "main",
+      "quantity": 4,
+      "excluded": true,
+      "card": {
+        "id": "5b75eb6b-d76c-4b92-b042-13493f9ef164",
+        "oracleId": "56956afd-db53-4542-816b-490c8b0bbcf7",
+        "name": "Serum Visions",
+        "typeLine": "Sorcery",
+        "manaValue": 1,
+        "manaCost": "{U}",
+        "colors": [
+          "U"
+        ],
+        "faces": [
+          {
+            "id": "scryfall:5b75eb6b-d76c-4b92-b042-13493f9ef164:0",
+            "provider": "scryfall",
+            "name": "Serum Visions",
+            "imageUrl": "https://cards.scryfall.io/png/front/5/b/5b75eb6b-d76c-4b92-b042-13493f9ef164.png?1783911938",
+            "thumbnailUrl": "https://cards.scryfall.io/small/front/5/b/5b75eb6b-d76c-4b92-b042-13493f9ef164.jpg?1783911938",
+            "source": "Outlaws of Thunder Junction Commander",
+            "language": "en",
+            "set": "otc"
+          }
+        ]
+      },
+      "requestedLanguages": [
+        "ja"
+      ]
+    },
+    {
+      "id": "4681933f-979d-471f-a990-651e49b82102",
+      "zone": "main",
+      "quantity": 1,
+      "excluded": false,
+      "card": {
+        "id": "4f616706-ec97-4923-bb1e-11a69fbaa1f8",
+        "oracleId": "cc187110-1148-4090-bbb8-e205694a39f5",
+        "name": "Counterspell",
+        "typeLine": "Instant",
+        "manaValue": 2,
+        "manaCost": "{U}{U}",
+        "colors": [
+          "U"
+        ],
+        "faces": [
+          {
+            "id": "scryfall:4f616706-ec97-4923-bb1e-11a69fbaa1f8:0",
+            "provider": "scryfall",
+            "name": "Counterspell",
+            "imageUrl": "https://cards.scryfall.io/png/front/4/f/4f616706-ec97-4923-bb1e-11a69fbaa1f8.png?1783909630",
+            "thumbnailUrl": "https://cards.scryfall.io/small/front/4/f/4f616706-ec97-4923-bb1e-11a69fbaa1f8.jpg?1783909630",
+            "source": "Duskmourn: House of Horror Commander",
+            "language": "en",
+            "set": "dsc"
+          }
+        ]
+      }
+    },
+    {
+      "id": "e2a1eef8-d5db-4b46-90d4-93fa072d7704",
+      "zone": "main",
+      "quantity": 2,
+      "excluded": false,
+      "card": {
+        "id": "c57ee875-5ce7-4c47-841c-9639d622fe00",
+        "oracleId": "3407fe41-fdd3-4119-8f70-4bc4590a379f",
+        "name": "Negate",
+        "typeLine": "Instant",
+        "manaValue": 2,
+        "manaCost": "{1}{U}",
+        "colors": [
+          "U"
+        ],
+        "faces": [
+          {
+            "id": "scryfall:c57ee875-5ce7-4c47-841c-9639d622fe00:0",
+            "provider": "scryfall",
+            "name": "Negate",
+            "imageUrl": "https://cards.scryfall.io/png/front/c/5/c57ee875-5ce7-4c47-841c-9639d622fe00.png?1793111882",
+            "thumbnailUrl": "https://cards.scryfall.io/small/front/c/5/c57ee875-5ce7-4c47-841c-9639d622fe00.jpg?1793111882",
+            "source": "Star Trek Commander",
+            "language": "en",
+            "set": "trc"
+          }
+        ]
+      }
+    },
+    {
+      "id": "fe68fe69-269c-4094-b8d8-3547276df23c",
+      "zone": "main",
+      "quantity": 3,
+      "excluded": false,
+      "card": {
+        "id": "1335d293-3dd2-4f13-bd2c-22181f4528ee",
+        "oracleId": "b2c6aa39-2d2a-459c-a555-fb48ba993373",
+        "name": "Island",
+        "typeLine": "Basic Land — Island",
+        "manaValue": 0,
+        "manaCost": "",
+        "colors": [],
+        "faces": [
+          {
+            "id": "scryfall:1335d293-3dd2-4f13-bd2c-22181f4528ee:0",
+            "provider": "scryfall",
+            "name": "Island",
+            "imageUrl": "https://cards.scryfall.io/png/front/1/3/1335d293-3dd2-4f13-bd2c-22181f4528ee.png?1791578424",
+            "thumbnailUrl": "https://cards.scryfall.io/small/front/1/3/1335d293-3dd2-4f13-bd2c-22181f4528ee.jpg?1791578424",
+            "source": "Marvel: Darkhold Destiny",
+            "language": "en",
+            "set": "mdd"
+          }
+        ]
+      }
+    }
+  ],
+  "printSettings": {},
+  "revision": 0,
+  "createdAt": "2026-09-23T00:00:00.000Z",
+  "updatedAt": "2026-09-23T00:00:00.000Z"
+}
