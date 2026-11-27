@@ -23,9 +23,11 @@ export async function runPrintWorker(
   onProgress?: (event: Extract<PrintResponse, { kind: "progress" }>) => void,
 ): Promise<PrintResult> {
   signal?.throwIfAborted();
-  const worker = new Worker(new URL("./print-worker.ts", import.meta.url), {
-    type: "module",
-  });
+  if (import.meta.env.PROD && import.meta.env.VITE_TARGET !== "web")
+    throw new Error("The print worker is only available in the web app");
+  const { default: PrintWorker } = await import("./print-worker.ts?worker");
+  signal?.throwIfAborted();
+  const worker = new PrintWorker();
   const cancel = () => worker.terminate();
   let onAbort: (() => void) | undefined;
   try {
