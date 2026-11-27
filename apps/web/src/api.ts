@@ -786,8 +786,11 @@ export function saveFileDialog(options: SaveDialogOptions) {
 
 export const isWebPreview = () => getBackend() === webBackend;
 
-export function cardImageCrossOrigin(src: string) {
-  return isWebPreview() && src.startsWith("https://cards.scryfall.io/")
+/** Scryfall images must load in CORS mode under the web build's COEP. */
+export function scryfallCrossOrigin(src: string) {
+  return isWebPreview() &&
+    (src.startsWith("https://cards.scryfall.io/") ||
+      src.startsWith("https://svgs.scryfall.io/"))
     ? "anonymous"
     : undefined;
 }

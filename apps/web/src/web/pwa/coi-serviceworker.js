@@ -9,6 +9,10 @@ const shellPrefix = `deckpress-web-shell-${scope}-`;
 const shellCache = shellPrefix + build.version;
 const artCache = "deckpress-web-art-v1";
 const models = new URL("models/", scope).href;
+const scryfallImages = [
+  "https://cards.scryfall.io/",
+  "https://svgs.scryfall.io/sets/",
+];
 
 self.addEventListener("install", (event) =>
   event.waitUntil(
@@ -66,7 +70,7 @@ self.addEventListener("fetch", (event) => {
     return;
 
   if (
-    request.url.startsWith("https://cards.scryfall.io/") &&
+    scryfallImages.some((prefix) => request.url.startsWith(prefix)) &&
     request.destination === "image" &&
     request.mode === "cors"
   ) {
