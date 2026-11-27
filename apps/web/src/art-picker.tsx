@@ -47,6 +47,7 @@ import {
   useTask,
 } from "./ui.tsx";
 import { type UseSet, UseSetAction } from "./use-set-action.tsx";
+import { usePickerDpi } from "./web/use-picker-dpi.ts";
 
 const preferHighResKey = "deckpress.prefer-high-res";
 
@@ -155,7 +156,7 @@ export function filterArt(
     language?: string;
   },
   data: Preferences,
-  resolution: (art: Art) => number = (art) => art.dpi,
+  resolution: (art: Art) => number | undefined = (art) => art.dpi,
 ): Art[] {
   const unique = [...new Map(items.map((art) => [art.id, art])).values()];
   const text = options.search.toLowerCase().trim();
@@ -172,7 +173,7 @@ export function filterArt(
           art.source === options.artist) &&
         (!options.tag || tags.includes(normalizeTag(options.tag))) &&
         (!options.language || art.language === options.language) &&
-        resolution(art) >= options.dpi &&
+        (resolution(art) ?? Number.POSITIVE_INFINITY) >= options.dpi &&
         (!options.favorites || preference?.favorite) &&
         `${art.name} ${art.source} ${art.artist} ${art.set} ${art.collectorNumber} ${art.language} ${tags.join(" ")}`
           .toLowerCase()
@@ -191,7 +192,8 @@ export function filterArt(
           (data.usage[b.id] ?? 0) - (data.usage[a.id] ?? 0) ||
           b.releasedAt.localeCompare(a.releasedAt)
         );
-      if (options.sort === "dpi") return resolution(b) - resolution(a);
+      if (options.sort === "dpi")
+        return (resolution(b) ?? -1) - (resolution(a) ?? -1);
       if (options.sort === "artist") return a.artist.localeCompare(b.artist);
       return options.sort === "oldest"
         ? (a.releasedAt || "9999").localeCompare(b.releasedAt || "9999")
@@ -366,8 +368,20 @@ function ArtSession({
       sourceSizes.data?.[index],
     ]),
   );
+  const webDpi = usePickerDpi(web, candidate, items, printSettings);
+  const waitForSource = (art: Art | null) =>
+    web &&
+    art?.provider === "scryfall" &&
+    art.imageUrl === candidate?.imageUrl &&
+    !webDpi.hasFinished(candidate);
   const sourceLabel = (art: Art) => {
     if (art.provider === "mpc") return `${art.dpi} DPI (provider)`;
+    if (web) {
+      const dpi = webDpi.dpi(art);
+      return dpi === undefined
+        ? "Source DPI unavailable"
+        : `${Math.floor(dpi)} effective DPI`;
+    }
     const reading = sourceSizeByUrl.get(art.imageUrl);
     if (!reading) return "Source DPI unavailable";
     const value = Math.floor(reading.effectiveDpi);
@@ -376,6 +390,7 @@ function ArtSession({
       : `${value} effective DPI`;
   };
   const sourceLoaded = (url: string) => {
+    if (web) return;
     setLoadedSources((loaded) =>
       loaded.includes(url) ? loaded : [...loaded, url],
     );
@@ -387,7 +402,9 @@ function ArtSession({
     (art) =>
       art.provider === "mpc"
         ? art.dpi
-        : (sourceSizeByUrl.get(art.imageUrl)?.effectiveDpi ?? 0),
+        : web
+          ? webDpi.dpi(art)
+          : (sourceSizeByUrl.get(art.imageUrl)?.effectiveDpi ?? 0),
   );
   const artists = [
     ...new Set(
@@ -740,6 +757,7 @@ function ArtSession({
               label="Original"
               art={original}
               sourceDpi={original ? sourceLabel(original) : "Vector"}
+              waitForSource={waitForSource(original)}
               onSourceLoad={sourceLoaded}
               language={original && languageBadge(entry, original)}
               zoom={zoom}
@@ -751,6 +769,7 @@ function ArtSession({
               label="Saved"
               art={saved}
               sourceDpi={saved ? sourceLabel(saved) : "Vector"}
+              waitForSource={waitForSource(saved)}
               onSourceLoad={sourceLoaded}
               language={saved && languageBadge(entry, saved)}
               zoom={zoom}
@@ -761,6 +780,7 @@ function ArtSession({
             label="Preview"
             art={candidate}
             sourceDpi={candidate ? sourceLabel(candidate) : "Vector"}
+            waitForSource={waitForSource(candidate)}
             onSourceLoad={sourceLoaded}
             language={candidate && languageBadge(entry, candidate)}
             zoom={zoom}
@@ -1054,6 +1074,12 @@ function ArtSession({
                   type="button"
                   className={`art-option ${candidate?.id === art.id ? "selected" : ""}`}
                   key={art.id}
+                  ref={
+                    web && art.provider !== "mpc"
+                      ? webDpi.observeTile
+                      : undefined
+                  }
+                  data-source-art={web ? art.id : undefined}
                   aria-label={`Select ${art.source} ${art.collectorNumber} by ${art.artist}${states.length ? ` — ${states.join(", ")}` : ""}`}
                   aria-description={[scanLabel(art), dpiLabel]
                     .filter(Boolean)
@@ -1279,6 +1305,7 @@ function Monitor({
   zoom,
   states,
   sourceDpi,
+  waitForSource,
   onSourceLoad,
   children,
 }: {
@@ -1288,6 +1315,7 @@ function Monitor({
   zoom: number;
   states: ArtState[];
   sourceDpi: string;
+  waitForSource: boolean;
   onSourceLoad: (url: string) => void;
   children?: React.ReactNode;
 }) {
@@ -1307,7 +1335,7 @@ function Monitor({
       <div className="monitor-body">
         <div className="monitor-picture">
           <div style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}>
-            {art ? (
+            {waitForSource ? null : art ? (
               <ArtImage
                 art={art}
                 name={`${label}: ${art.name}`}

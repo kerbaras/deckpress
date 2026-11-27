@@ -48,7 +48,7 @@ it("batches distinct oracle IDs, pages each group and preserves its family and l
     [...ids, first, "invalid"],
     "en",
     ["ecc", "ecl", "tecc"],
-    onProgress,
+    { onProgress },
   );
   expect(search.mock.calls.map(([, page]) => page)).toEqual([1, 2, 1]);
   expect(
@@ -160,12 +160,12 @@ it("batches full-name fallback across collection batches without substituting a 
     [
       '((!"Armed // Dangerous") or (!"Bind // Liberate") or (!"Fire // Ice" cn="290")) include:extras',
       1,
-      "cards",
+      { unique: "cards" },
     ],
     [
       '((!"Fire // Ice" set:mh2) or (!"Fire // Wrong Face")) include:extras',
       1,
-      "cards",
+      { unique: "cards" },
     ],
   ]);
   expect(result.entries.slice(0, 3)).toMatchObject([
@@ -262,14 +262,14 @@ it.each([
     });
     expect(result.issues).toHaveLength(21);
     expect(
-      search.mock.calls.map(([query, page, unique]) => {
+      search.mock.calls.map(([query, page, options]) => {
         expect(
           new URLSearchParams({ q: query }).toString().length,
         ).toBeLessThanOrEqual(1700);
         expect(
           query.match(/!"|set:|include:extras/g)?.length,
         ).toBeLessThanOrEqual(20);
-        expect([page, unique]).toEqual([1, "cards"]);
+        expect([page, options]).toEqual([1, { unique: "cards" }]);
         return query.match(/!"/g)?.length;
       }),
     ).toEqual(lengths);
@@ -387,7 +387,7 @@ it("resolves both Spanish split faces and batches localization after a front-fac
     [
       '((!"Bind // Liberate") or (!"Fuego // Hielo")) include:extras',
       1,
-      "cards",
+      { unique: "cards" },
     ],
     [
       `(oracleid:${fireOracle} or oracleid:${bindOracle}) game:paper lang:es`,

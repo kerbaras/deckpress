@@ -78,6 +78,29 @@ fn record_search(store: &Store, query: &str, page: u32, has_more: bool, data: &[
     );
 }
 
+fn record_family_search(
+    store: &Store,
+    oracle: &str,
+    language: Option<&str>,
+    filter: &str,
+    data: &[Value],
+) {
+    let (base_key, query) = match language {
+        Some(language) => (
+            format!("language-printings:{language}:{oracle}"),
+            format!("(oracleid:{oracle}) lang:{language} game:paper {filter}"),
+        ),
+        None => (
+            format!("policy-printings:{oracle}"),
+            format!("oracleid:{oracle} game:paper {filter}"),
+        ),
+    };
+    store
+        .remove("cache", &format!("family-printings:{filter}:{base_key}"))
+        .unwrap();
+    record_search(store, &query, 1, false, data);
+}
+
 fn record_sets(store: &Store) {
     record(
         store,
@@ -256,6 +279,71 @@ async fn set_preview_batches_and_caches_pages_and_retries_the_throttled_page() {
 
 fn origin_for_path(path: &str) -> url::Url {
     url::Url::parse(&format!("http://localhost{path}")).unwrap()
+}
+
+#[tokio::test]
+async fn exact_set_preview_reuses_family_inventory_only_for_covered_sets() {
+    let cards = cards();
+    let base = printing(&cards, "m11", "en");
+    let commander = in_set(base, "ecc", "2026-01-23");
+    let jumpstart = in_set(base, "j25", "2024-11-15");
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = url::Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let (tx, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    let family_card = commander.clone();
+    let mock = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let url = origin_for_path(line.split_whitespace().nth(1).unwrap());
+            let query = url.query_pairs().find(|(key, _)| key == "q").unwrap().1;
+            let data = if query.contains("set:ecc") {
+                vec![family_card.clone()]
+            } else {
+                vec![family_card.clone(), jumpstart.clone()]
+            };
+            tx.send(query.into_owned()).unwrap();
+            while {
+                line.clear();
+                stream.read_line(&mut line).await.unwrap() > 0 && line != "\r\n"
+            } {}
+            let body = json!({"data": data, "has_more": false}).to_string();
+            stream.get_mut().write_all(format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            ).as_bytes()).await.unwrap();
+        }
+    });
+
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::with_scryfall_origin(store.clone(), origin).unwrap());
+    preferences(&providers, "en", PrintLanguagePolicy::Strict);
+    record_sets(&store);
+    let service = ArtPolicies::new(store.clone(), providers);
+    let mut input = common::new_deck("Family inventory reuse");
+    input.entries = vec![entry(base)];
+    let deck = store.create_deck(input).unwrap();
+
+    for (set, family, expected) in [
+        ("ecl", true, "ecc"),
+        ("ecc", false, "ecc"),
+        ("j25", false, "j25"),
+    ] {
+        let preview = service
+            .preview_policy(&deck.id, deck.revision, set_policy(set, family))
+            .await
+            .unwrap();
+        assert_eq!(preview.changes[0].after.as_ref().unwrap().set, expected);
+        match set {
+            "ecl" => assert!(requests.try_recv().unwrap().contains("set:ecc")),
+            "j25" => assert!(!requests.try_recv().unwrap().contains("set:")),
+            _ => {}
+        }
+        assert!(requests.try_recv().is_err(), "extra request for {set}");
+    }
+    mock.abort();
 }
 
 #[tokio::test]
@@ -478,6 +566,7 @@ async fn family_rank_precedes_release_date_for_foundations() {
     let deck = store.create_deck(input).unwrap();
 
     let ranked = ["fdc", "fdn", "tfdc", "tfdn"];
+    let filter = "(set:fdc or set:fdn or set:tfdc or set:tfdn)";
     let prints = [
         in_set(base, "fdc", "2024-11-15"),
         in_set(base, "fdn", "2024-11-16"),
@@ -486,7 +575,7 @@ async fn family_rank_precedes_release_date_for_foundations() {
         in_set(base, "j25", "2026-10-04"),
     ];
     for (index, expected) in ranked.into_iter().enumerate() {
-        search(&store, None, 1, false, &prints[index..]);
+        record_family_search(&store, ORACLE, None, filter, &prints[index..]);
         let preview = service
             .preview_policy(&deck.id, deck.revision, set_policy("fdc", true))
             .await
@@ -506,16 +595,16 @@ async fn family_localization_keeps_both_faces_and_filters_out_of_family_scans() 
     preferences(&providers, "es", PrintLanguagePolicy::FallbackToEnglish);
     let service = ArtPolicies::new(store.clone(), providers);
     record_sets(&store);
-    search_oracle(
+    let filter = "(set:ecc or set:ecl or set:tecc or set:tecl)";
+    record_family_search(
         &store,
         oracle,
         None,
-        1,
-        false,
+        filter,
         &[in_set(en, "ecl", "2026-01-23")],
     );
     let mut spanish = vec![in_set(es, "pecl", "2026-01-24")];
-    search_oracle(&store, oracle, Some("es"), 1, false, &spanish);
+    record_family_search(&store, oracle, Some("es"), filter, &spanish);
     let mut input = common::new_deck("Localized family");
     input.entries = vec![entry(en)];
     let deck = store.create_deck(input).unwrap();
@@ -527,7 +616,7 @@ async fn family_localization_keeps_both_faces_and_filters_out_of_family_scans() 
     assert_eq!(fallback.changes[0].after.as_ref().unwrap().set, "ecl");
 
     spanish.push(in_set(es, "ecc", "2026-01-23"));
-    search_oracle(&store, oracle, Some("es"), 1, false, &spanish);
+    record_family_search(&store, oracle, Some("es"), filter, &spanish);
     let preview = service
         .preview_policy(&deck.id, deck.revision, set_policy("ecl", true))
         .await

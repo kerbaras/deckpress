@@ -1,5 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { type KeyboardEvent, useEffect, useId, useState } from "react";
+import {
+  type FocusEvent,
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { api, imageSrc } from "./api.ts";
 import {
   formatSetCoverage,
@@ -49,12 +56,13 @@ export function SetPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState<string>();
+  const picker = useRef<HTMLDivElement>(null);
   const expanded = open && !disabled;
   const showSuggestions = !query.trim();
   const catalog = useSetCatalog();
   const coverage = useQuery({
     queryKey: ["set-coverage", deckId, revision],
-    queryFn: () => api.setCoverage(deckId),
+    queryFn: ({ signal }) => api.setCoverage(deckId, signal),
     enabled: expanded && showSuggestions,
     staleTime: 86_400_000,
     retry: false,
@@ -82,6 +90,19 @@ export function SetPicker({
     setQuery("");
   }
 
+  function retryCatalog() {
+    void catalog.refetch({ cancelRefetch: false });
+  }
+
+  function openPicker() {
+    if (!expanded && !disabled && catalog.isError) retryCatalog();
+    setOpen(true);
+  }
+
+  function closeOnBlur(event: FocusEvent) {
+    if (!picker.current?.contains(event.relatedTarget)) close();
+  }
+
   function select(code: string) {
     onChange(code);
     close();
@@ -92,7 +113,7 @@ export function SetPicker({
       case "ArrowDown":
       case "ArrowUp": {
         event.preventDefault();
-        setOpen(true);
+        openPicker();
         const next =
           event.key === "ArrowDown"
             ? Math.min(activeIndex + 1, options.length - 1)
@@ -150,7 +171,7 @@ export function SetPicker({
   }
 
   return (
-    <div className="field set-picker">
+    <div ref={picker} className="field set-picker">
       <label htmlFor={id}>Set</label>
       <input
         id={id}
@@ -164,12 +185,12 @@ export function SetPicker({
         placeholder="Search by set name or code"
         disabled={disabled}
         value={expanded ? query : (selected?.name ?? value.toUpperCase())}
-        onFocus={() => setOpen(true)}
-        onClick={() => setOpen(true)}
-        onBlur={close}
+        onFocus={openPicker}
+        onClick={openPicker}
+        onBlur={closeOnBlur}
         onKeyDown={keyDown}
         onChange={(event) => {
-          setOpen(true);
+          openPicker();
           setQuery(event.target.value);
           setActive(undefined);
         }}
@@ -200,10 +221,22 @@ export function SetPicker({
               still search.
             </p>
           )}
-          {catalog.isError && (
-            <p className="hint" role="alert">
-              Could not load Scryfall sets.
-            </p>
+          {catalog.isError && !catalog.isFetching && (
+            <div>
+              <p className="hint" role="alert">
+                Could not load Scryfall sets.
+              </p>
+              <button
+                type="button"
+                onBlur={closeOnBlur}
+                onClick={() => {
+                  document.getElementById(id)?.focus();
+                  retryCatalog();
+                }}
+              >
+                Retry
+              </button>
+            </div>
           )}
           <div
             id={listId}

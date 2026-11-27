@@ -87,19 +87,25 @@ export async function print(
     );
   }
   if (request.kind === "source-dpi") {
-    const readings = [];
-    for (const art of request.arts) {
-      try {
-        const bitmap = await createImageBitmap(await image(art));
+    const readings: (SourceReading | null)[] = [];
+    const sources = request.arts.entries();
+    async function readSources() {
+      for (const [index, art] of sources) {
         try {
-          readings.push(reading(art, bitmap.width, bitmap.height));
-        } finally {
-          bitmap.close();
+          const bitmap = await createImageBitmap(await image(art));
+          try {
+            readings[index] = reading(art, bitmap.width, bitmap.height);
+          } finally {
+            bitmap.close();
+          }
+        } catch {
+          readings[index] = null;
         }
-      } catch {
-        readings.push(null);
       }
     }
+    await Promise.all(
+      Array.from({ length: Math.min(4, request.arts.length) }, readSources),
+    );
     return { kind: "source-dpi", readings };
   }
 

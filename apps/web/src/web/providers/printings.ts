@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Art } from "../../core/index.ts";
-import type { Scryfall } from "./scryfall.ts";
+import type { RequestOptions, Scryfall, SearchOptions } from "./scryfall.ts";
 import { record, recordList, usableCard } from "./scryfall-card.ts";
 import { anyOf, searchBatches } from "./search-batches.ts";
 
@@ -75,16 +75,28 @@ export function policyProvider(api: Scryfall) {
     oracleIds: string[],
     language?: string,
     sets?: string[],
-    onProgress?: (done: number, total: number) => void,
+    options?: RequestOptions & {
+      onProgress?: (done: number, total: number) => void;
+    },
+  ) {
+    const filters = ["game:paper"];
+    if (sets?.length) filters.push(anyOf(sets.map((set) => `set:${set}`)));
+    if (language) filters.push(`lang:${language}`);
+    return inventorySearch(oracleIds, filters, language, options);
+  }
+
+  async function inventorySearch(
+    oracleIds: string[],
+    filters: string[],
+    language: string | undefined,
+    options?: SearchOptions & {
+      onProgress?: (done: number, total: number) => void;
+    },
   ) {
     const ids = [
       ...new Set(oracleIds.filter((id) => uuid.safeParse(id).success)),
     ].sort();
     const prints = new Map<string, Printing[]>(ids.map((id) => [id, []]));
-    const setTerms = sets?.map((set) => `set:${set}`);
-    const filters = ["game:paper"];
-    if (setTerms?.length) filters.push(anyOf(setTerms));
-    if (language) filters.push(`lang:${language}`);
     const complete = await searchBatches(
       api,
       ids.map((id) => `oracleid:${id}`),
@@ -98,7 +110,7 @@ export function policyProvider(api: Scryfall) {
         return false;
       },
       oracleBatchSize,
-      onProgress,
+      options,
     );
     if (!complete)
       throw new Error(
@@ -108,9 +120,21 @@ export function policyProvider(api: Scryfall) {
   }
 
   return {
-    sets: () => api.sets(),
+    sets: (options?: RequestOptions) => api.sets(options),
     inventoryBatch,
-    async anchors(ids: string[]) {
+    coverageInventory(oracleIds: string[], signal?: AbortSignal) {
+      return inventorySearch(
+        oracleIds,
+        [
+          "game:paper",
+          "-is:promo",
+          anyOf(["st:expansion", "st:core", "st:commander", "st:token"]),
+        ],
+        undefined,
+        { background: true, includeMultilingual: false, signal },
+      );
+    },
+    async anchors(ids: string[], options?: RequestOptions) {
       const ordered = [
         ...new Set(ids.filter((id) => uuid.safeParse(id).success)),
       ].sort();
@@ -121,31 +145,43 @@ export function policyProvider(api: Scryfall) {
         start += collectionBatchSize
       ) {
         const batch = ordered.slice(start, start + collectionBatchSize);
-        for (const raw of await api.collection(batch.map((id) => ({ id })))) {
+        options?.signal?.throwIfAborted();
+        for (const raw of await api.collection(
+          batch.map((id) => ({ id })),
+          options,
+        )) {
           const print = policyPrinting(raw);
           if (print && batch.includes(print.id)) prints.set(print.id, print);
         }
       }
       return prints;
     },
-    async get(artId: string) {
+    async get(artId: string, options?: RequestOptions) {
       const id = artId.startsWith("scryfall:")
         ? artId.split(":")[1]
         : undefined;
       if (!id || !uuid.safeParse(id).success) return undefined;
-      const print = policyPrinting(await api.printing(id));
+      const print = policyPrinting(await api.printing(id, options));
       return print?.id === id ? print : undefined;
     },
-    async exact(anchor: Printing, lang: string) {
+    async exact(anchor: Printing, lang: string, options?: RequestOptions) {
       const print = policyPrinting(
-        await api.exact(anchor.set, anchor.collector, lang),
+        await api.exact(anchor.set, anchor.collector, lang, options),
       );
       return print?.set === anchor.set && print.collector === anchor.collector
         ? print
         : undefined;
     },
-    async inventory(oracleId: string, language?: string) {
-      return (await inventoryBatch([oracleId], language)).get(oracleId) ?? [];
+    async inventory(
+      oracleId: string,
+      language?: string,
+      options?: RequestOptions,
+    ) {
+      return (
+        (await inventoryBatch([oracleId], language, undefined, options)).get(
+          oracleId,
+        ) ?? []
+      );
     },
   };
 }

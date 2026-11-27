@@ -119,7 +119,7 @@ async function resolveSplitNames(api: Scryfall, rows: ImportRow[]) {
   for (const [query, batch] of splitSearchQueries(queries)) {
     let rawCards: Record<string, unknown>[];
     try {
-      ({ cards: rawCards } = await api.search(query, 1, "cards"));
+      ({ cards: rawCards } = await api.search(query, 1, { unique: "cards" }));
     } catch (error) {
       if (
         error instanceof ScryfallHttpError &&
