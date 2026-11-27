@@ -11,7 +11,7 @@ Open the [Deckpress web preview](https://kerbaras.github.io/deckpress/) in up-to
 - Decks, settings, and uploaded art are kept in browser storage. Settings shows storage usage and can clear models, scans, and cached Scryfall data. Backups reference uploads without embedding them. Restoring one asks once for the original files and matches them by content hash, or by filename for older backups without a hash.
 - In the art picker, "Use <Set> for the whole deck" previews moving each unpinned Scryfall card to that set family. The Deck language selector previews each reprint before it changes the deck.
 - MPC Autofill (including backups with MPC art), deck URL imports (paste the list instead), Discover, the deck builder, and printer queues require the desktop app.
-- Verified in Chrome with WebGPU on macOS and Linux. Safari is untested.
+- Verified in Chrome on macOS with WebGPU and on Linux with WASM (CPU). Safari is untested.
 
 ### Build the web preview
 
