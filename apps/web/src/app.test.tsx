@@ -39,6 +39,7 @@ import {
   targetsFor,
 } from "./style-match.tsx";
 import { UpscaleComparison } from "./upscale-comparison.tsx";
+import * as sourceDpi from "./web/source-dpi.ts";
 
 const id = "a4f5c8d1-0903-40be-8f8c-e9dcb5aa7240";
 const original = artSchema.parse({
@@ -2478,6 +2479,52 @@ it("labels cached Scryfall pixel dimensions separately from format estimates at 
   ).toBeVisible();
   expect(alternateTile).toHaveAccessibleDescription(/305 DPI \(estimated\)/);
   expect(pickerDpi).toHaveBeenLastCalledWith(expect.any(Array), printSettings);
+});
+
+it("shows measured web source DPI alongside the native scan quality badge", async ({
+  onTestFinished,
+}) => {
+  vi.stubEnv("VITE_TARGET", "web");
+  onTestFinished(() => {
+    vi.unstubAllEnvs();
+  });
+  const low = { ...alternate, scanQuality: "lowres" as const };
+  mockPickerArt([original, low]);
+  const readDpi = vi
+    .spyOn(sourceDpi, "readPickerDpi")
+    .mockImplementation(async (art) => (art.id === low.id ? 254.8 : undefined));
+  const desktop = vi.spyOn(api, "pickerDpi");
+  renderWithClient(
+    <ArtPicker
+      deck={pickerDeck}
+      entry={entry}
+      onSelect={vi.fn()}
+      onApply={vi.fn()}
+    />,
+  );
+  const tile = await screen.findByRole("button", previewButton);
+  expect(readDpi).toHaveBeenCalledTimes(1);
+  expect(readDpi).toHaveBeenCalledWith(
+    original,
+    pickerDeck.printSettings,
+    expect.any(AbortSignal),
+  );
+  await userEvent.click(tile);
+  expect(await within(tile).findByText("254 effective DPI")).toBeVisible();
+  expect(within(tile).getByText("Low-res scan")).toBeVisible();
+  expect(tile).toHaveAccessibleDescription("Low-res scan · 254 effective DPI");
+  const originalTile = screen.getByRole("button", {
+    name: /Select Magic 2010/,
+  });
+  expect(
+    within(originalTile).getByText("Source DPI unavailable"),
+  ).toBeVisible();
+  expect(readDpi).toHaveBeenLastCalledWith(
+    low,
+    pickerDeck.printSettings,
+    expect.any(AbortSignal),
+  );
+  expect(desktop).not.toHaveBeenCalled();
 });
 
 it("shows MPC Autofill DPI on its picker badge", async () => {
