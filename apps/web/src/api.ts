@@ -740,16 +740,29 @@ export async function downloadJson(deck: Deck): Promise<boolean> {
   return true;
 }
 
-export async function downloadCutTemplate(deck: Deck): Promise<string | null> {
+export async function downloadCutTemplate(
+  deck: Deck,
+  format: "svg" | "dxf" | "studio3" = "svg",
+  templateName?: string,
+): Promise<string | null> {
+  const labels = {
+    svg: "SVG cut template",
+    dxf: "DXF cut lines",
+    studio3: "Silhouette Studio cut file",
+  };
   const destination = await saveFileDialog({
     title: "Save cut template",
-    defaultPath: await exportFileName(deck, "-cut-template.svg"),
-    filters: [{ name: "SVG cut template", extensions: ["svg"] }],
+    defaultPath: await exportFileName(
+      deck,
+      `-${templateName ?? "cut-template"}.${format}`,
+    ),
+    filters: [{ name: labels[format], extensions: [format] }],
   });
   if (!destination) return null;
   await command("save_cut_template", nothing, {
     destination,
     settings: deck.printSettings,
+    ...(format !== "svg" && { format }),
   });
   return destination;
 }

@@ -39,9 +39,12 @@ const pdfBytes = buildPdf(
   raster. The module ignores `PrintSettings.upscale`; it runs no inference.
 - `layoutJson` returns page, slot, guide and registration geometry in PDF
   points from the top-left corner. `scmTemplatesJson` and
-  `scmCuttingTemplatesJson` return the vendored catalogs.
-- `buildCutSvg` returns a free-layout cutting template as SVG text. As on
-  desktop, SCM layouts use their published cutting templates instead.
+  `scmCuttingTemplatesJson` return the vendored catalogs. The cut catalog's
+  `files` array lists upstream paths; `exports` maps versioned file names to
+  paths and SHA-256 hashes, and `exceptions` lists layouts without Studio files.
+- `buildCutSvg` returns a free-layout cutting template as SVG text.
+  `buildCutDxf` returns cut paths in millimeters for Free layouts and SCM
+  exceptions. Other SCM layouts use their published Studio templates instead.
 
 Exports are synchronous. Run them in a worker to keep the UI responsive.
 The module assembles the complete PDF or ZIP in memory.

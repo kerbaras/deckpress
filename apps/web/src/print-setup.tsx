@@ -49,7 +49,9 @@ import {
   type ScmTemplate,
   scmCardLabel,
   scmCards,
+  scmCommit,
   scmCutFile,
+  scmHasDxfFallback,
   scmPapers,
   sheetLabel,
 } from "./core/index.ts";
@@ -88,8 +90,7 @@ const backsNames = {
   "short-edge": "Duplex · flip short edge",
   separate: "All fronts, then all backs",
 };
-const scmTree =
-  "https://github.com/Alan-Cha/silhouette-card-maker/tree/0da09b729814aa5aafde024b5a6059624fa87951";
+const scmTree = `https://github.com/Alan-Cha/silhouette-card-maker/tree/${scmCommit}`;
 const scmCuttingTemplates = `${scmTree}/cutting_templates`;
 const scmBorderlessDocs = `${scmTree}/hugo/content/miscellaneous/borderless.md`;
 
@@ -244,7 +245,15 @@ export function PrintSetup({
     : effective.cardHeightMm;
   const scmPaperName = paperNames[template.paper as keyof typeof paperNames];
   const sheetName = layout?.scm?.name ?? paperNames[settings.paper];
-  const cutFile = layout?.scm && scmCutFile(layout.scm.name);
+  const scmName = layout?.scm?.name;
+  const cutFile = scmName && scmCutFile(scmName);
+  const dxfFallback = !!scmName && scmHasDxfFallback(scmName);
+  const noStudioFile =
+    "SCM has no Studio file: the sheet exceeds the 12×24 mat.";
+  const studioNote =
+    template.marks === 4
+      ? " Select Cameo 5 Alpha in Silhouette Studio for 4 marks."
+      : "";
   const changeTemplate = (patch: Partial<ScmTemplate>) =>
     change({ scmTemplate: { ...template, ...patch } });
   const matchingPapers = isScm
@@ -418,10 +427,10 @@ export function PrintSetup({
       const saved = await onSave(deck);
       onJobs(await api.createJob(saved.id, settings, format));
     });
-  const saveCutTemplate = () =>
+  const saveCutTemplate = (format: "svg" | "dxf" | "studio3") =>
     void cutTemplateTask.run(async () => {
       setCutTemplateStatus(({ id }) => ({ path: "", id }));
-      const path = await downloadCutTemplate(deck);
+      const path = await downloadCutTemplate(deck, format, scmName);
       if (path) setCutTemplateStatus(({ id }) => ({ path, id: id + 1 }));
     });
   const otherExports: MenuAction[] = [
@@ -449,6 +458,38 @@ export function PrintSetup({
           : "Add cards to the deck first.",
       onSelect: mpcExport.run,
     },
+    ...(cutFile
+      ? [
+          {
+            id: "studio3",
+            label: "Silhouette Studio cut file (.studio3)",
+            hint: `Matches ${scmName}. Print the PDF at 100%.${studioNote}`,
+            icon: <Scissors size={16} aria-hidden="true" />,
+            disabledReason: cutTemplateTask.busy
+              ? "Saving the cut template…"
+              : undefined,
+            onSelect: () => saveCutTemplate("studio3"),
+          },
+        ]
+      : []),
+    ...(!isScm || dxfFallback
+      ? [
+          {
+            id: "dxf",
+            label: "DXF cut lines",
+            hint: dxfFallback
+              ? `${noStudioFile} Print the PDF at 100%.`
+              : "Cut lines in millimeters for Silhouette Studio Basic Edition.",
+            icon: <Scissors size={16} aria-hidden="true" />,
+            disabledReason: cutTemplateTask.busy
+              ? "Saving the cut template…"
+              : layout
+                ? undefined
+                : "Fix the layout first.",
+            onSelect: () => saveCutTemplate("dxf"),
+          },
+        ]
+      : []),
     {
       id: "svg",
       label: "SVG cut template",
@@ -463,7 +504,7 @@ export function PrintSetup({
           : layout
             ? undefined
             : "Fix the layout first.",
-      onSelect: saveCutTemplate,
+      onSelect: () => saveCutTemplate("svg"),
     },
   ];
   return (
@@ -731,6 +772,8 @@ export function PrintSetup({
                     ) : (
                       <p className="scm-cut-warning my-0 text-meta text-warning-ink">
                         No SCM cut file for this layout.{" "}
+                        {dxfFallback &&
+                          "The sheet exceeds the 12×24 mat. Export DXF cut lines instead. "}
                         <ExternalLink href={scmBorderlessDocs}>
                           SCM borderless docs
                         </ExternalLink>

@@ -7,6 +7,7 @@ pub mod art_policy;
 pub mod art_quality;
 #[cfg(feature = "native")]
 pub mod builder;
+pub mod cut_dxf;
 pub mod cut_svg;
 #[cfg(feature = "native")]
 pub mod decksearch;
@@ -23,6 +24,7 @@ pub mod png_export;
 pub mod providers;
 pub mod raster;
 pub mod scm;
+pub mod scm_cut;
 #[cfg(feature = "native")]
 pub mod store;
 #[cfg(feature = "native")]

@@ -1,6 +1,15 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, expect, it, vi } from "vitest";
-import { api, fetchHealth, imageSrc, UrlImportError } from "../../api.ts";
+import legacyBackup from "../../../../../packages/core/tests/fixtures/deck-backup-before-board-names.json";
+import {
+  api,
+  downloadCutTemplate,
+  fetchHealth,
+  imageSrc,
+  UrlImportError,
+} from "../../api.ts";
+import { deckSchema } from "../../core/index.ts";
+import { NotAvailableOnWebError } from "./web.ts";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -44,3 +53,22 @@ it("uses the web backend for the explicit web target even with Tauri available",
   });
   expect(ipc).not.toHaveBeenCalled();
 });
+
+it.each(["svg", "dxf", "studio3"] as const)(
+  "reports that %s cut template export is not available on the web",
+  async (format) => {
+    vi.stubEnv("VITE_TARGET", "web");
+    const ipc = vi.fn();
+    mockIPC(ipc);
+
+    const error = await downloadCutTemplate(
+      deckSchema.parse(legacyBackup),
+      format,
+    ).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(NotAvailableOnWebError);
+    expect(error).toMatchObject({
+      message: "Cut template export is not available yet on the web.",
+    });
+    expect(ipc).not.toHaveBeenCalled();
+  },
+);

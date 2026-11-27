@@ -182,6 +182,15 @@ export const webBackend: Backend = {
   previewSrc: placeholderImage,
   async save({ defaultPath, filters }) {
     if (
+      filters?.some(({ extensions }) =>
+        extensions.some(
+          (ext) => ext === "svg" || ext === "dxf" || ext === "studio3",
+        ),
+      )
+    ) {
+      return notAvailableYet("Cut template export");
+    }
+    if (
       filters?.some(
         ({ extensions }) =>
           extensions.includes("json") || extensions.includes("xml"),

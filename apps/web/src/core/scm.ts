@@ -33,13 +33,14 @@ export function scmCardLabel(card: string) {
   return size ? `${name} · ${size.width} × ${size.height}` : name;
 }
 
-const cutFiles = new Set(
-  cutTemplates.files.map((path) => path.slice(path.lastIndexOf("/") + 1)),
-);
+const dxfFallbacks = new Set(cutTemplates.exceptions);
+
+export const scmCommit = cutTemplates.commit;
+export const scmHasDxfFallback = (name: string) => dxfFallbacks.has(name);
 
 export function scmCutFile(name: string): string | undefined {
   const file = `${name}.studio3`;
-  return cutFiles.has(file) ? file : undefined;
+  return Object.hasOwn(cutTemplates.exports, file) ? file : undefined;
 }
 
 export interface ScmSheet {
