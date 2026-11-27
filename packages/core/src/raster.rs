@@ -16,11 +16,8 @@ use crate::upscaler::{CancelToken, Upscaler};
 /// Physical size MPC Autofill scans describe (2.5 x 3.5 inches).
 const MPC_CARD_MM: (f64, f64) = (63.5, 88.9);
 pub(crate) const UPLOAD_CARD_MM: (f64, f64) = (63.0, 88.0);
-#[cfg(feature = "native")]
 const MPC_BLEED_MM: f64 = 3.048;
-#[cfg(feature = "native")]
 const EIGHTH_INCH_MM: f64 = 3.175;
-#[cfg(feature = "native")]
 const BLEED_ASPECT_TOLERANCE: f64 = 0.0015;
 const TRIM_ASPECT_TOLERANCE: f64 = 0.01;
 
@@ -77,7 +74,6 @@ pub(crate) fn to_rgb(image: image::DynamicImage, background: Rgb<u8>) -> RgbImag
 }
 
 /// Match common full-bleed formats without treating any wide image as bleed.
-#[cfg(feature = "native")]
 pub(crate) fn detect_upload_bleed(width: u32, height: u32) -> f64 {
     let ratio = f64::from(width) / f64::from(height);
     let formats = [

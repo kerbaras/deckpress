@@ -15,6 +15,9 @@ export function memoryDocuments(): DocumentStore {
     async put(row) {
       documents.set(key(row.kind, row.id), row);
     },
+    async putMany(rows) {
+      for (const row of rows) documents.set(key(row.kind, row.id), row);
+    },
     async remove(kind, id) {
       documents.delete(key(kind, id));
     },

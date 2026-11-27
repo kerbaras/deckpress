@@ -75,9 +75,9 @@ integration, read source images on demand and write PDF page objects to an
 OPFS-backed stream rather than holding the whole document in memory.
 
 ```sh
-node packages/core-wasm/tests/measure.mjs prepare "$HOME/deckpress-wasm-fixtures"
-node packages/core-wasm/tests/measure.mjs pdf "$HOME/deckpress-wasm-fixtures" 600
-node packages/core-wasm/tests/measure.mjs pdf "$HOME/deckpress-wasm-fixtures" 800
+node packages/core-wasm/measure.mjs prepare "$HOME/deckpress-wasm-fixtures"
+node packages/core-wasm/measure.mjs pdf "$HOME/deckpress-wasm-fixtures" 600
+node packages/core-wasm/measure.mjs pdf "$HOME/deckpress-wasm-fixtures" 800
 ```
 
 Append `stress` to the `prepare` command for the higher-detail fixture.
