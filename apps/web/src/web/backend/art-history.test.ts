@@ -217,11 +217,10 @@ it("passes copy quantities and keeps pinned copies in the coverage total", async
     new Map([[eligible.card.oracleId, [fromFixture("m11")]]]),
   );
   const setCoverage = vi.fn(() => "[]");
-  const wasm = vi
-    .spyOn(coreWasm, "loadCoreWasm")
-    .mockResolvedValue({ setCoverage } as Awaited<
-      ReturnType<typeof coreWasm.loadCoreWasm>
-    >);
+  const wasm = vi.spyOn(coreWasm, "loadCoreWasm");
+  vi.mocked(coreWasm.loadCoreWasm, { partial: true }).mockResolvedValue({
+    setCoverage,
+  });
   try {
     await setMatching.setCoverage(provider, deck);
     expect(provider.inventoryBatch).toHaveBeenCalledExactlyOnceWith([
