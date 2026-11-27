@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 const ORACLE: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
+const SETS_URL: &str = "https://api.scryfall.com/sets";
 
 fn cards() -> Vec<Value> {
     serde_json::from_str(include_str!("fixtures/scryfall-art-policy.json")).unwrap()
@@ -28,10 +29,21 @@ fn record(store: &Store, url: &str, value: &Value) {
 }
 
 fn search(store: &Store, language: Option<&str>, page: u32, has_more: bool, data: &[Value]) {
+    search_oracle(store, ORACLE, language, page, has_more, data);
+}
+
+fn search_oracle(
+    store: &Store,
+    oracle: &str,
+    language: Option<&str>,
+    page: u32,
+    has_more: bool,
+    data: &[Value],
+) {
     let mut url = url::Url::parse("https://api.scryfall.com/cards/search").unwrap();
     let suffix = language.map_or(String::new(), |lang| format!(" lang:{lang}"));
     url.query_pairs_mut()
-        .append_pair("q", &format!("oracleid:{ORACLE} game:paper{suffix}"));
+        .append_pair("q", &format!("oracleid:{oracle} game:paper{suffix}"));
     record(
         store,
         &format!(
@@ -39,6 +51,29 @@ fn search(store: &Store, language: Option<&str>, page: u32, has_more: bool, data
         ),
         &json!({"data": data, "has_more": has_more}),
     );
+}
+
+fn record_sets(store: &Store) {
+    record(
+        store,
+        SETS_URL,
+        &serde_json::from_str(include_str!("fixtures/scryfall-set-families.json")).unwrap(),
+    );
+}
+
+fn in_set(raw: &Value, set: &str, date: &str) -> Value {
+    let mut raw = raw.clone();
+    raw["id"] = json!(deckpress_core::models::new_id());
+    raw["set"] = json!(set);
+    raw["released_at"] = json!(date);
+    raw
+}
+
+fn set_policy(set: &str, family: bool) -> ArtPolicy {
+    ArtPolicy::MatchSet {
+        set: set.into(),
+        family,
+    }
 }
 
 fn entry(raw: &Value) -> deckpress_core::models::DeckEntry {
@@ -108,7 +143,7 @@ async fn previews_original_latest_set_and_style_then_applies_and_undoes_without_
     let mut last_preview = None;
     for (policy, set) in [
         (ArtPolicy::Latest, "slc"),
-        (ArtPolicy::MatchSet { set: "m11".into() }, "m11"),
+        (set_policy("m11", false), "m11"),
         (
             ArtPolicy::Style {
                 frame: Some(Frame::Modern),
@@ -178,6 +213,185 @@ async fn previews_original_latest_set_and_style_then_applies_and_undoes_without_
         service.undo(&deck.id, edited.revision),
         Err(deckpress_core::AppError::Conflict(_))
     ));
+}
+
+#[tokio::test]
+async fn family_matches_commander_and_leaves_unmatched_and_protected_art_untouched() {
+    let cards = cards();
+    let base = printing(&cards, "m11", "en");
+    let dfc: Vec<Value> =
+        serde_json::from_str(include_str!("fixtures/scryfall-art-policy-dfc.json")).unwrap();
+    let old_dfc = &dfc[0];
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::new(store.clone()).unwrap());
+    preferences(&providers, "en", PrintLanguagePolicy::Strict);
+    let service = ArtPolicies::new(store.clone(), providers.clone());
+    record_sets(&store);
+    search(&store, None, 1, false, &[in_set(base, "ecc", "2026-01-23")]);
+    let dfc_oracle = old_dfc["oracle_id"].as_str().unwrap();
+    search_oracle(
+        &store,
+        dfc_oracle,
+        None,
+        1,
+        false,
+        &[in_set(old_dfc, "pecl", "2026-01-23")],
+    );
+
+    let mut pinned = entry(base);
+    pinned.art_pinned = true;
+    let mut non_scryfall = entry(base);
+    non_scryfall.card.faces[0].provider = Provider::Mpc;
+    let mut input = common::new_deck("Lorwyn");
+    input.entries = vec![entry(base), entry(old_dfc), pinned, non_scryfall];
+    let deck = store.create_deck(input).unwrap();
+    let legacy: ArtPolicy =
+        serde_json::from_value(json!({"kind": "matchSet", "set": "ecl"})).unwrap();
+    assert_eq!(legacy, set_policy("ecl", false));
+    let exact = service
+        .preview_policy(&deck.id, deck.revision, legacy)
+        .await
+        .unwrap();
+    assert_eq!(exact.changes[0].kind, ArtChangeKind::Unmatched);
+
+    let preview = service
+        .preview_policy(&deck.id, deck.revision, set_policy("ecl", true))
+        .await
+        .unwrap();
+    assert_eq!(preview.changes[0].after.as_ref().unwrap().set, "ecc");
+    assert_eq!(
+        preview
+            .changes
+            .iter()
+            .filter(|change| change.kind == ArtChangeKind::Unmatched)
+            .count(),
+        1
+    );
+    assert_eq!(preview.changes[1].kind, ArtChangeKind::Unmatched);
+    assert!(preview.changes[1].after.is_none());
+    assert_eq!(preview.changes[2].kind, ArtChangeKind::Pinned);
+    assert_eq!(preview.changes[3].kind, ArtChangeKind::Pinned);
+    let applied = service
+        .apply(&deck.id, deck.revision, &preview.preview_id)
+        .unwrap();
+    assert_eq!(applied.entries[0].front_art().set, "ecc");
+    assert_eq!(applied.entries[1..], deck.entries[1..]);
+
+    let rows = providers.set_coverage(&deck.entries).await.unwrap();
+    let lorwyn = rows.iter().find(|row| row.set.code == "ecl").unwrap();
+    assert_eq!((lorwyn.count, lorwyn.total), (1, 2));
+    assert!(providers
+        .set_coverage(&deck.entries[2..])
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn family_rank_precedes_release_date_for_foundations() {
+    let cards = cards();
+    let base = printing(&cards, "m11", "en");
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::new(store.clone()).unwrap());
+    preferences(&providers, "en", PrintLanguagePolicy::Strict);
+    let service = ArtPolicies::new(store.clone(), providers);
+    record_sets(&store);
+    let mut input = common::new_deck("Foundations");
+    input.entries = vec![entry(base)];
+    let deck = store.create_deck(input).unwrap();
+
+    let ranked = ["fdc", "fdn", "tfdc", "tfdn"];
+    let prints = [
+        in_set(base, "fdc", "2024-11-15"),
+        in_set(base, "fdn", "2024-11-16"),
+        in_set(base, "tfdc", "2026-10-02"),
+        in_set(base, "tfdn", "2026-10-03"),
+        in_set(base, "j25", "2026-10-04"),
+    ];
+    for (index, expected) in ranked.into_iter().enumerate() {
+        search(&store, None, 1, false, &prints[index..]);
+        let preview = service
+            .preview_policy(&deck.id, deck.revision, set_policy("fdc", true))
+            .await
+            .unwrap();
+        assert_eq!(preview.changes[0].after.as_ref().unwrap().set, expected);
+    }
+}
+
+#[tokio::test]
+async fn family_localization_keeps_both_faces_and_filters_out_of_family_scans() {
+    let dfc: Vec<Value> =
+        serde_json::from_str(include_str!("fixtures/scryfall-art-policy-dfc.json")).unwrap();
+    let (en, es) = (&dfc[0], &dfc[1]);
+    let oracle = en["oracle_id"].as_str().unwrap();
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::new(store.clone()).unwrap());
+    preferences(&providers, "es", PrintLanguagePolicy::FallbackToEnglish);
+    let service = ArtPolicies::new(store.clone(), providers);
+    record_sets(&store);
+    search_oracle(
+        &store,
+        oracle,
+        None,
+        1,
+        false,
+        &[in_set(en, "ecl", "2026-01-23")],
+    );
+    let mut spanish = vec![in_set(es, "pecl", "2026-01-24")];
+    search_oracle(&store, oracle, Some("es"), 1, false, &spanish);
+    let mut input = common::new_deck("Localized family");
+    input.entries = vec![entry(en)];
+    let deck = store.create_deck(input).unwrap();
+    let fallback = service
+        .preview_policy(&deck.id, deck.revision, set_policy("ecl", true))
+        .await
+        .unwrap();
+    assert_eq!(fallback.changes[0].kind, ArtChangeKind::Fallback);
+    assert_eq!(fallback.changes[0].after.as_ref().unwrap().set, "ecl");
+
+    spanish.push(in_set(es, "ecc", "2026-01-23"));
+    search_oracle(&store, oracle, Some("es"), 1, false, &spanish);
+    let preview = service
+        .preview_policy(&deck.id, deck.revision, set_policy("ecl", true))
+        .await
+        .unwrap();
+    let applied = service
+        .apply(&deck.id, deck.revision, &preview.preview_id)
+        .unwrap();
+    assert_eq!(applied.entries[0].front_art().set, "ecc");
+    let back = applied.entries[0].back_art().unwrap();
+    assert_eq!(back.language, "es");
+    assert_eq!(
+        back.illustration_id,
+        deck.entries[0].back_art().unwrap().illustration_id
+    );
+}
+
+#[tokio::test]
+async fn invalid_catalog_is_an_error_for_families_but_not_legacy_exact_policies() {
+    let cards = cards();
+    let base = printing(&cards, "m11", "en");
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Arc::new(Providers::new(store.clone()).unwrap());
+    preferences(&providers, "en", PrintLanguagePolicy::Strict);
+    let service = ArtPolicies::new(store.clone(), providers.clone());
+    record(&store, SETS_URL, &json!({"data": [{"code": "ecl"}]}));
+    search(&store, None, 1, false, &[in_set(base, "ecl", "2026-01-23")]);
+    let mut input = common::new_deck("Invalid set catalog");
+    input.entries = vec![entry(base)];
+    let deck = store.create_deck(input).unwrap();
+
+    assert!(providers.sets().await.is_err());
+    assert!(providers.set_coverage(&deck.entries).await.is_err());
+    assert!(service
+        .preview_policy(&deck.id, deck.revision, set_policy("ecl", true))
+        .await
+        .is_err());
+    let exact = service
+        .preview_policy(&deck.id, deck.revision, set_policy("ecl", false))
+        .await
+        .unwrap();
+    assert_eq!(exact.changes[0].after.as_ref().unwrap().set, "ecl");
 }
 
 #[tokio::test]

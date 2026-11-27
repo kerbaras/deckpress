@@ -27,6 +27,7 @@ import {
   parseDecklist,
   printerProfileSchema,
 } from "./core/index.ts";
+import { setCoverageSchema, setInfoSchema } from "./core/sets.ts";
 import { getBackend } from "./web/backend/index.ts";
 import type {
   CommandName,
@@ -428,6 +429,9 @@ export const api = {
       { contents },
     ),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
+  listSets: () => command("scryfall_sets", z.array(setInfoSchema)),
+  setCoverage: (deckId: string) =>
+    command("set_coverage", z.array(setCoverageSchema), { deckId }),
   previewArtPolicy: (
     deckId: string,
     expectedRevision: number,

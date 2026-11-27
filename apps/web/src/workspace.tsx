@@ -22,6 +22,7 @@ import {
   downloadJson,
   downloadMpcXml,
   importedDeckFields,
+  isWebPreview,
 } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import { ArtPolicyFields, ArtPreviewDialog } from "./art-policy.tsx";
@@ -283,6 +284,7 @@ function DeckWorkspace({
       mode === "toolbar" ? { toolbarDeck: next } : undefined,
     );
   const dirty = deck !== saved;
+  const supportsSetFamilies = !isWebPreview();
   const saveStatus = isSaving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
   const SaveStatusIcon = isSaving ? LoaderCircle : dirty ? CircleAlert : Check;
   useEffect(() => {
@@ -324,10 +326,10 @@ function DeckWorkspace({
       if (previewRequest.current === id) setArtPreview({ error });
     }
   };
-  const previewPolicy = (policy: ArtPolicy) =>
+  const previewPolicy = (policy: ArtPolicy, opener?: HTMLButtonElement) =>
     void previewArt(
       () => api.previewArtPolicy(deck.id, deck.revision, policy),
-      () => previewButton.current,
+      () => opener ?? previewButton.current,
     );
   const previewLocalization = (
     entryId: string,
@@ -538,6 +540,11 @@ function DeckWorkspace({
           onApply={commit}
           canLocalize={!dirty && !isSaving && !artTask.busy}
           onLocalize={previewLocalization}
+          canUseSet={!dirty && !isSaving && !artTask.busy}
+          {...(supportsSetFamilies && {
+            onUseSet: (set: string, opener: HTMLButtonElement) =>
+              previewPolicy({ kind: "matchSet", set, family: true }, opener),
+          })}
           onEditionsLoading={onEditionsLoading}
           onPreviewChange={onPreviewChange}
           onUploadEdited={(art) => {
@@ -635,6 +642,9 @@ function DeckWorkspace({
             </label>
             <ArtPolicyFields
               key={JSON.stringify(deck.artPolicy)}
+              deckId={deck.id}
+              revision={deck.revision}
+              supportsSetFamilies={supportsSetFamilies}
               current={deck.artPolicy}
               disabled={dirty || isSaving}
               busy={artTask.busy}

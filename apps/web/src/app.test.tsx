@@ -1965,9 +1965,12 @@ const secondArtDeck = {
   name: "Second deck",
 };
 
-async function openArtStudio(user: ReturnType<typeof userEvent.setup>) {
+async function openArtStudio(
+  user: ReturnType<typeof userEvent.setup>,
+  prints = [original, alternate],
+) {
   window.history.replaceState(null, "", `/#/decks/${id}`);
-  mockPickerArt([original, alternate]);
+  mockPickerArt(prints);
   vi.spyOn(api, "decks").mockResolvedValue([deck, secondArtDeck]);
   vi.spyOn(api, "deck").mockImplementation(async (deckId) =>
     deckId === id ? deck : secondArtDeck,
@@ -1976,6 +1979,76 @@ async function openArtStudio(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("button", { name: "Art studio" }));
   return screen.findByRole("button", previewButton);
 }
+
+it("uses the selected printing's set for a deck-wide family preview", async () => {
+  const user = userEvent.setup();
+  const previewId = crypto.randomUUID();
+  const picked = { ...alternate, set: "sta" };
+  vi.spyOn(api, "listSets").mockResolvedValue([
+    {
+      code: "sta",
+      name: "Strixhaven Mystical Archive",
+      setType: "masterpiece",
+      parentSetCode: "stx",
+      digital: false,
+      releasedAt: "2021-04-23",
+      iconSvgUri: "https://svgs.scryfall.io/sets/sta.svg",
+      cardCount: 63,
+    },
+  ]);
+  const preview = vi.spyOn(api, "previewArtPolicy").mockResolvedValue({
+    previewId,
+    canApply: true,
+    changes: [],
+  });
+  const pick = await openArtStudio(user, [original, picked, community]);
+  expect(
+    screen.getByRole("button", { name: "Use M10 for the whole deck" }),
+  ).toBeEnabled();
+  await user.click(pick);
+  const useSet = await screen.findByRole("button", {
+    name: "Use Strixhaven Mystical Archive for the whole deck",
+  });
+  await user.click(useSet);
+  expect(preview).toHaveBeenCalledWith(deck.id, deck.revision, {
+    kind: "matchSet",
+    set: "sta",
+    family: true,
+  });
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Preview art changes" }),
+  );
+  expect(
+    await dialog.findByText("0 matched, 0 kept current art"),
+  ).toBeVisible();
+  await user.click(
+    dialog.getByRole("button", { name: "Keep current choices" }),
+  );
+  expect(useSet).toHaveFocus();
+
+  await user.click(screen.getByRole("button", { name: "Deck editor" }));
+  await user.click(
+    within(screen.getByRole("dialog", promptName)).getByRole("button", {
+      name: "Discard",
+    }),
+  );
+  await user.click(
+    await screen.findByRole("button", { name: "Edit card quantities" }),
+  );
+  fireEvent.change(
+    screen.getByRole("spinbutton", { name: "Copies of Lightning Bolt" }),
+    {
+      target: { value: "5" },
+    },
+  );
+  await user.click(screen.getByRole("button", { name: "Art studio" }));
+  const disabled = await screen.findByRole("button", {
+    name: "Use M10 for the whole deck",
+  });
+  expect(disabled).toBeDisabled();
+  await user.click(disabled);
+  expect(preview).toHaveBeenCalledTimes(1);
+});
 
 it("keeps an unapplied Art Studio pick guarded through policy Keep, Apply, and Undo", async () => {
   const user = userEvent.setup();

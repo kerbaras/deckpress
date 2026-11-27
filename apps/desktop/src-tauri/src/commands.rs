@@ -19,6 +19,7 @@ use deckpress_core::models::{
 };
 use deckpress_core::pdf::build_duplex_calibration_pdf;
 use deckpress_core::providers::MpcArtwork;
+use deckpress_core::set_family::{SetCoverage, SetInfo};
 use deckpress_core::style::{StyleReport, StyleRequest};
 use deckpress_core::upscaler::manifest::{default_model_id, ModelStatus};
 use deckpress_core::upscaler::preview::{self, ModelCrop};
@@ -185,6 +186,20 @@ pub async fn restore_deck(
 pub async fn save_deck(state: State<'_, AppState>, deck: Deck) -> AppResult<Deck> {
     let store = Arc::clone(&state.store);
     tokio::task::spawn_blocking(move || store.update_deck(deck)).await?
+}
+
+#[tauri::command]
+pub async fn scryfall_sets(state: State<'_, AppState>) -> AppResult<Vec<SetInfo>> {
+    state.providers.sets().await
+}
+
+#[tauri::command]
+pub async fn set_coverage(
+    state: State<'_, AppState>,
+    deck_id: String,
+) -> AppResult<Vec<SetCoverage>> {
+    let deck = state.store.deck(&deck_id)?;
+    state.providers.set_coverage(&deck.entries).await
 }
 
 #[tauri::command]

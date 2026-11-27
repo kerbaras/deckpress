@@ -55,6 +55,8 @@ pub fn run() {
             commands::create_deck,
             commands::restore_deck,
             commands::save_deck,
+            commands::scryfall_sets,
+            commands::set_coverage,
             commands::preview_art_policy,
             commands::preview_art_localization,
             commands::apply_art_preview,
