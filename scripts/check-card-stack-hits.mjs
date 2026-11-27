@@ -133,11 +133,18 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
   });
   await until(() => find(`${opt}.excluded > .card-status`));
 
-  async function raise(state) {
+  async function resetRaise() {
+    await evaluate(() => document.activeElement.blur());
     await move([2, 2]);
-    await delay(220);
+    await delay(380);
+    if (!before && await find(".card-stack > .playing-card.raised")) {
+      throw new Error("Expected no raised card after resetting focus and pointer");
+    }
+  }
+
+  async function raise(state) {
+    await resetRaise();
     const point = await evaluate((selector) => {
-      document.activeElement.blur();
       const card = document.querySelector(selector);
       card.removeAttribute("title");
       card.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
@@ -155,10 +162,26 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
     }
     await until(() => evaluate((selector, state, before) => {
       const card = document.querySelector(selector);
-      return card.matches(state === "hover" ? (before ? ":hover" : ".raised") : ":focus-visible") &&
+      return card.matches(before ? (state === "hover" ? ":hover" : ":focus-visible") : ".raised") &&
+        (state !== "focus" || card.matches(":focus-visible")) &&
         getComputedStyle(card).transform === "matrix(1, 0, 0, 1, 0, -8)";
     }, opt, state, before));
   }
+
+  const stackState = () => evaluate((selector) => {
+    const opt = document.querySelector(selector);
+    const cards = [...opt.parentElement.children];
+    const name = (card) => card.ariaLabel.replace("Choose art for ", "");
+    const style = getComputedStyle(opt);
+    return {
+      raised: cards.filter(card => card.matches(".raised")).map(name),
+      lifted: cards.filter(card => getComputedStyle(card).transform !== "none").map(name),
+      optFocusRing: opt === document.activeElement && opt.matches(":focus-visible") &&
+        style.outlineStyle === "solid" && parseFloat(style.outlineWidth) > 0,
+    };
+  }, opt);
+  const onlyRaised = (state, id) =>
+    state.raised.join() === id && state.lifted.join() === id;
 
   let failures = 0;
   for (const width of widths) {
@@ -220,6 +243,47 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
             misses, firstMiss, expected, paintedAtClick, opened, beforeDwell, afterDwell, passed });
           if (!passed) failures++;
           await editor();
+        }
+      }
+      if (!before) {
+        await raise("focus");
+        const focused = await stackState();
+        const { to } = (await evaluate(paths, opt))
+          .find(path => path.type === "dwell");
+        await move(to);
+        await delay(380);
+        const handoff = await stackState();
+        await move([2, 2]);
+        await delay(380);
+        const restored = await stackState();
+        const passed = onlyRaised(focused, "Opt") && focused.optFocusRing &&
+          onlyRaised(handoff, "Ponder") && handoff.optFocusRing &&
+          onlyRaised(restored, "Opt") && restored.optFocusRing;
+        report({ width, sidebar, type: "focus+hover", focused, handoff, restored, passed });
+        if (!passed) failures++;
+
+        for (const type of ["blur", "hidden"]) {
+          await raise("hover");
+          const initial = await stackState();
+          await evaluate((type) => {
+            if (type === "blur") {
+              window.dispatchEvent(new Event("blur"));
+              return;
+            }
+            const descriptor = Object.getOwnPropertyDescriptor(document, "hidden");
+            Object.defineProperty(document, "hidden", { configurable: true, value: true });
+            try {
+              document.dispatchEvent(new Event("visibilitychange"));
+            } finally {
+              if (descriptor) Object.defineProperty(document, "hidden", descriptor);
+              else delete document.hidden;
+            }
+          }, type);
+          await delay(380);
+          const cleared = await stackState();
+          const passed = onlyRaised(initial, "Opt") && onlyRaised(cleared, "");
+          report({ width, sidebar, type, initial, cleared, passed });
+          if (!passed) failures++;
         }
       }
     }

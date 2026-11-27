@@ -17,13 +17,13 @@ function declarations(selector: string) {
 }
 
 it("raises the full card on hover intent and keyboard focus", () => {
-  const raised = declarations(`${card}.raised,\n${card}:focus-visible`);
+  const raised = declarations(`${card}.raised`);
   expect(raised?.getPropertyValue("z-index")).toBe("10");
   expect(raised?.getPropertyValue("transform")).toBe("translateY(-8px)");
 });
 
 it("paints later copy and in-strip language badges above the raised card within the stack", () => {
-  const later = `${card}:is(.raised, :focus-visible) ~ .playing-card`;
+  const later = `${card}.raised ~ .playing-card`;
   const selectors = [
     `${later} > .quantity`,
     `${later} > .card-language[data-in-stack-strip]`,
@@ -46,6 +46,7 @@ it("leaves hit testing to the painted cards and badges", () => {
       (rule) =>
         rule.selectorText.includes("::") ||
         rule.selectorText.includes(":hover") ||
+        rule.selectorText.includes(":focus-visible") ||
         rule.style.getPropertyValue("pointer-events"),
     ),
   ).toHaveLength(0);

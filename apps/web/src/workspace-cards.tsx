@@ -415,6 +415,15 @@ function CardTiles({
           onPointerEnter={
             stacked ? () => intent.onPointerEnterCard(entry.id) : undefined
           }
+          onFocus={
+            stacked
+              ? (event) => {
+                  if (event.currentTarget.matches(":focus-visible"))
+                    intent.onFocusCard(entry.id);
+                }
+              : undefined
+          }
+          onBlur={stacked ? () => intent.onBlurCard(entry.id) : undefined}
         >
           <ArtThumbnail art={frontArt(entry)} name={entry.card.name} />
           <span className="quantity">{entry.quantity}</span>

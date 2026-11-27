@@ -1650,8 +1650,7 @@ button.first-run-empty {
 .card-stack > .playing-card {
   align-self: start;
 }
-.card-stack > .playing-card.raised,
-.card-stack > .playing-card:focus-visible {
+.card-stack > .playing-card.raised {
   z-index: 10;
   transform: translateY(-8px);
   border-color: var(--accent);
@@ -1691,12 +1690,9 @@ button.first-run-empty {
   overflow-wrap: anywhere;
   display: block;
 }
+.card-stack > .playing-card.raised ~ .playing-card > .quantity,
 .card-stack
-  > .playing-card:is(.raised, :focus-visible)
-  ~ .playing-card
-  > .quantity,
-.card-stack
-  > .playing-card:is(.raised, :focus-visible)
+  > .playing-card.raised
   ~ .playing-card
   > .card-language[data-in-stack-strip] {
   z-index: 11;
