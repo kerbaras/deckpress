@@ -8,13 +8,13 @@ import {
   artTreatments,
 } from "./core/index.ts";
 import { languageCode } from "./print-language.tsx";
+import { scryfallRetryMessage, useScryfallRetry } from "./scryfall-status.ts";
 import { SetPicker } from "./set-picker.tsx";
 import { ArtThumbnail, ErrorNotice, Modal, StatusRegion } from "./ui.tsx";
 
 export function ArtPolicyFields({
   deckId,
   revision,
-  supportsSetFamilies = true,
   current,
   disabled,
   busy,
@@ -25,7 +25,6 @@ export function ArtPolicyFields({
 }: {
   deckId: string;
   revision: number;
-  supportsSetFamilies?: boolean;
   current: ArtPolicy | undefined;
   disabled: boolean;
   busy: boolean;
@@ -57,7 +56,7 @@ export function ArtPolicyFields({
       ? {
           kind,
           set: set.trim().toLowerCase(),
-          family: supportsSetFamilies && !exact,
+          family: !exact,
         }
       : kind === "style"
         ? {
@@ -86,19 +85,7 @@ export function ArtPolicyFields({
           <option value="style">Frame, border, or treatment</option>
         </select>
       </label>
-      {kind === "matchSet" && !supportsSetFamilies && (
-        <label className="field">
-          Set code (exact match)
-          <input
-            value={set}
-            disabled={busy}
-            maxLength={20}
-            placeholder="e.g. FDC"
-            onChange={(event) => setSet(event.target.value)}
-          />
-        </label>
-      )}
-      {kind === "matchSet" && supportsSetFamilies && (
+      {kind === "matchSet" && (
         <>
           <SetPicker
             deckId={deckId}
@@ -260,6 +247,7 @@ export function ArtPreviewDialog({
   const kept = preview?.changes.filter(
     ({ kind }) => kind === "unmatched" || kind === "pinned",
   );
+  const retry = useScryfallRetry();
   return (
     <Modal title="Preview art changes" wide busy={busy} onClose={onKeep}>
       <p>
@@ -267,7 +255,11 @@ export function ArtPreviewDialog({
         preview.
       </p>
       <StatusRegion className="hint" label="Art preview status">
-        {!preview && !error && previewStatus(progress)}
+        {!preview &&
+          !error &&
+          (retry === undefined
+            ? previewStatus(progress)
+            : scryfallRetryMessage(retry))}
       </StatusRegion>
       {preview && kept && (
         <>

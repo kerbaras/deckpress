@@ -57,11 +57,15 @@ export function policyPrinting(value: unknown): Printing | undefined {
   };
 }
 
-export function permits(policy: ArtPolicy, print: Printing) {
+export function permits(
+  policy: ArtPolicy,
+  print: Printing,
+  ranks?: ReadonlyMap<string, number>,
+) {
   if (!print.paper || print.promo) return false;
   switch (policy.kind) {
     case "matchSet":
-      return print.set === policy.set;
+      return ranks ? ranks.has(print.set) : print.set === policy.set;
     case "style":
       return (
         (policy.frame === null || print.frame === policy.frame) &&
@@ -98,8 +102,10 @@ export function comparePrints(
   a: Printing,
   b: Printing,
   deckPolicy: boolean,
+  ranks?: ReadonlyMap<string, number>,
 ) {
   return (
+    (ranks ? (ranks.get(a.set) ?? 0) - (ranks.get(b.set) ?? 0) : 0) ||
     Number(treatmentMatches(policy, b)) - Number(treatmentMatches(policy, a)) ||
     Number(!a.date) - Number(!b.date) ||
     (policy.kind === "original"
@@ -134,6 +140,7 @@ export function localized(
   options: Printing[],
   language: string,
   policy?: ArtPolicy,
+  ranks?: ReadonlyMap<string, number>,
 ) {
   return options
     .filter(
@@ -143,7 +150,7 @@ export function localized(
         print.scans &&
         sameIllustrations(anchor, print) &&
         (!policy ||
-          (permits(policy, print) &&
+          (permits(policy, print, ranks) &&
             (!treatmentMatches(policy, anchor) ||
               treatmentMatches(policy, print)))),
     )
@@ -151,12 +158,64 @@ export function localized(
       (a, b) =>
         Number(samePrintingNumber(anchor, b)) -
           Number(samePrintingNumber(anchor, a)) ||
-        comparePrints(policy ?? { kind: "latest" }, a, b, policy !== undefined),
+        comparePrints(
+          policy ?? { kind: "latest" },
+          a,
+          b,
+          policy !== undefined,
+          ranks,
+        ),
     )[0];
 }
 
+// Bound the length of Scryfall search URLs even with a family/language filter.
+const oracleBatchSize = 18;
+
+function anyOf(terms: string[]) {
+  return terms.length === 1 ? terms[0] : `(${terms.join(" or ")})`;
+}
+
 export function policyProvider(api: Scryfall) {
+  async function inventoryBatch(
+    oracleIds: string[],
+    language?: string,
+    sets?: string[],
+  ) {
+    const ids = [
+      ...new Set(oracleIds.filter((id) => uuid.safeParse(id).success)),
+    ].sort();
+    const prints = new Map<string, Printing[]>(ids.map((id) => [id, []]));
+    const setTerms = sets?.map((set) => `set:${set}`);
+    for (let start = 0; start < ids.length; start += oracleBatchSize) {
+      const batch = ids.slice(start, start + oracleBatchSize);
+      const query = [
+        anyOf(batch.map((id) => `oracleid:${id}`)),
+        "game:paper",
+        setTerms?.length ? anyOf(setTerms) : "",
+        language ? `lang:${language}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      for (let page = 1; ; page++) {
+        const result = await api.search(query, page);
+        for (const raw of result.cards) {
+          const print = policyPrinting(raw);
+          if (print && (!language || print.language === language))
+            prints.get(print.oracleId)?.push(print);
+        }
+        if (!result.hasMore) break;
+        if (page === 100)
+          throw new Error(
+            "Scryfall has too many printings to evaluate this art policy.",
+          );
+      }
+    }
+    return prints;
+  }
+
   return {
+    sets: () => api.sets(),
+    inventoryBatch,
     async get(artId: string) {
       const id = artId.startsWith("scryfall:")
         ? artId.split(":")[1]
@@ -172,25 +231,7 @@ export function policyProvider(api: Scryfall) {
       return print && samePrintingNumber(anchor, print) ? print : undefined;
     },
     async inventory(oracleId: string, language?: string) {
-      if (!uuid.safeParse(oracleId).success) return [];
-      const query = `oracleid:${oracleId} game:paper${language ? ` lang:${language}` : ""}`;
-      const prints: Printing[] = [];
-      for (let page = 1; page <= 100; page++) {
-        const result = await api.search(query, page);
-        for (const raw of result.cards) {
-          const print = policyPrinting(raw);
-          if (
-            print?.oracleId === oracleId &&
-            (!language || print.language === language)
-          ) {
-            prints.push(print);
-          }
-        }
-        if (!result.hasMore) return prints;
-      }
-      throw new Error(
-        "Scryfall has too many printings to evaluate this art policy.",
-      );
+      return (await inventoryBatch([oracleId], language)).get(oracleId) ?? [];
     },
   };
 }
