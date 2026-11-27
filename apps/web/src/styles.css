@@ -1645,12 +1645,12 @@ button.first-run-empty {
   display: grid;
   grid-auto-rows: 43px;
   padding-bottom: calc(139.7% - 43px);
+  isolation: isolate;
 }
 .card-stack > .playing-card {
   align-self: start;
 }
-.card-stack > .playing-card:hover,
-.card-stack > .playing-card:focus-visible {
+.card-stack > .playing-card.raised {
   z-index: 10;
   transform: translateY(-8px);
   border-color: var(--accent);
@@ -1689,6 +1689,13 @@ button.first-run-empty {
   white-space: normal;
   overflow-wrap: anywhere;
   display: block;
+}
+.card-stack > .playing-card.raised ~ .playing-card > .quantity,
+.card-stack
+  > .playing-card.raised
+  ~ .playing-card
+  > .card-language[data-in-stack-strip] {
+  z-index: 11;
 }
 .grid-groups {
   display: flex;
