@@ -1,5 +1,5 @@
 import { type Ref, useState } from "react";
-import type { ArtPreview } from "./api.ts";
+import type { ArtPreview, ArtPreviewProgress } from "./api.ts";
 import {
   type Art,
   type ArtPolicy,
@@ -229,14 +229,29 @@ export function PrintSummary({
   );
 }
 
+function previewStatus(progress: ArtPreviewProgress | undefined) {
+  if (progress?.kind === "rateLimited") {
+    return `Scryfall is rate limiting requests. Retrying in ${progress.retryAfterSeconds} s…`;
+  }
+  if (progress?.kind === "printings") {
+    const language = progress.language
+      ? ` (${languageCode(progress.language)})`
+      : "";
+    return `Looked up ${progress.done} of ${progress.total} unique cards${language}…`;
+  }
+  return "Finding matching printings on Scryfall…";
+}
+
 export function ArtPreviewDialog({
   preview,
+  progress,
   busy,
   error,
   onKeep,
   onApply,
 }: {
   preview: ArtPreview | undefined;
+  progress: ArtPreviewProgress | undefined;
   busy: boolean;
   error: unknown;
   onKeep: () => void;
@@ -252,7 +267,7 @@ export function ArtPreviewDialog({
         preview.
       </p>
       <StatusRegion className="hint" label="Art preview status">
-        {!preview && !error && "Finding matching printings on Scryfall…"}
+        {!preview && !error && previewStatus(progress)}
       </StatusRegion>
       {preview && kept && (
         <>
