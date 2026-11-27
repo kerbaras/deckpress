@@ -43,8 +43,7 @@ function paths(selector) {
     for (let index = 1; index < waypoints.length; index++) {
       const from = waypoints[index - 1];
       const to = waypoints[index];
-      const stepSize = type === "down-then-across" && from[1] === to[1] ? 5 : 2;
-      const steps = Math.ceil(Math.hypot(to[0] - from[0], to[1] - from[1]) / stepSize);
+      const steps = Math.ceil(Math.hypot(to[0] - from[0], to[1] - from[1]) / 4);
       for (let i = 1; i <= steps; i++) {
         const point = from.map((start, axis) => Math.round(start + (to[axis] - start) * i / steps));
         if (point.some((value, axis) => value !== points.at(-1)[axis])) points.push(point);
@@ -92,9 +91,14 @@ export async function traceStackPointer(evaluate, points, travel) {
   await evaluate(([x, y]) => {
     const read = (x, y) => document.elementFromPoint(x, y)
       ?.closest(".playing-card")?.ariaLabel?.replace("Choose art for ", "") ?? null;
-    const hits = { [`${x}:${y}`]: read(x, y) };
-    const move = ({ clientX: x, clientY: y }) => {
-      hits[`${x}:${y}`] = read(x, y);
+    const hits = { [`${x}:${y}`]: { card: read(x, y), languageCrossing: false } };
+    const move = ({ clientX: x, clientY: y, target }) => {
+      hits[`${x}:${y}`] = {
+        card: read(x, y),
+        languageCrossing:
+          !!target.closest?.(".card-language[data-in-stack-strip]") &&
+          target.closest(".playing-card")?.ariaLabel !== "Choose art for Opt",
+      };
     };
     window.stackProbeFinish = () => {
       document.removeEventListener("pointermove", move, true);
@@ -181,10 +185,11 @@ export async function checkCardStackHits(driver, { widths, report, before = fals
           let observed = 0;
           let crossings = 0;
           for (const [index, { point, painted }] of samples.entries()) {
-            const hit = hits[index];
-            if (hit === undefined) continue;
+            const sample = hits[index];
+            if (!sample) continue;
             observed++;
-            if (samples[index].languageCrossing) crossings++;
+            if (sample.languageCrossing) crossings++;
+            const hit = sample.card;
             if (hit !== painted) {
               misses++;
               firstMiss ??= { point, painted, hit };
