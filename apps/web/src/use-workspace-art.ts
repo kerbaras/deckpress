@@ -45,7 +45,7 @@ export function useWorkspaceArt({
   const [artStatus, setArtStatus] = useState("");
   const artTask = useTask();
   const previewButton = useRef<HTMLButtonElement>(null);
-  const previewRequest = useRef<symbol | null>(null);
+  const previewRequest = useRef<AbortController | null>(null);
   const restorePreviewFocus = useRef<(() => HTMLElement | null) | null>(null);
   useEffect(() => {
     if (artPreview || isSaving) return;
@@ -55,12 +55,14 @@ export function useWorkspaceArt({
   }, [artPreview, isSaving]);
   useEffect(
     () => () => {
+      previewRequest.current?.abort();
       previewRequest.current = null;
       registerPolicyPreview(null);
     },
     [registerPolicyPreview],
   );
   const keepArt = useCallback(() => {
+    previewRequest.current?.abort();
     previewRequest.current = null;
     registerPolicyPreview(null);
     setArtPreview(null);
@@ -68,13 +70,14 @@ export function useWorkspaceArt({
   const previewArt = async (
     request: (
       onProgress: (progress: ArtPreviewProgress) => void,
+      signal: AbortSignal,
     ) => Promise<ArtPreview>,
     opener: () => HTMLElement | null,
     language?: string,
   ) => {
     if (dirty || saving.current || previewRequest.current) return;
-    const id = Symbol();
-    previewRequest.current = id;
+    const controller = new AbortController();
+    previewRequest.current = controller;
     registerPolicyPreview({
       discard: keepArt,
       canDiscard: () => !saving.current,
@@ -83,31 +86,47 @@ export function useWorkspaceArt({
     setArtStatus("");
     setArtPreview({ language });
     try {
-      const result = await request((progress) =>
-        setArtPreview((current) =>
-          previewRequest.current === id &&
-          current &&
-          !current.result &&
-          !current.error
-            ? { ...current, progress }
-            : current,
-        ),
+      const result = await request(
+        (progress) =>
+          setArtPreview((current) =>
+            previewRequest.current === controller &&
+            current &&
+            !current.result &&
+            !current.error
+              ? { ...current, progress }
+              : current,
+          ),
+        controller.signal,
       );
-      if (previewRequest.current === id) setArtPreview({ result, language });
+      if (previewRequest.current === controller)
+        setArtPreview({ result, language });
     } catch (error) {
-      if (previewRequest.current === id) setArtPreview({ error, language });
+      if (previewRequest.current === controller)
+        setArtPreview({ error, language });
     }
   };
   const previewPolicy = (policy: ArtPolicy, opener?: HTMLButtonElement) =>
     void previewArt(
-      (onProgress) =>
-        api.previewArtPolicy(deck.id, deck.revision, policy, onProgress),
+      (onProgress, signal) =>
+        api.previewArtPolicy(
+          deck.id,
+          deck.revision,
+          policy,
+          onProgress,
+          signal,
+        ),
       () => opener ?? previewButton.current,
     );
   const previewLanguage = (language: string, opener: HTMLSelectElement) =>
     void previewArt(
-      (onProgress) =>
-        api.previewDeckLanguage(deck.id, deck.revision, language, onProgress),
+      (onProgress, signal) =>
+        api.previewDeckLanguage(
+          deck.id,
+          deck.revision,
+          language,
+          onProgress,
+          signal,
+        ),
       () => opener,
       language,
     );
@@ -142,7 +161,14 @@ export function useWorkspaceArt({
     opener: HTMLButtonElement,
   ) =>
     void previewArt(
-      () => api.previewArtLocalization(deck.id, deck.revision, entryId, artId),
+      (_, signal) =>
+        api.previewArtLocalization(
+          deck.id,
+          deck.revision,
+          entryId,
+          artId,
+          signal,
+        ),
       () => opener,
     );
   const applyArt = () =>

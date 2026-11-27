@@ -55,6 +55,7 @@ const policyPrintings = policyProvider(scryfall);
 const art = artHistory(decks, policyPrintings, settings.printLanguage);
 const text = z.string();
 const index = z.number().int().nonnegative();
+const signal = z.instanceof(AbortSignal).optional();
 
 export const webBackend: Backend = {
   async call(name, args = {}) {
@@ -87,6 +88,7 @@ export const webBackend: Backend = {
         return setCoverage(
           policyPrintings,
           await decks.get(text.parse(args.deckId)),
+          signal.parse(args.signal),
         );
       case "preview_art_policy": {
         const policy = artPolicySchema.parse(args.policy);
@@ -94,6 +96,7 @@ export const webBackend: Backend = {
           text.parse(args.deckId),
           index.parse(args.expectedRevision),
           policy,
+          signal.parse(args.signal),
         );
       }
       case "preview_art_localization":
@@ -102,6 +105,7 @@ export const webBackend: Backend = {
           index.parse(args.expectedRevision),
           text.parse(args.entryId),
           text.parse(args.artId),
+          signal.parse(args.signal),
         );
       case "apply_art_preview":
         return art.apply(
@@ -203,6 +207,7 @@ export const webBackend: Backend = {
           typeof args.onProgress === "function"
             ? (args.onProgress as (progress: ArtPreviewProgress) => void)
             : undefined,
+          signal.parse(args.signal),
         );
       case "override_language_print":
         return art.overrideLanguage(

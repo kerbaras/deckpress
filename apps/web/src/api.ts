@@ -438,13 +438,17 @@ export const api = {
     ),
   saveDeck: (deck: Deck) => command("save_deck", deckSchema, { deck }),
   listSets: () => command("scryfall_sets", z.array(setInfoSchema)),
-  setCoverage: (deckId: string) =>
-    command("set_coverage", z.array(setCoverageSchema), { deckId }),
+  setCoverage: (deckId: string, signal?: AbortSignal) =>
+    command("set_coverage", z.array(setCoverageSchema), {
+      deckId,
+      ...(getBackend() === webBackend && signal && { signal }),
+    }),
   previewArtPolicy: (
     deckId: string,
     expectedRevision: number,
     policy: ArtPolicy,
     onProgress?: (progress: ArtPreviewProgress) => void,
+    signal?: AbortSignal,
   ) => {
     const backend = getBackend();
     const progress =
@@ -457,6 +461,7 @@ export const api = {
         expectedRevision,
         policy,
         ...(progress && { progress }),
+        ...(backend === webBackend && signal && { signal }),
       }),
       artPreviewSchema,
     );
@@ -466,18 +471,21 @@ export const api = {
     expectedRevision: number,
     entryId: string,
     artId: string,
+    signal?: AbortSignal,
   ) =>
     command("preview_art_localization", artPreviewSchema, {
       deckId,
       expectedRevision,
       entryId,
       artId,
+      ...(getBackend() === webBackend && signal && { signal }),
     }),
   previewDeckLanguage: (
     deckId: string,
     expectedRevision: number,
     language: string,
     onProgress?: (progress: ArtPreviewProgress) => void,
+    signal?: AbortSignal,
   ) => {
     const backend = getBackend();
     return parseResponse(
@@ -486,6 +494,7 @@ export const api = {
         expectedRevision,
         language,
         ...(backend === webBackend && onProgress && { onProgress }),
+        ...(backend === webBackend && signal && { signal }),
       }),
       artPreviewSchema,
     );

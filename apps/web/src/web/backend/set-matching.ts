@@ -23,13 +23,17 @@ export async function setFamilyRanks(chosen: string, sets: SetInfo[]) {
 export async function setCoverage(
   provider: ReturnType<typeof policyProvider>,
   deck: Deck,
+  signal?: AbortSignal,
 ) {
   const eligible = deck.entries.filter(canChangeArt);
   if (!eligible.length) return [];
   const [wasm, sets, inventory] = await Promise.all([
     loadCoreWasm(webAssetBase()),
-    provider.sets(),
-    provider.inventoryBatch(eligible.map(({ card }) => card.oracleId)),
+    provider.sets({ background: true, signal }),
+    provider.coverageInventory(
+      eligible.map(({ card }) => card.oracleId),
+      signal,
+    ),
   ]);
   const entries = deck.entries.map((entry) => {
     const { card, quantity } = entry;

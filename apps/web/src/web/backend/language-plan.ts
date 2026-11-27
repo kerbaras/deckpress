@@ -42,23 +42,27 @@ export async function planDeckLanguage(
   language: string,
   preferences: PrintLanguagePreferences,
   onProgress?: (progress: ArtPreviewProgress) => void,
+  signal?: AbortSignal,
 ) {
   const wasm = await loadCoreWasm(webAssetBase());
+  signal?.throwIfAborted();
   const deckJson = JSON.stringify(deck);
   const { anchorIds, oracleIds } = lookupsSchema.parse(
     JSON.parse(wasm.deckLanguageLookups(deckJson, language)),
   );
   async function inventory(ids: string[], language: string) {
     return Object.fromEntries(
-      await provider.inventoryBatch(ids, language, undefined, (done, total) =>
-        onProgress?.({ kind: "printings", language, done, total }),
-      ),
+      await provider.inventoryBatch(ids, language, undefined, {
+        signal,
+        onProgress: (done, total) =>
+          onProgress?.({ kind: "printings", language, done, total }),
+      }),
     );
   }
   const [sets, anchors, candidates] = oracleIds.length
     ? await Promise.all([
-        provider.sets(),
-        provider.anchors(anchorIds),
+        provider.sets({ signal }),
+        provider.anchors(anchorIds, { signal }),
         inventory(oracleIds, language),
       ])
     : [[], [], {}];

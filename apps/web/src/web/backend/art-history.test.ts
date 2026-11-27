@@ -134,6 +134,7 @@ async function setup(entries = [entry("m11")]) {
     sets: vi.fn(async () => []),
     anchors: vi.fn(async () => new Map<string, Printing>()),
     inventoryBatch: vi.fn(async () => new Map<string, Printing[]>()),
+    coverageInventory: vi.fn(async () => new Map<string, Printing[]>()),
     get: vi.fn(async (artId: string) =>
       prints.find(({ id }) => artId === `scryfall:${id}:0`),
     ),
@@ -273,6 +274,78 @@ it("stages a language override, saves it without pinning and keeps web upload me
   expect(undone.entries).toEqual(deck.entries);
 });
 
+it("aborts the language preview's outstanding anchor lookup when dismissed", async () => {
+  const initial = entry("lea");
+  const { deck, history, provider } = await setup([initial]);
+  vi.spyOn(coreWasm, "loadCoreWasm");
+  vi.mocked(coreWasm.loadCoreWasm, { partial: true }).mockResolvedValue({
+    deckLanguageLookups: () =>
+      JSON.stringify({
+        anchorIds: [initial.card.id],
+        oracleIds: [initial.card.oracleId],
+      }),
+  });
+  const controller = new AbortController();
+  const started = Promise.withResolvers<void>();
+  provider.anchors.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        controller.signal.addEventListener(
+          "abort",
+          () => reject(controller.signal.reason),
+          { once: true },
+        );
+        started.resolve();
+      }),
+  );
+  const result = expect(
+    history.previewLanguage(deck.id, 0, "es", undefined, controller.signal),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  await started.promise;
+  expect(provider.anchors).toHaveBeenCalledWith([initial.card.id], {
+    signal: controller.signal,
+  });
+  controller.abort();
+  await result;
+});
+
+it("aborts the policy preview's batched inventory when dismissed", async () => {
+  const initial = entry("lea");
+  const { deck, history, provider } = await setup([initial]);
+  const wasm = mockPolicyPlan([initial], [null]);
+  const controller = new AbortController();
+  const started = Promise.withResolvers<void>();
+  provider.inventoryBatch.mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        controller.signal.addEventListener(
+          "abort",
+          () => reject(controller.signal.reason),
+          { once: true },
+        );
+        started.resolve();
+      }),
+  );
+  const result = expect(
+    history.previewPolicy(
+      deck.id,
+      deck.revision,
+      { kind: "matchSet", set: "m11" },
+      controller.signal,
+    ),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  await started.promise;
+  controller.abort();
+  await result;
+  expect(provider.inventoryBatch).toHaveBeenCalledExactlyOnceWith(
+    [initial.card.oracleId],
+    undefined,
+    ["m11"],
+    { signal: controller.signal },
+  );
+  expect(wasm).not.toHaveBeenCalled();
+});
+
 it("reports empty translations in strict mode and marks English fallback when allowed", async () => {
   const initial = entry("lea");
   const { deck, history, preferences } = await setup([initial]);
@@ -340,7 +413,7 @@ it("passes copy quantities and keeps pinned copies in the coverage total", async
   const eligible = { ...entry("lea"), quantity: 3 };
   const pinned = { ...entry("lea", true), quantity: 2 };
   const { deck, provider } = await setup([eligible, pinned]);
-  provider.inventoryBatch.mockResolvedValue(
+  provider.coverageInventory.mockResolvedValue(
     new Map([[eligible.card.oracleId, [fromFixture("m11")]]]),
   );
   const setCoverage = vi.fn(() => "[]");
@@ -350,9 +423,10 @@ it("passes copy quantities and keeps pinned copies in the coverage total", async
   });
   try {
     await setMatching.setCoverage(provider, deck);
-    expect(provider.inventoryBatch).toHaveBeenCalledExactlyOnceWith([
-      eligible.card.oracleId,
-    ]);
+    expect(provider.coverageInventory).toHaveBeenCalledExactlyOnceWith(
+      [eligible.card.oracleId],
+      undefined,
+    );
     expect(setCoverage).toHaveBeenCalledExactlyOnceWith(
       JSON.stringify([
         [3, ["m11"]],

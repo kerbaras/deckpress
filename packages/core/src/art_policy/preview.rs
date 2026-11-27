@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{
     error::{AppError, AppResult},
-    providers::PrintingLookupProgress,
+    providers::{PrintingInventoryScope, PrintingLookupProgress},
     set_family::family,
 };
 
@@ -56,18 +56,25 @@ impl ArtPolicies {
         policy.validate()?;
         let (before, preview_id) = self.begin_preview(deck_id, revision)?;
         let preferences = self.providers.preferences_for_deck(&before)?;
-        let family_ranks = match &policy {
+        let family_members = match &policy {
             ArtPolicy::MatchSet { set, family: true }
                 if before.entries.iter().any(policy_can_change) =>
             {
-                Some(
-                    family(set, &self.providers.sets().await?)
-                        .into_iter()
-                        .collect(),
-                )
+                Some(family(set, &self.providers.sets().await?))
             }
             _ => None,
         };
+        let family_sets = family_members.as_ref().map(|members| {
+            let mut sets: Vec<_> = members.iter().map(|(set, _)| set.clone()).collect();
+            sets.sort_unstable();
+            sets
+        });
+        let scope = match (&policy, &family_sets) {
+            (_, Some(sets)) => PrintingInventoryScope::Family(sets),
+            (ArtPolicy::MatchSet { set, family: false }, _) => PrintingInventoryScope::Exact(set),
+            _ => PrintingInventoryScope::All,
+        };
+        let family_ranks = family_members.map(|members| members.into_iter().collect());
         let mut next = before.clone();
         next.art_policy = Some(policy.clone());
         let selection = PolicySelection {
@@ -98,6 +105,7 @@ impl ArtPolicies {
                     .map(|entry| entry.card.oracle_id.as_str())
                     .collect(),
                 None,
+                scope,
                 |update| report(None, update),
             )
             .await?;
@@ -153,6 +161,7 @@ impl ArtPolicies {
                             .map(|(_, anchor)| anchor.oracle_id.as_str())
                             .collect(),
                         Some(language),
+                        scope,
                         |update| report(Some(language), update),
                     )
                     .await?;

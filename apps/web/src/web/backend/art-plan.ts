@@ -61,13 +61,15 @@ export async function planPolicy(
   deck: Deck,
   policy: ArtPolicy,
   preferences: PrintLanguagePreferences,
+  signal?: AbortSignal,
 ) {
+  const request = signal ? ([{ signal }] as const) : ([] as const);
   const oracleIds = deck.entries
     .filter(canChangeArt)
     .map(({ card }) => card.oracleId);
   const ranks =
     policy.kind === "matchSet" && policy.family && oracleIds.length
-      ? await setFamilyRanks(policy.set, await provider.sets())
+      ? await setFamilyRanks(policy.set, await provider.sets(...request))
       : undefined;
   const setFilter =
     policy.kind === "matchSet"
@@ -78,8 +80,9 @@ export async function planPolicy(
   // Search includes multilingual printings, so collect the set inventory once.
   const [wasm, inventory] = await Promise.all([
     loadCoreWasm(webAssetBase()),
-    provider.inventoryBatch(oracleIds, undefined, setFilter),
+    provider.inventoryBatch(oracleIds, undefined, setFilter, ...request),
   ]);
+  signal?.throwIfAborted();
   const { changes, updates } = planSchema.parse(
     JSON.parse(
       wasm.planDeckArtPolicy(
@@ -114,12 +117,14 @@ export async function planLocalization(
   entryId: string,
   artId: string,
   preferences: PrintLanguagePreferences,
+  signal?: AbortSignal,
 ) {
+  const request = signal ? ([{ signal }] as const) : ([] as const);
   const entry = deck.entries.find((entry) => entry.id === entryId);
   if (!entry) throw new Error("Card not found");
   const [wasm, anchor] = await Promise.all([
     loadCoreWasm(webAssetBase()),
-    provider.get(artId),
+    provider.get(artId, ...request),
   ]);
   const preferred = deck.printLanguage
     ? [deck.printLanguage]
@@ -162,15 +167,16 @@ export async function planLocalization(
     anchor.illustrations.length === entry.card.faces.length
   ) {
     for (const language of languages) {
+      signal?.throwIfAborted();
       const original = plan([anchor], language);
       if (original.change.kind !== "unmatched") return proposal(original);
-      const exact = await provider.exact(anchor, language);
+      const exact = await provider.exact(anchor, language, ...request);
       if (exact) {
         const result = plan([exact], language);
         if (result.change.kind !== "unmatched") return proposal(result);
       }
       const inventory = plan(
-        await provider.inventory(anchor.oracleId, language),
+        await provider.inventory(anchor.oracleId, language, ...request),
         language,
       );
       if (inventory.change.kind !== "unmatched") return proposal(inventory);
