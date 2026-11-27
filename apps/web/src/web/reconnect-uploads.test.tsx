@@ -117,6 +117,39 @@ it("uses the complete original filename to name the keyboard-focused assignment"
   expect(assignment).toHaveAccessibleName(`Test art · ${filename}`);
 });
 
+it("includes both full filenames in the keyboard-focused automatic match", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  const user = userEvent.setup();
+  const original = `${"original".repeat(28)}.png`;
+  const matched = `${"replacement".repeat(20)}.png`;
+  const data = new Uint8Array([1]);
+  const contentHash = await uploadHash(data);
+  const file = new File([data], matched, { type: "image/png" });
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => data.buffer,
+  });
+  render(
+    <ReconnectUploads
+      missing={[
+        { id: "missing", name: "Test art", filename: original, contentHash },
+      ]}
+      onClose={() => {}}
+      onRestore={async () => {}}
+    />,
+  );
+
+  const picker = screen.getByLabelText("Original image files");
+  await user.upload(picker, file);
+  const group = await screen.findByRole("group", {
+    name: `Test art · ${original} Matched to ${matched}`,
+  });
+  expect(screen.getByTitle(original)).toHaveClass("truncate");
+  expect(screen.getByTitle(matched)).toHaveClass("truncate");
+  picker.focus();
+  await user.tab();
+  expect(group).toHaveFocus();
+});
+
 it("describes a quota error with browser usage and the cache control", async () => {
   vi.stubGlobal("navigator", {
     storage: {

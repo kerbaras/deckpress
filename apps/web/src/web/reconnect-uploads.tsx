@@ -129,19 +129,33 @@ export function ReconnectUploads({
           const filename = upload.filename ?? upload.id;
           const label = `${upload.name} · ${filename}`;
           const matched = files[matches.get(upload.id) ?? -1]?.file;
+          const assignmentId = `reconnect-${upload.id}`;
           if (matched)
             return (
-              <div className="field" key={upload.id}>
-                <span className="truncate" title={filename}>
+              <fieldset
+                className="field reconnect-match"
+                key={upload.id}
+                // biome-ignore lint/a11y/noNoninteractiveTabindex: Tab focus reveals both full filenames.
+                tabIndex={0}
+                aria-labelledby={`${assignmentId}-original ${assignmentId}-matched`}
+              >
+                <span
+                  className="truncate"
+                  id={`${assignmentId}-original`}
+                  title={filename}
+                >
                   {label}
                 </span>
-                <span className="truncate" title={matched.name}>
+                <span
+                  className="truncate"
+                  id={`${assignmentId}-matched`}
+                  title={matched.name}
+                >
                   Matched to {matched.name}
                 </span>
-              </div>
+              </fieldset>
             );
           const assigned = assignments.get(upload.id);
-          const assignmentId = `reconnect-${upload.id}`;
           return (
             <div className="field reconnect-assignment" key={upload.id}>
               <label

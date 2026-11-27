@@ -326,7 +326,8 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.reconnect-assignment:where(:has(> select:focus-visible)) > label {
+.reconnect-assignment:where(:has(> select:focus-visible)) > label,
+.reconnect-match:where(:focus-within) > .truncate {
   white-space: normal;
   overflow-wrap: anywhere;
 }
