@@ -2010,11 +2010,12 @@ it("uses the selected printing's set for a deck-wide family preview", async () =
     name: "Use Strixhaven Mystical Archive for the whole deck",
   });
   await user.click(useSet);
-  expect(preview).toHaveBeenCalledWith(deck.id, deck.revision, {
-    kind: "matchSet",
-    set: "sta",
-    family: true,
-  });
+  expect(preview).toHaveBeenCalledWith(
+    deck.id,
+    deck.revision,
+    { kind: "matchSet", set: "sta", family: true },
+    expect.any(Function),
+  );
   const dialog = within(
     await screen.findByRole("dialog", { name: "Preview art changes" }),
   );

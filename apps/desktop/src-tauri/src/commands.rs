@@ -6,10 +6,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::ipc::Channel;
-use tauri::State;
+use tauri::ipc::{Channel, JavaScriptChannelId};
+use tauri::{State, Webview};
 
-use deckpress_core::art_policy::{ArtChange, ArtPolicy, ArtPreview};
+use deckpress_core::art_policy::{ArtChange, ArtPolicy, ArtPreview, ArtPreviewProgress};
 use deckpress_core::decksearch::{DeckQuery, DeckSearchPage, DeckSource, ExternalDeck};
 use deckpress_core::error::{AppError, AppResult};
 use deckpress_core::images::{RestoreResult, UploadInput};
@@ -205,13 +205,20 @@ pub async fn set_coverage(
 #[tauri::command]
 pub async fn preview_art_policy(
     state: State<'_, AppState>,
+    webview: Webview,
     deck_id: String,
     expected_revision: u64,
     policy: ArtPolicy,
+    progress: Option<JavaScriptChannelId>,
 ) -> AppResult<ArtPreview> {
+    let progress = progress.map(|id| id.channel_on::<_, ArtPreviewProgress>(webview));
     state
         .art_policy
-        .preview_policy(&deck_id, expected_revision, policy)
+        .preview_policy_with_progress(&deck_id, expected_revision, policy, |message| {
+            if let Some(progress) = &progress {
+                let _ = progress.send(message);
+            }
+        })
         .await
 }
 

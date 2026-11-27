@@ -1,6 +1,6 @@
 //! Scryfall, MPC Autofill, Moxfield and Archidekt clients. Scryfall calls are
-//! serialized through a single rate limiter (550 ms between requests, 30 s
-//! back-off on 429) and every JSON response is cached in SQLite for 24 hours.
+//! paced through a single rate limiter and JSON responses are cached in
+//! SQLite for 24 hours.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -28,8 +28,9 @@ use crate::store::Store;
 pub const USER_AGENT: &str = "Deckpress/0.1 (local playtest tool)";
 const SCRYFALL_INTERVAL: Duration = Duration::from_millis(550);
 const SCRYFALL_BACKOFF: Duration = Duration::from_secs(30);
+const SCRYFALL_RETRIES: u32 = 3;
 const COLLECTION_BATCH: usize = 75;
-const LANGUAGE_SEARCH_BATCH: usize = 12;
+const PRINT_SEARCH_BATCH: usize = 12;
 const MPC_PAGE: usize = 48;
 const MPC_PROJECT_LIMIT: usize = 612;
 const SCRYFALL_LANGUAGES: &[&str] = &[
@@ -41,6 +42,12 @@ pub struct Providers {
     store: Arc<Store>,
     client: Client,
     scryfall_next: Mutex<Instant>,
+    scryfall_origin: Option<Url>,
+}
+
+pub(crate) enum PrintingLookupProgress {
+    Cards { done: usize, total: usize },
+    RateLimited(Duration),
 }
 
 #[derive(Deserialize)]
@@ -331,6 +338,19 @@ fn has_more(response: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+    let value = response.headers().get("Retry-After")?.to_str().ok()?.trim();
+    if let Ok(seconds) = value.parse() {
+        return Some(Duration::from_secs(seconds));
+    }
+    let date = chrono::DateTime::parse_from_rfc2822(value).ok()?;
+    Some(
+        date.signed_duration_since(chrono::Utc::now())
+            .to_std()
+            .unwrap_or_default(),
+    )
+}
+
 fn policy_printing(raw: &Value) -> Option<Printing> {
     let string = |key: &str| raw[key].as_str().unwrap_or_default().to_owned();
     let flag = |key: &str| raw[key].as_bool().unwrap_or(false);
@@ -479,6 +499,15 @@ fn valid_languages(languages: &[String]) -> bool {
 
 impl Providers {
     pub fn new(store: Arc<Store>) -> AppResult<Self> {
+        Self::with_origin(store, None)
+    }
+
+    /// Uses an alternate origin for Scryfall, leaving other providers unchanged.
+    pub fn with_scryfall_origin(store: Arc<Store>, origin: Url) -> AppResult<Self> {
+        Self::with_origin(store, Some(origin))
+    }
+
+    fn with_origin(store: Arc<Store>, scryfall_origin: Option<Url>) -> AppResult<Self> {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .redirect(redirect::Policy::none())
@@ -488,11 +517,12 @@ impl Providers {
             store,
             client,
             scryfall_next: Mutex::new(Instant::now()),
+            scryfall_origin,
         })
     }
 
     pub async fn json(&self, url: &str, body: Option<Value>) -> AppResult<Value> {
-        self.json_or_status(url, body, false)
+        self.json_or_status(url, body, false, |_| {})
             .await?
             .map_err(|status| {
                 AppError::user(format!(
@@ -508,6 +538,7 @@ impl Providers {
         url: &str,
         body: Option<Value>,
         allow_missing: bool,
+        on_retry: impl Fn(Duration),
     ) -> AppResult<Result<Value, u16>> {
         let key = cache_key(url, body.as_ref());
         if let Some(cached) = self.store.cached(&key)? {
@@ -515,36 +546,65 @@ impl Providers {
         }
         let parsed = Url::parse(url).map_err(|_| AppError::user("Invalid provider URL"))?;
         let scryfall = parsed.host_str() == Some("api.scryfall.com");
-        if scryfall {
-            let mut next = self.scryfall_next.lock().await;
-            let now = Instant::now();
-            if *next > now {
-                tokio::time::sleep(*next - now).await;
-            }
-            *next = Instant::now() + SCRYFALL_INTERVAL;
-        }
-        let request = match &body {
-            Some(body) => self.client.post(url).json(body),
-            None => self.client.get(url),
-        }
-        .header("Accept", "application/json");
-        let response = request.send().await.map_err(|error| {
-            AppError::user(format!(
-                "Could not reach {}: {}",
-                parsed.host_str().unwrap_or("provider"),
-                if error.is_timeout() {
-                    "timed out".to_string()
-                } else {
-                    "network error".to_string()
+        let endpoint = if let Some(origin) = self.scryfall_origin.as_ref().filter(|_| scryfall) {
+            let mut endpoint = origin.clone();
+            endpoint.set_path(parsed.path());
+            endpoint.set_query(parsed.query());
+            endpoint
+        } else {
+            parsed.clone()
+        };
+        let mut attempt = 0;
+        let response = loop {
+            let mut next = if scryfall {
+                let next = self.scryfall_next.lock().await;
+                if let Some(cached) = self.store.cached(&key)? {
+                    return Ok(Ok(cached));
                 }
-            ))
-        })?;
-        if response.status() == StatusCode::TOO_MANY_REQUESTS {
-            if scryfall {
-                *self.scryfall_next.lock().await = Instant::now() + SCRYFALL_BACKOFF;
+                Some(next)
+            } else {
+                None
+            };
+            if let Some(next) = &mut next {
+                tokio::time::sleep((**next).saturating_duration_since(Instant::now())).await;
+                **next = Instant::now() + SCRYFALL_INTERVAL;
             }
-            return Err(AppError::RateLimited);
-        }
+            let request = match &body {
+                Some(body) => self.client.post(endpoint.clone()).json(body),
+                None => self.client.get(endpoint.clone()),
+            }
+            .header("Accept", "application/json");
+            let response = request.send().await.map_err(|error| {
+                AppError::user(format!(
+                    "Could not reach {}: {}",
+                    parsed.host_str().unwrap_or("provider"),
+                    if error.is_timeout() {
+                        "timed out"
+                    } else {
+                        "network error"
+                    }
+                ))
+            })?;
+            if response.status() != StatusCode::TOO_MANY_REQUESTS {
+                break response;
+            }
+            let Some(mut next) = next else {
+                return Err(AppError::RateLimited);
+            };
+            let now = Instant::now();
+            let fallback = SCRYFALL_BACKOFF * (1 << attempt);
+            let delay = retry_after(&response)
+                .filter(|delay| now.checked_add(*delay).is_some())
+                .unwrap_or(fallback);
+            *next = (*next).max(now + delay);
+            if attempt == SCRYFALL_RETRIES {
+                return Err(AppError::user(
+                    "Scryfall is still rate limiting requests. Try again later.",
+                ));
+            }
+            on_retry(next.saturating_duration_since(now));
+            attempt += 1;
+        };
         if allow_missing && response.status() == StatusCode::NOT_FOUND {
             self.store.put("cache", &key, &Value::Null)?;
             return Ok(Ok(Value::Null));
@@ -561,7 +621,15 @@ impl Providers {
     }
 
     async fn scryfall_json(&self, url: &str) -> AppResult<Value> {
-        self.json_or_status(url, None, true)
+        self.scryfall_json_with_retry(url, |_| {}).await
+    }
+
+    async fn scryfall_json_with_retry(
+        &self,
+        url: &str,
+        on_retry: impl Fn(Duration),
+    ) -> AppResult<Value> {
+        self.json_or_status(url, None, true, on_retry)
             .await?
             .map_err(|status| AppError::user(format!("Scryfall returned {status}. Try again.")))
     }
@@ -581,19 +649,27 @@ impl Providers {
             return Ok(Vec::new());
         }
         let sets = self.sets().await?;
-        let mut inventory = HashMap::new();
+        let inventory = self
+            .printing_inventory(
+                entries
+                    .iter()
+                    .filter(|entry| policy_can_change(entry))
+                    .map(|entry| entry.card.oracle_id.as_str())
+                    .collect(),
+                None,
+                |_| {},
+            )
+            .await?;
         let mut entry_sets = Vec::new();
         for entry in entries {
             if !policy_can_change(entry) {
                 entry_sets.push((entry.quantity, Vec::new()));
                 continue;
             }
-            let oracle = entry.card.oracle_id.as_str();
-            if let std::collections::hash_map::Entry::Vacant(slot) = inventory.entry(oracle) {
-                slot.insert(self.policy_printings(oracle, None).await?);
-            }
-            let codes = inventory[oracle]
-                .iter()
+            let codes = inventory
+                .get(&entry.card.oracle_id)
+                .into_iter()
+                .flatten()
                 .filter(|print| {
                     print.paper
                         && !print.promo
@@ -989,14 +1065,28 @@ impl Providers {
         oracle_ids: BTreeSet<&str>,
         language: &str,
     ) -> AppResult<HashMap<String, Vec<Printing>>> {
-        validate_language(language)?;
-        let cache_key = |oracle| format!("language-printings:{language}:{oracle}");
+        self.printing_inventory(oracle_ids, Some(language), |_| {})
+            .await
+    }
+
+    pub(crate) async fn printing_inventory(
+        &self,
+        mut oracle_ids: BTreeSet<&str>,
+        language: Option<&str>,
+        progress: impl Fn(PrintingLookupProgress),
+    ) -> AppResult<HashMap<String, Vec<Printing>>> {
+        if let Some(language) = language {
+            validate_language(language)?;
+        }
+        let cache_key = |oracle| match language {
+            Some(language) => format!("language-printings:{language}:{oracle}"),
+            None => format!("policy-printings:{oracle}"),
+        };
         let mut inventory = HashMap::new();
         let mut missing = Vec::new();
+        oracle_ids.retain(|oracle| uuid::Uuid::parse_str(oracle).is_ok());
+        let total = oracle_ids.len();
         for oracle in oracle_ids {
-            if uuid::Uuid::parse_str(oracle).is_err() {
-                continue;
-            }
             match self.store.cached(&cache_key(oracle))? {
                 Some(Value::Array(cards)) => {
                     inventory.insert(
@@ -1007,22 +1097,36 @@ impl Providers {
                 _ => missing.push(oracle),
             }
         }
-        for batch in missing.chunks(LANGUAGE_SEARCH_BATCH) {
+        if total > 0 {
+            progress(PrintingLookupProgress::Cards {
+                done: inventory.len(),
+                total,
+            });
+        }
+        for batch in missing.chunks(PRINT_SEARCH_BATCH) {
             let clauses = batch
                 .iter()
                 .map(|id| format!("oracleid:{id}"))
                 .collect::<Vec<_>>()
                 .join(" or ");
-            let query = format!("({clauses}) lang:{language} game:paper");
+            let query = match language {
+                Some(language) => format!("({clauses}) lang:{language} game:paper"),
+                None if batch.len() == 1 => format!("{clauses} game:paper"),
+                None => format!("({clauses}) game:paper"),
+            };
             let mut found: HashMap<_, Vec<Value>> =
                 batch.iter().map(|&oracle| (oracle, Vec::new())).collect();
             for page in 1..=100 {
                 let url = print_search(&query, page);
-                let response = self.scryfall_json(url.as_str()).await?;
+                let response = self
+                    .scryfall_json_with_retry(url.as_str(), |delay| {
+                        progress(PrintingLookupProgress::RateLimited(delay));
+                    })
+                    .await?;
                 for raw in cards_in(&response) {
                     if let Some(bucket) = scryfall_oracle_id(raw)
                         .and_then(|oracle| found.get_mut(oracle))
-                        .filter(|_| raw["lang"] == language)
+                        .filter(|_| language.is_none_or(|language| raw["lang"] == language))
                     {
                         bucket.push(raw.clone());
                     }
@@ -1032,7 +1136,7 @@ impl Providers {
                 }
                 if page == 100 {
                     return Err(AppError::user(
-                        "Scryfall has too many printings for this language switch.",
+                        "Scryfall has too many printings for this deck.",
                     ));
                 }
             }
@@ -1043,6 +1147,10 @@ impl Providers {
                     cards.iter().filter_map(policy_printing).collect(),
                 );
             }
+            progress(PrintingLookupProgress::Cards {
+                done: inventory.len(),
+                total,
+            });
         }
         Ok(inventory)
     }
@@ -1061,41 +1169,6 @@ impl Providers {
         let raw = self.scryfall_json(url.as_str()).await?;
         Ok(policy_printing(&raw)
             .filter(|print| print.set == anchor.set && print.collector == anchor.collector))
-    }
-
-    pub(crate) async fn policy_printings(
-        &self,
-        oracle_id: &str,
-        language: Option<&str>,
-    ) -> AppResult<Vec<Printing>> {
-        if uuid::Uuid::parse_str(oracle_id).is_err()
-            || language.is_some_and(|lang| !SCRYFALL_LANGUAGES.contains(&lang))
-        {
-            return Ok(Vec::new());
-        }
-        let mut query = format!("oracleid:{oracle_id} game:paper");
-        if let Some(language) = language {
-            query.push_str(&format!(" lang:{language}"));
-        }
-        let mut printings = Vec::new();
-        for page in 1..=100 {
-            let url = print_search(&query, page);
-            let response = self.scryfall_json(url.as_str()).await?;
-            printings.extend(
-                cards_in(&response)
-                    .filter_map(policy_printing)
-                    .filter(|print| {
-                        print.oracle_id == oracle_id
-                            && language.is_none_or(|lang| print.language == lang)
-                    }),
-            );
-            if !has_more(&response) {
-                return Ok(printings);
-            }
-        }
-        Err(AppError::user(
-            "Scryfall has too many printings to evaluate this art policy.",
-        ))
     }
 
     pub async fn prints(
@@ -1343,6 +1416,7 @@ impl Providers {
                     &format!("https://api2.moxfield.com/v3/decks/all/{id}"),
                     None,
                     false,
+                    |_| {},
                 )
                 .await?
                 .map_err(moxfield_status_error)?;
