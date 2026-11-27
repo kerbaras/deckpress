@@ -151,12 +151,70 @@ it("uses localized name search, preserves line numbers for misses, and skips req
       {
         zone: "side",
         board: "Test board",
-        card: { faces: [{ language: "es" }] },
+        card: {
+          id: fixture.search_es.data[0]?.id,
+          faces: [{ language: "es" }],
+        },
       },
     ],
     issues: [{ line: 1, kind: "notFound" }],
     missingPrints: [],
   });
+});
+
+it("batches a hundred Spanish names and oracles without changing their printings", async () => {
+  const englishSample = fixture.collection.data[0];
+  const spanishSample = fixture.search_es.data[0];
+  if (!englishSample || !spanishSample) throw new Error("Missing scan fixture");
+  const cards = Array.from({ length: 100 }, (_, index) => {
+    const suffix = String(index).padStart(12, "0");
+    const oracle_id = `00000000-0000-4000-8000-${suffix}`;
+    const name = `English Card ${index}`;
+    const printed_name = `Carta ${index}`;
+    return {
+      en: { ...englishSample, name, oracle_id },
+      es: {
+        ...spanishSample,
+        id: `00000001-0000-4000-8000-${suffix}`,
+        oracle_id,
+        name,
+        printed_name,
+      },
+    };
+  });
+  const collection = vi.fn<Scryfall["collection"]>(async (ids) =>
+    cards.flatMap(({ en }) =>
+      ids.some((id) => "name" in id && id.name === en.name) ? [en] : [],
+    ),
+  );
+  const search = vi.fn<Scryfall["search"]>(async (query) => ({
+    ...emptyPage,
+    cards: cards.flatMap(({ es }) =>
+      query.includes(`oracleid:${es.oracle_id}`) ||
+      query.includes(`!"${es.printed_name}"`)
+        ? [es]
+        : [],
+    ),
+  }));
+  const result = await resolveCards(
+    mockScryfall({ collection, search }),
+    cards.map(({ es }, index) => ({
+      ...printLine,
+      name: index % 2 === 0 ? es.name : es.printed_name,
+      set: "",
+      collectorNumber: "",
+    })),
+    { ...spanish, languages: ["es"] },
+  );
+  expect(result.issues).toEqual([]);
+  expect(result.entries.map(({ card }) => card.id)).toEqual(
+    cards.map(({ es }) => es.id),
+  );
+  expect(collection).toHaveBeenCalledTimes(2);
+  expect(search).toHaveBeenCalledTimes(10);
+  expect(search.mock.calls.every(([query]) => query.endsWith(" lang:es"))).toBe(
+    true,
+  );
 });
 
 it("filters print results by oracle, language, and face; better scans match the same art and language", async () => {

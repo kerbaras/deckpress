@@ -74,6 +74,24 @@ it("honors Retry-After before retrying a throttled search and caches the result"
   expect(fakeFetch).toHaveBeenCalledTimes(2);
 });
 
+it("fails a headerless throttle after 75 seconds of backoff", async () => {
+  vi.useFakeTimers({ toFake: ["performance", "setTimeout", "Date"] });
+  const starts: number[] = [];
+  const fakeFetch = vi.fn(async () => {
+    starts.push(performance.now());
+    return new Response(null, { status: 429 });
+  });
+  const client = scryfallClient(memoryDocuments(), fakeFetch);
+  const failure = expect(client.search("set:m10", 1)).rejects.toThrow(
+    "Scryfall is still rate-limiting requests. Try again later.",
+  );
+  await vi.advanceTimersByTimeAsync(74_999);
+  expect(starts).toEqual([0, 15_000, 45_000]);
+  await vi.advanceTimersByTimeAsync(1);
+  await failure;
+  expect(starts).toEqual([0, 15_000, 45_000, 75_000]);
+});
+
 it("serializes requests, spaces their starts by 100 ms, and uses cached responses including 404", async () => {
   vi.useFakeTimers({ toFake: ["performance", "setTimeout", "Date"] });
   const starts: number[] = [];

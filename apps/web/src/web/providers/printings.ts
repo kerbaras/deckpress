@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Art, ArtPolicy } from "../../core/index.ts";
 import type { Scryfall } from "./scryfall.ts";
 import { record, recordList, usableCard } from "./scryfall-card.ts";
+import { anyOf, searchBatches } from "./search-batches.ts";
 
 export interface Printing {
   id: string;
@@ -171,10 +172,6 @@ export function localized(
 // Bound the length of Scryfall search URLs even with a family/language filter.
 const oracleBatchSize = 18;
 
-function anyOf(terms: string[]) {
-  return terms.length === 1 ? terms[0] : `(${terms.join(" or ")})`;
-}
-
 export function policyProvider(api: Scryfall) {
   async function inventoryBatch(
     oracleIds: string[],
@@ -186,30 +183,27 @@ export function policyProvider(api: Scryfall) {
     ].sort();
     const prints = new Map<string, Printing[]>(ids.map((id) => [id, []]));
     const setTerms = sets?.map((set) => `set:${set}`);
-    for (let start = 0; start < ids.length; start += oracleBatchSize) {
-      const batch = ids.slice(start, start + oracleBatchSize);
-      const query = [
-        anyOf(batch.map((id) => `oracleid:${id}`)),
-        "game:paper",
-        setTerms?.length ? anyOf(setTerms) : "",
-        language ? `lang:${language}` : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-      for (let page = 1; ; page++) {
-        const result = await api.search(query, page);
-        for (const raw of result.cards) {
+    const filters = ["game:paper"];
+    if (setTerms?.length) filters.push(anyOf(setTerms));
+    if (language) filters.push(`lang:${language}`);
+    const complete = await searchBatches(
+      api,
+      ids.map((id) => `oracleid:${id}`),
+      filters,
+      (cards) => {
+        for (const raw of cards) {
           const print = policyPrinting(raw);
           if (print && (!language || print.language === language))
             prints.get(print.oracleId)?.push(print);
         }
-        if (!result.hasMore) break;
-        if (page === 100)
-          throw new Error(
-            "Scryfall has too many printings to evaluate this art policy.",
-          );
-      }
-    }
+        return false;
+      },
+      oracleBatchSize,
+    );
+    if (!complete)
+      throw new Error(
+        "Scryfall has too many printings to evaluate this art policy.",
+      );
     return prints;
   }
 

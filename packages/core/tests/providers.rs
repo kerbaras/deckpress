@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use deckpress_core::models::{
     ImportLine, PrintLanguagePolicy, PrintLanguagePreferences, Provider, Zone,
@@ -7,6 +8,10 @@ use deckpress_core::providers::{moxfield_status_error, normalize_scryfall, Provi
 use deckpress_core::store::Store;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    net::TcpListener,
+};
 
 const BOLT: &str = "4457ed35-7c10-48c8-9776-456485fdf070";
 const LOTUS: &str = "5089ec1a-f881-4d55-af14-5d996171203b";
@@ -434,6 +439,158 @@ fn recorded_providers() -> Providers {
     Providers::new(store).unwrap()
 }
 
+async fn mock_scryfall(
+    mut respond: impl FnMut(url::Url, Value) -> (u16, Value) + Send + 'static,
+) -> (Providers, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = url::Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let mock = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let path = line.split_whitespace().nth(1).unwrap();
+            let url = url::Url::parse(&format!("http://localhost{path}")).unwrap();
+            let mut length = 0;
+            loop {
+                line.clear();
+                stream.read_line(&mut line).await.unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some((key, value)) = line.split_once(':') {
+                    if key.eq_ignore_ascii_case("content-length") {
+                        length = value.trim().parse().unwrap();
+                    }
+                }
+            }
+            let mut bytes = vec![0; length];
+            stream.read_exact(&mut bytes).await.unwrap();
+            let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+            let (status, response) = respond(url, body);
+            let response = response.to_string();
+            stream.get_mut().write_all(format!(
+                "HTTP/1.1 {status} Mock\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+                response.len(),
+            ).as_bytes()).await.unwrap();
+        }
+    });
+    let store = Arc::new(Store::in_memory().unwrap());
+    let providers = Providers::with_scryfall_origin(store, origin).unwrap();
+    (providers, mock)
+}
+
+#[tokio::test]
+async fn batches_a_hundred_spanish_names_and_oracles_without_changing_prints() {
+    let fixture: Value =
+        serde_json::from_str(include_str!("fixtures/scryfall-languages.json")).unwrap();
+    let mut localized = Vec::new();
+    let mut english = Vec::new();
+    let mut lines = Vec::new();
+    for index in 0..100 {
+        let oracle = format!("00000000-0000-4000-8000-{index:012}");
+        let english_name = format!("English Card {index}");
+        let spanish_name = format!("Carta {index}");
+        let mut en = fixture["collection"]["data"][0].clone();
+        en["name"] = json!(english_name);
+        en["oracle_id"] = json!(oracle);
+        let mut es = fixture["search_es"]["data"][0].clone();
+        es["id"] = json!(format!("00000001-0000-4000-8000-{index:012}"));
+        es["oracle_id"] = json!(oracle);
+        es["name"] = json!(english_name);
+        es["printed_name"] = json!(spanish_name);
+        english.push(en);
+        localized.push(es);
+        lines.push(ImportLine {
+            name: if index % 2 == 0 {
+                english_name
+            } else {
+                spanish_name
+            },
+            set: String::new(),
+            collector_number: String::new(),
+            quantity: 1,
+            zone: Zone::Main,
+            board: None,
+        });
+    }
+    let expected: Vec<_> = localized
+        .iter()
+        .map(|raw| normalize_scryfall(raw).unwrap().id)
+        .collect();
+    let (tx, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    let (providers, mock) = mock_scryfall(move |url, body| {
+        tx.send(url.path().to_owned()).unwrap();
+        if url.path() == "/cards/collection" {
+            let names = body["identifiers"].as_array().unwrap();
+            let data: Vec<_> = english
+                .iter()
+                .filter(|card| names.iter().any(|item| item["name"] == card["name"]))
+                .collect();
+            return (200, json!({"data": data}));
+        }
+        let query = url.query_pairs().find(|(key, _)| key == "q").unwrap().1;
+        assert!(query.ends_with(" game:paper lang:es"));
+        let data: Vec<_> = localized
+            .iter()
+            .filter(|card| {
+                query.contains(&format!("oracleid:{}", card["oracle_id"].as_str().unwrap()))
+                    || query.contains(&format!("!\"{}\"", card["printed_name"].as_str().unwrap()))
+            })
+            .collect();
+        (200, json!({"data": data, "has_more": false}))
+    })
+    .await;
+    providers
+        .save_print_language_preferences(preferences(&["es"], PrintLanguagePolicy::Strict))
+        .unwrap();
+    let result = providers.resolve_import(lines).await.unwrap();
+    assert!(result.issues.is_empty(), "{:?}", result.issues);
+    assert_eq!(
+        result
+            .entries
+            .iter()
+            .map(|entry| &entry.card.id)
+            .collect::<Vec<_>>(),
+        expected.iter().collect::<Vec<_>>()
+    );
+    let calls: Vec<_> = std::iter::from_fn(|| requests.try_recv().ok()).collect();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|path| *path == "/cards/collection")
+            .count(),
+        2
+    );
+    assert_eq!(
+        calls.iter().filter(|path| *path == "/cards/search").count(),
+        10
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn ends_headerless_scryfall_throttles_after_seventy_five_seconds_of_waiting() {
+    let (tx, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    let (providers, mock) = mock_scryfall(move |_, _| {
+        tx.send(Instant::now()).unwrap();
+        (429, json!({}))
+    })
+    .await;
+    let error = tokio::time::timeout(Duration::from_secs(85), providers.resolve_import(lines()))
+        .await
+        .expect("headerless retries must stop after no more than 85 seconds")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Scryfall is still rate limiting requests. Try again later."));
+    let attempts: Vec<_> = std::iter::from_fn(|| requests.try_recv().ok()).collect();
+    assert_eq!(attempts.len(), 4);
+    let waited = attempts[3] - attempts[0];
+    assert!(waited >= Duration::from_secs(75), "{waited:?}");
+    mock.abort();
+}
+
 async fn check_spanish_import(providers: &Providers) {
     providers
         .save_print_language_preferences(preferences(&["es"], PrintLanguagePolicy::Strict))
@@ -443,8 +600,16 @@ async fn check_spanish_import(providers: &Providers) {
     assert_eq!(strict.entries[0].front_art().language, "es");
     assert_eq!(strict.entries[0].front_art().set, "m10");
     assert_eq!(strict.entries[0].front_art().collector_number, "146");
+    assert_eq!(
+        strict.entries[0].card.id,
+        "9ba97b51-148e-47ab-8a99-e19764c89b59"
+    );
     assert_eq!(strict.entries[1].front_art().language, "es");
     assert_eq!(strict.entries[1].card.name, "Lightning Bolt");
+    assert_eq!(
+        strict.entries[1].card.id,
+        "05aa8d78-789f-440a-b1fc-6daea5982b9a"
+    );
     assert_eq!(strict.issues.len(), 1);
     assert_eq!(strict.issues[0].line, 2);
     assert_eq!(strict.missing_prints.len(), 1);
@@ -533,6 +698,16 @@ async fn strict_name_only_skips_distinguish_unknown_cards_from_unusable_scans() 
                 &fixture["absent_search_es"],
             );
         }
+    }
+    for language in ["es", "la"] {
+        record(
+            &store,
+            &search_url(&format!(
+                "(!\"Black Lotus\" or !\"Not A Card\") game:paper lang:{language}"
+            )),
+            Value::Null,
+            &fixture["absent_search_es"],
+        );
     }
     let providers = Providers::new(store).unwrap();
     providers
