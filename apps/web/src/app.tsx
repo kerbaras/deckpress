@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isTauri } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
   Compass,
@@ -25,6 +24,7 @@ import {
   confirmAction,
   fetchHealth,
   type ModelStatus,
+  saveFileDialog,
 } from "./api.ts";
 import { DiscardPreview } from "./art-picker.tsx";
 import { formatCount, type PrintJob } from "./core/index.ts";
@@ -865,7 +865,7 @@ function PrintJobs({
                         onClick={() =>
                           void task.run(async () => {
                             setSaveStatus("");
-                            const destination = await save({
+                            const destination = await saveFileDialog({
                               defaultPath: job.fileName,
                               filters:
                                 job.format === "png"

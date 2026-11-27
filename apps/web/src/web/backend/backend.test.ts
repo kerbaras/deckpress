@@ -1,0 +1,42 @@
+import { mockIPC } from "@tauri-apps/api/mocks";
+import { afterEach, expect, it, vi } from "vitest";
+import { api, fetchHealth, imageSrc, UrlImportError } from "../../api.ts";
+import { NotAvailableOnWebError } from "./web.ts";
+
+afterEach(() => vi.unstubAllEnvs());
+
+it("routes commands and image URLs through Tauri when the runtime is present", async () => {
+  vi.stubEnv("VITE_TARGET", "");
+  const ipc = vi.fn(() => ({ status: "ok", service: "@deckpress/desktop" }));
+  mockIPC(ipc);
+
+  await expect(fetchHealth()).resolves.toEqual({
+    status: "ok",
+    service: "@deckpress/desktop",
+  });
+  expect(ipc).toHaveBeenCalledWith("health", {});
+  expect(imageSrc("art.png")).toBe("dpimg://localhost/image%2Fart.png");
+});
+
+it("uses the web backend when Tauri internals are missing", async () => {
+  vi.stubEnv("VITE_TARGET", "");
+  vi.stubGlobal("__TAURI_INTERNALS__", undefined);
+
+  await expect(fetchHealth()).rejects.toBeInstanceOf(NotAvailableOnWebError);
+  expect(imageSrc("art.png")).toBe("about:blank");
+});
+
+it("uses the web backend for the explicit web target even with Tauri available", async () => {
+  vi.stubEnv("VITE_TARGET", "web");
+  const ipc = vi.fn();
+  mockIPC(ipc);
+
+  const error = await api
+    .import({ url: "https://moxfield.com/decks/example" })
+    .catch((error: unknown) => error);
+  expect(error).toBeInstanceOf(UrlImportError);
+  expect(error).toMatchObject({
+    message: "Deck URL import is not available on the web.",
+  });
+  expect(ipc).not.toHaveBeenCalled();
+});
