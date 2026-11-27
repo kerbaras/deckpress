@@ -6,6 +6,7 @@
 pub mod art_policy;
 pub mod art_quality;
 pub mod builder;
+pub mod cut_dxf;
 pub mod cut_svg;
 pub mod decksearch;
 pub mod error;
@@ -18,6 +19,7 @@ pub mod png_export;
 pub mod providers;
 pub mod raster;
 pub mod scm;
+pub mod scm_cut;
 pub mod store;
 pub mod style;
 pub mod upscaler;

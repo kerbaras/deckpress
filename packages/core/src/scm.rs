@@ -145,6 +145,22 @@ pub fn validate_template(settings: &PrintSettings) -> AppResult<()> {
     resolve(settings).map(|_| ())
 }
 
+fn versioned_name(settings: &PrintSettings, template: &Template) -> String {
+    let selection = &settings.scm_template;
+    let variant = match selection.variant {
+        ScmVariant::Default => "",
+        ScmVariant::Borderless => "-borderless",
+    };
+    format!(
+        "{}-{}{variant}-v{}",
+        selection.paper, selection.card, template.version
+    )
+}
+
+pub(crate) fn template_name(settings: &PrintSettings) -> AppResult<String> {
+    Ok(versioned_name(settings, resolve(settings)?.template))
+}
+
 pub(crate) fn effective_backs(settings: &PrintSettings) -> Backs {
     if settings.layout_mode == LayoutMode::Scm && settings.backs == Backs::ShortEdge {
         Backs::LongEdge
@@ -309,10 +325,6 @@ pub fn create_layout(settings: &PrintSettings) -> AppResult<PrintLayout> {
         }
     }
     let selection = &settings.scm_template;
-    let variant = match selection.variant {
-        ScmVariant::Default => "",
-        ScmVariant::Borderless => "-borderless",
-    };
     let [width, height] = page_mm.map(mm_to_pt);
     Ok(PrintLayout {
         width,
@@ -324,10 +336,7 @@ pub fn create_layout(settings: &PrintSettings) -> AppResult<PrintLayout> {
         registration: Vec::new(),
         label_baseline: Some(height - mm_to_pt(1.0)),
         scm: Some(ScmSheet {
-            name: format!(
-                "{}-{}{variant}-v{}",
-                selection.paper, selection.card, template.version
-            ),
+            name: versioned_name(settings, template),
             marks: registration_marks(
                 page_mm,
                 inset,

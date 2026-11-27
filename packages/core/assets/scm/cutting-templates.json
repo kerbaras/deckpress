@@ -1,197 +1,805 @@
 {
   "commit": "0da09b729814aa5aafde024b5a6059624fa87951",
-  "files": [
-    "a3-70mm_square-v2.studio3",
-    "a3-american_mini-v2.studio3",
-    "a3-bridge-v2.studio3",
-    "a3-bridge_square-v3.studio3",
-    "a3-business-v2.studio3",
-    "a3-catan-v2.studio3",
-    "a3-credit-v2.studio3",
-    "a3-domino-v2.studio3",
-    "a3-domino_square-v3.studio3",
-    "a3-euro_business-v2.studio3",
-    "a3-euro_mini-v2.studio3",
-    "a3-japanese-v2.studio3",
-    "a3-jumbo-v2.studio3",
-    "a3-micro-v2.studio3",
-    "a3-mini-v2.studio3",
-    "a3-poker-v2.studio3",
-    "a3-standard-v5.studio3",
-    "a3-standard_double-v2.studio3",
-    "a3-tarot-v2.studio3",
-    "a4-70mm_square-v2.studio3",
-    "a4-american_mini-v2.studio3",
-    "a4-bridge-v4.studio3",
-    "a4-bridge_square-v3.studio3",
-    "a4-business-v2.studio3",
-    "a4-catan-v2.studio3",
-    "a4-credit-v2.studio3",
-    "a4-domino-v2.studio3",
-    "a4-domino_square-v3.studio3",
-    "a4-euro_business-v2.studio3",
-    "a4-euro_mini-v2.studio3",
-    "a4-japanese-v4.studio3",
-    "a4-jumbo-v2.studio3",
-    "a4-micro-v2.studio3",
-    "a4-mini-v2.studio3",
-    "a4-poker-v3.studio3",
-    "a4-standard-v5.studio3",
-    "a4-standard_double-v3.studio3",
-    "a4-tarot-v3.studio3",
-    "arch_b-70mm_square-v2.studio3",
-    "arch_b-american_mini-v2.studio3",
-    "arch_b-bridge-v2.studio3",
-    "arch_b-bridge_square-v3.studio3",
-    "arch_b-business-v2.studio3",
-    "arch_b-catan-v2.studio3",
-    "arch_b-credit-v2.studio3",
-    "arch_b-domino-v2.studio3",
-    "arch_b-domino_square-v3.studio3",
-    "arch_b-euro_business-v2.studio3",
-    "arch_b-euro_mini-v2.studio3",
-    "arch_b-japanese-v2.studio3",
-    "arch_b-jumbo-v3.studio3",
-    "arch_b-micro-v2.studio3",
-    "arch_b-mini-v2.studio3",
-    "arch_b-poker-v2.studio3",
-    "arch_b-standard-v4.studio3",
-    "arch_b-standard_double-v2.studio3",
-    "arch_b-tarot-v3.studio3",
-    "borderless/a4-70mm_square-borderless-v2.studio3",
-    "borderless/a4-american_mini-borderless-v2.studio3",
-    "borderless/a4-bridge-borderless-v2.studio3",
-    "borderless/a4-bridge_square-borderless-v2.studio3",
-    "borderless/a4-business-borderless-v2.studio3",
-    "borderless/a4-catan-borderless-v2.studio3",
-    "borderless/a4-credit-borderless-v2.studio3",
-    "borderless/a4-domino-borderless-v2.studio3",
-    "borderless/a4-domino_square-borderless-v2.studio3",
-    "borderless/a4-euro_business-borderless-v2.studio3",
-    "borderless/a4-euro_mini-borderless-v2.studio3",
-    "borderless/a4-japanese-borderless-v2.studio3",
-    "borderless/a4-jumbo-borderless-v2.studio3",
-    "borderless/a4-micro-borderless-v2.studio3",
-    "borderless/a4-mini-borderless-v2.studio3",
-    "borderless/a4-poker-borderless-v2.studio3",
-    "borderless/a4-standard-borderless-v2.studio3",
-    "borderless/a4-standard_double-borderless-v2.studio3",
-    "borderless/a4-tarot-borderless-v2.studio3",
-    "borderless/legal-70mm_square-borderless-v1.studio3",
-    "borderless/legal-american_mini-borderless-v1.studio3",
-    "borderless/legal-bridge-borderless-v1.studio3",
-    "borderless/legal-bridge_square-borderless-v1.studio3",
-    "borderless/legal-business-borderless-v1.studio3",
-    "borderless/legal-catan-borderless-v1.studio3",
-    "borderless/legal-credit-borderless-v1.studio3",
-    "borderless/legal-domino-borderless-v1.studio3",
-    "borderless/legal-domino_square-borderless-v1.studio3",
-    "borderless/legal-euro_business-borderless-v1.studio3",
-    "borderless/legal-euro_mini-borderless-v1.studio3",
-    "borderless/legal-japanese-borderless-v1.studio3",
-    "borderless/legal-jumbo-borderless-v1.studio3",
-    "borderless/legal-micro-borderless-v1.studio3",
-    "borderless/legal-mini-borderless-v1.studio3",
-    "borderless/legal-poker-borderless-v1.studio3",
-    "borderless/legal-standard-borderless-v1.studio3",
-    "borderless/legal-standard_double-borderless-v1.studio3",
-    "borderless/legal-tarot-borderless-v1.studio3",
-    "borderless/letter-70mm_square-borderless-v2.studio3",
-    "borderless/letter-american_mini-borderless-v2.studio3",
-    "borderless/letter-bridge-borderless-v2.studio3",
-    "borderless/letter-bridge_square-borderless-v2.studio3",
-    "borderless/letter-business-borderless-v2.studio3",
-    "borderless/letter-catan-borderless-v2.studio3",
-    "borderless/letter-credit-borderless-v2.studio3",
-    "borderless/letter-domino-borderless-v2.studio3",
-    "borderless/letter-domino_square-borderless-v2.studio3",
-    "borderless/letter-euro_business-borderless-v2.studio3",
-    "borderless/letter-euro_mini-borderless-v2.studio3",
-    "borderless/letter-japanese-borderless-v2.studio3",
-    "borderless/letter-jumbo-borderless-v2.studio3",
-    "borderless/letter-micro-borderless-v2.studio3",
-    "borderless/letter-mini-borderless-v2.studio3",
-    "borderless/letter-poker-borderless-v2.studio3",
-    "borderless/letter-standard-borderless-v2.studio3",
-    "borderless/letter-standard_double-borderless-v2.studio3",
-    "borderless/letter-tarot-borderless-v2.studio3",
-    "borderless/tabloid-70mm_square-borderless-v2.studio3",
-    "borderless/tabloid-american_mini-borderless-v2.studio3",
-    "borderless/tabloid-bridge-borderless-v2.studio3",
-    "borderless/tabloid-bridge_square-borderless-v2.studio3",
-    "borderless/tabloid-business-borderless-v2.studio3",
-    "borderless/tabloid-catan-borderless-v2.studio3",
-    "borderless/tabloid-credit-borderless-v2.studio3",
-    "borderless/tabloid-domino-borderless-v2.studio3",
-    "borderless/tabloid-domino_square-borderless-v2.studio3",
-    "borderless/tabloid-euro_business-borderless-v2.studio3",
-    "borderless/tabloid-euro_mini-borderless-v2.studio3",
-    "borderless/tabloid-japanese-borderless-v2.studio3",
-    "borderless/tabloid-jumbo-borderless-v2.studio3",
-    "borderless/tabloid-micro-borderless-v2.studio3",
-    "borderless/tabloid-mini-borderless-v2.studio3",
-    "borderless/tabloid-poker-borderless-v2.studio3",
-    "borderless/tabloid-standard-borderless-v2.studio3",
-    "borderless/tabloid-standard_double-borderless-v2.studio3",
-    "borderless/tabloid-tarot-borderless-v2.studio3",
-    "legal-70mm_square-v1.studio3",
-    "legal-american_mini-v1.studio3",
-    "legal-bridge-v1.studio3",
-    "legal-bridge_square-v1.studio3",
-    "legal-business-v1.studio3",
-    "legal-catan-v1.studio3",
-    "legal-credit-v1.studio3",
-    "legal-domino-v1.studio3",
-    "legal-domino_square-v1.studio3",
-    "legal-euro_business-v1.studio3",
-    "legal-euro_mini-v1.studio3",
-    "legal-japanese-v1.studio3",
-    "legal-jumbo-v1.studio3",
-    "legal-micro-v1.studio3",
-    "legal-mini-v1.studio3",
-    "legal-poker-v1.studio3",
-    "legal-standard-v1.studio3",
-    "legal-standard_double-v1.studio3",
-    "legal-tarot-v1.studio3",
-    "letter-70mm_square-v2.studio3",
-    "letter-american_mini-v2.studio3",
-    "letter-bridge-tl_br_17.5mm-v1.studio3",
-    "letter-bridge-v4.studio3",
-    "letter-bridge_square-v4.studio3",
-    "letter-business-v2.studio3",
-    "letter-catan-v2.studio3",
-    "letter-credit-v2.studio3",
-    "letter-domino-v3.studio3",
-    "letter-domino_square-v4.studio3",
-    "letter-euro_business-v2.studio3",
-    "letter-euro_mini-v2.studio3",
-    "letter-japanese-v3.studio3",
-    "letter-jumbo-v2.studio3",
-    "letter-micro-v2.studio3",
-    "letter-mini-v2.studio3",
-    "letter-poker-v4.studio3",
-    "letter-standard-tl_br_17.5mm-v1.studio3",
-    "letter-standard-v6.studio3",
-    "letter-standard_double-v3.studio3",
-    "letter-tarot-v3.studio3",
-    "tabloid-70mm_square-v2.studio3",
-    "tabloid-american_mini-v2.studio3",
-    "tabloid-bridge-v3.studio3",
-    "tabloid-bridge_square-v3.studio3",
-    "tabloid-business-v2.studio3",
-    "tabloid-catan-v2.studio3",
-    "tabloid-credit-v2.studio3",
-    "tabloid-domino-v2.studio3",
-    "tabloid-domino_square-v4.studio3",
-    "tabloid-euro_business-v2.studio3",
-    "tabloid-euro_mini-v2.studio3",
-    "tabloid-japanese-v2.studio3",
-    "tabloid-jumbo-v2.studio3",
-    "tabloid-micro-v2.studio3",
-    "tabloid-mini-v2.studio3",
-    "tabloid-poker-v3.studio3",
-    "tabloid-standard-v5.studio3",
-    "tabloid-standard_double-v2.studio3",
-    "tabloid-tarot-v3.studio3"
+  "files": {
+    "a3-70mm_square-v2.studio3": {
+      "path": "a3-70mm_square-v2.studio3",
+      "sha256": "e76c91ef32c4863e402ed29f194ac4d1d56998b5b598bcbcef31cf1ecf082bdd"
+    },
+    "a3-american_mini-v2.studio3": {
+      "path": "a3-american_mini-v2.studio3",
+      "sha256": "173c2d620af30752fe0a0656efdbb50eca13002c66508d7dc6c745645fe9d5f6"
+    },
+    "a3-bridge-v2.studio3": {
+      "path": "a3-bridge-v2.studio3",
+      "sha256": "b31d31fa206ee0e29c21016eb7ba03a1f174216ff661bd88b91e07e648b0a69c"
+    },
+    "a3-bridge_square-v3.studio3": {
+      "path": "a3-bridge_square-v3.studio3",
+      "sha256": "cbd023087ee17c6a99486eac696ec1d5220b18bd2833e66da7f1ea08d4d6cf62"
+    },
+    "a3-business-v2.studio3": {
+      "path": "a3-business-v2.studio3",
+      "sha256": "a076dcc9bdb33d7fa470172d36b57139f9e653cc4821b1d59f378b8315647af1"
+    },
+    "a3-catan-v2.studio3": {
+      "path": "a3-catan-v2.studio3",
+      "sha256": "ea417f8b21dbf66707f8198b3fb3f65c202faf1495190054160db1b87df84c15"
+    },
+    "a3-credit-v2.studio3": {
+      "path": "a3-credit-v2.studio3",
+      "sha256": "6bf38a76dfc7ab054082a7232fd24fb9b79872152f20d982cd424fe6ea2b5424"
+    },
+    "a3-domino-v2.studio3": {
+      "path": "a3-domino-v2.studio3",
+      "sha256": "db9e77339558084bdd6121cb7a782da69a3dbf735cb975ca601e2754666ee76b"
+    },
+    "a3-domino_square-v3.studio3": {
+      "path": "a3-domino_square-v3.studio3",
+      "sha256": "de6ef8a2ca44a4729ccbb288941095b3875aac136429332cb3632479d0513fe1"
+    },
+    "a3-euro_business-v2.studio3": {
+      "path": "a3-euro_business-v2.studio3",
+      "sha256": "27e593a21fa589e64ca9fa0152e6bfd7f5c855882c9d938bef96bed3afb9fe86"
+    },
+    "a3-euro_mini-v2.studio3": {
+      "path": "a3-euro_mini-v2.studio3",
+      "sha256": "d84ca3077c5ff9ea0cc5ba857279b2e446fd84b0421d9f247e26e98bf3bf480f"
+    },
+    "a3-japanese-v2.studio3": {
+      "path": "a3-japanese-v2.studio3",
+      "sha256": "da50c9d844c885ad239d1a1ba993e7f1fa785491f9b18830e4679dde8d6928ea"
+    },
+    "a3-jumbo-v2.studio3": {
+      "path": "a3-jumbo-v2.studio3",
+      "sha256": "2cbc5b9488198324e71c1669c9b70a95c38451589be7c071724bbf41099983dc"
+    },
+    "a3-micro-v2.studio3": {
+      "path": "a3-micro-v2.studio3",
+      "sha256": "922bf9f356ae12a4e6b8aa5bc301247eb89db8bad98788f8a74eb20423d655db"
+    },
+    "a3-mini-v2.studio3": {
+      "path": "a3-mini-v2.studio3",
+      "sha256": "0af30d2a9e7422db34f4113dee2fa979c49327a82c15a3aedaaf54c0fce37c52"
+    },
+    "a3-poker-v2.studio3": {
+      "path": "a3-poker-v2.studio3",
+      "sha256": "83527374271cba168f9cbce9e183257b6a7eb45bba0790823104b98665790b70"
+    },
+    "a3-standard-v5.studio3": {
+      "path": "a3-standard-v5.studio3",
+      "sha256": "2fd044e2147e1be92999ba4aeb59e8d9b534f46cd305c21a28e55d03b2e6f9d4"
+    },
+    "a3-standard_double-v2.studio3": {
+      "path": "a3-standard_double-v2.studio3",
+      "sha256": "329a64ee6fb38df810379a9b3e7355662638646c6be1f3ac1aeb02ba4fd35d53"
+    },
+    "a3-tarot-v2.studio3": {
+      "path": "a3-tarot-v2.studio3",
+      "sha256": "606fd66709768b8f1f06e69ebdcf056eb6cc96de9c4bbb0a3eb33257c23ad976"
+    },
+    "a4-70mm_square-borderless-v2.studio3": {
+      "path": "borderless/a4-70mm_square-borderless-v2.studio3",
+      "sha256": "7d74c3ef07ba18b66191380a8de65d35e8dd45c688d061c6a79f6893bb3a432e"
+    },
+    "a4-70mm_square-v2.studio3": {
+      "path": "a4-70mm_square-v2.studio3",
+      "sha256": "60ed9b79578e7647a7db1f8a4124572e95d82d68a4829a963e8ba095b02ff278"
+    },
+    "a4-american_mini-borderless-v2.studio3": {
+      "path": "borderless/a4-american_mini-borderless-v2.studio3",
+      "sha256": "cc919b9db26433c21640495d603aea924f43ebd86c294cd950c7224fbecf99d8"
+    },
+    "a4-american_mini-v2.studio3": {
+      "path": "a4-american_mini-v2.studio3",
+      "sha256": "d56b1ac36dea6e74bc1f7b70ede8b32fbe49c105261911dc009c1ac83f3b9b59"
+    },
+    "a4-bridge-borderless-v2.studio3": {
+      "path": "borderless/a4-bridge-borderless-v2.studio3",
+      "sha256": "64ba21cac4409b36ac1925ec95fa0e06164a1b5a1526dcf1805702b18a7ed7eb"
+    },
+    "a4-bridge-v4.studio3": {
+      "path": "a4-bridge-v4.studio3",
+      "sha256": "30cfb42e9e7c7d4c2fcdd164b13d8271f626e9a8f3b674a72d24d1574b84016b"
+    },
+    "a4-bridge_square-borderless-v2.studio3": {
+      "path": "borderless/a4-bridge_square-borderless-v2.studio3",
+      "sha256": "a743c7bacd43cd86fe9b07aca7a8955698152fb4acb2f81eea0f17f54631e062"
+    },
+    "a4-bridge_square-v3.studio3": {
+      "path": "a4-bridge_square-v3.studio3",
+      "sha256": "cfa9e2752f126662ee92fac50ef44d9864102db989a88f15dfeb351b70d65863"
+    },
+    "a4-business-borderless-v2.studio3": {
+      "path": "borderless/a4-business-borderless-v2.studio3",
+      "sha256": "6481c599700064b01ce51bacd8c1c748fb2fe41e0a4e6ac444c7eda2a872943b"
+    },
+    "a4-business-v2.studio3": {
+      "path": "a4-business-v2.studio3",
+      "sha256": "9faea2b36f2daeb8d4353b130bef41d71dbecad557b63dfbd7409b324d31cac1"
+    },
+    "a4-catan-borderless-v2.studio3": {
+      "path": "borderless/a4-catan-borderless-v2.studio3",
+      "sha256": "328ff2a64afd8b626744263463f8c1f28004f52f83a7cde9439f063dac4b0bbb"
+    },
+    "a4-catan-v2.studio3": {
+      "path": "a4-catan-v2.studio3",
+      "sha256": "a6ca02b0bd69b7fad7f2a7c053cc5cd24f091e25cd0ee40e32efce918862d06e"
+    },
+    "a4-credit-borderless-v2.studio3": {
+      "path": "borderless/a4-credit-borderless-v2.studio3",
+      "sha256": "2c8d99a3e6c4bf9aee6998fc29368dbd431c211f18b9da2ee70ef06019481ede"
+    },
+    "a4-credit-v2.studio3": {
+      "path": "a4-credit-v2.studio3",
+      "sha256": "05d9fc7cc0f2ad7771f79bce59e3dd2c401191ac8cea641c3b30b2b50acf0616"
+    },
+    "a4-domino-borderless-v2.studio3": {
+      "path": "borderless/a4-domino-borderless-v2.studio3",
+      "sha256": "2f953a94360ce3a54aa8aec4c1e572a4a87c731dc899bb99115c05da8ff82403"
+    },
+    "a4-domino-v2.studio3": {
+      "path": "a4-domino-v2.studio3",
+      "sha256": "8e780b468c0c209d0991eed447940f87ec99a48b04c7abeeb514e3589f6b825e"
+    },
+    "a4-domino_square-borderless-v2.studio3": {
+      "path": "borderless/a4-domino_square-borderless-v2.studio3",
+      "sha256": "6adcc9f910875217782b85132eb4c5da4171731df387ae8a315111304dfda870"
+    },
+    "a4-domino_square-v3.studio3": {
+      "path": "a4-domino_square-v3.studio3",
+      "sha256": "51288d27546a34db7bea2eea7ea298811b4c1e116c09985893350c7ebebd8ed9"
+    },
+    "a4-euro_business-borderless-v2.studio3": {
+      "path": "borderless/a4-euro_business-borderless-v2.studio3",
+      "sha256": "1711ce551e8e19516a551dc1467f4ad3db2fcce353ee44063cfba067ed768a7b"
+    },
+    "a4-euro_business-v2.studio3": {
+      "path": "a4-euro_business-v2.studio3",
+      "sha256": "2b20d2b108bb481b5a3fc8861e5868037d56c01576274e92a159755a457d99f9"
+    },
+    "a4-euro_mini-borderless-v2.studio3": {
+      "path": "borderless/a4-euro_mini-borderless-v2.studio3",
+      "sha256": "d6e8a38120851ef08326305d801d37a171fc15c84cefe170536e144e952ea13a"
+    },
+    "a4-euro_mini-v2.studio3": {
+      "path": "a4-euro_mini-v2.studio3",
+      "sha256": "04460e8c20c2a16070a6542e07c19e8ef6d45f8603e6bd38a2a167f1f712bc6b"
+    },
+    "a4-japanese-borderless-v2.studio3": {
+      "path": "borderless/a4-japanese-borderless-v2.studio3",
+      "sha256": "9247022b042b2a4efcd89982df6299b62f080107b3b57fb929bb8f5816966027"
+    },
+    "a4-japanese-v4.studio3": {
+      "path": "a4-japanese-v4.studio3",
+      "sha256": "daaf1a1b9dcddef978c9bc9cdbfd08f290cc9ad7f80fc967836d6d54c55eb185"
+    },
+    "a4-jumbo-borderless-v2.studio3": {
+      "path": "borderless/a4-jumbo-borderless-v2.studio3",
+      "sha256": "755daa22e100d8f1a1d97a3879e65fc71767caafb46d80102d3cf0c88716d7ec"
+    },
+    "a4-jumbo-v2.studio3": {
+      "path": "a4-jumbo-v2.studio3",
+      "sha256": "dd33dacd143a62008c3c551346ee85193c17ee779fd3d7e2423f22913a125937"
+    },
+    "a4-micro-borderless-v2.studio3": {
+      "path": "borderless/a4-micro-borderless-v2.studio3",
+      "sha256": "4a4e3ac8e58d7569c58d0be05046816d187ebc60378642817f799b40104b9092"
+    },
+    "a4-micro-v2.studio3": {
+      "path": "a4-micro-v2.studio3",
+      "sha256": "e10e9dc7fec4800ebd76ea5ba81a426eb27f5e7de02f19e485578c10da408f3c"
+    },
+    "a4-mini-borderless-v2.studio3": {
+      "path": "borderless/a4-mini-borderless-v2.studio3",
+      "sha256": "2f21d07280cff00cc66d639a2c68c373a0456d9d4263d59026bd833196df11c8"
+    },
+    "a4-mini-v2.studio3": {
+      "path": "a4-mini-v2.studio3",
+      "sha256": "6ff9a69e4b34a372ceecab3d2b01edc67a4ec221bc8561b5a613a3322ff54967"
+    },
+    "a4-poker-borderless-v2.studio3": {
+      "path": "borderless/a4-poker-borderless-v2.studio3",
+      "sha256": "319838ef91cade40bbfc348a7bb97cb0ad0a00f6d360014cd4780c65ab3e8b59"
+    },
+    "a4-poker-v3.studio3": {
+      "path": "a4-poker-v3.studio3",
+      "sha256": "703dfbf3eea912242e2e83dd255dcc201cd7a9d69c3db635ed0550f721816d90"
+    },
+    "a4-standard-borderless-v2.studio3": {
+      "path": "borderless/a4-standard-borderless-v2.studio3",
+      "sha256": "3680ef9e25d4cd25603e35f2dd4ceedcbcfc2734b91cfe2b2cdea804f909d74c"
+    },
+    "a4-standard-v5.studio3": {
+      "path": "a4-standard-v5.studio3",
+      "sha256": "98375fd74b5fd133ade7484d89774d26db044c9410174f2720b00e3fade100c8"
+    },
+    "a4-standard_double-borderless-v2.studio3": {
+      "path": "borderless/a4-standard_double-borderless-v2.studio3",
+      "sha256": "7bc54c2fbf6416024980bacedbc5a4c34a5d2f8e9f1eb19fac01673e016ced52"
+    },
+    "a4-standard_double-v3.studio3": {
+      "path": "a4-standard_double-v3.studio3",
+      "sha256": "7c1327b3f5cd2aa71042d3c2102ce04608c2b651d441fdb9bc91667c3d9668e9"
+    },
+    "a4-tarot-borderless-v2.studio3": {
+      "path": "borderless/a4-tarot-borderless-v2.studio3",
+      "sha256": "c5e9dc390367a4b18408de5d6f66b40c75800438f8ade304e592cbe3cf204174"
+    },
+    "a4-tarot-v3.studio3": {
+      "path": "a4-tarot-v3.studio3",
+      "sha256": "5696192fd1b7c278b98460b45cd2d5bfcf8a4a60a76c5cf365d55b282b18c5af"
+    },
+    "arch_b-70mm_square-v2.studio3": {
+      "path": "arch_b-70mm_square-v2.studio3",
+      "sha256": "3f2f9d658d9784eb594fa33404a22d7688318b9de68c2a031f70fdb65620a3d4"
+    },
+    "arch_b-american_mini-v2.studio3": {
+      "path": "arch_b-american_mini-v2.studio3",
+      "sha256": "3368adf6268223b59e1d24fc15a3c957b0667bb5d85f3fa2698b305366b6279b"
+    },
+    "arch_b-bridge-v2.studio3": {
+      "path": "arch_b-bridge-v2.studio3",
+      "sha256": "e9e0fbafb584949c3badbaa0cb5b8972139c3b943b54c47b2d04a357690bc081"
+    },
+    "arch_b-bridge_square-v3.studio3": {
+      "path": "arch_b-bridge_square-v3.studio3",
+      "sha256": "61690653190437b4906d13bf6212190418e580e7f8e80b1592d2068dba875ccd"
+    },
+    "arch_b-business-v2.studio3": {
+      "path": "arch_b-business-v2.studio3",
+      "sha256": "5c56bdddad5ddb9b43c7393f719d3a19b9195cccd6d400465bd0150b8cb768d8"
+    },
+    "arch_b-catan-v2.studio3": {
+      "path": "arch_b-catan-v2.studio3",
+      "sha256": "faaec51942c0f033ca3c04c4551ec6dfe79c05df15b3a2bc2f9e56abb8c7c5b1"
+    },
+    "arch_b-credit-v2.studio3": {
+      "path": "arch_b-credit-v2.studio3",
+      "sha256": "c8bb71f7e4da35725bc1f253c896c1c50e9ee4158630b33fd1c148f3e93d7e3d"
+    },
+    "arch_b-domino-v2.studio3": {
+      "path": "arch_b-domino-v2.studio3",
+      "sha256": "497cca5e3279418e0e5951fae18ee79a42313ed06f6d5cca3d5e4560949d61d8"
+    },
+    "arch_b-domino_square-v3.studio3": {
+      "path": "arch_b-domino_square-v3.studio3",
+      "sha256": "2fa0088f55741629e7c4a8b2d9485b5e538e8f663c8340c4aad07a0969c6aa2b"
+    },
+    "arch_b-euro_business-v2.studio3": {
+      "path": "arch_b-euro_business-v2.studio3",
+      "sha256": "288aa3f32824dd8d3608218b4a6445a17035494bfb7a3f415e92476078113fe6"
+    },
+    "arch_b-euro_mini-v2.studio3": {
+      "path": "arch_b-euro_mini-v2.studio3",
+      "sha256": "c3cc1ee3fd09fc790ba1eecb4ab57d23f7176054879408fe665a47ca7ffe98fc"
+    },
+    "arch_b-japanese-v2.studio3": {
+      "path": "arch_b-japanese-v2.studio3",
+      "sha256": "fae41c2aa26c197264e57623569f979fa4581c063368238afea650818f69a355"
+    },
+    "arch_b-jumbo-v3.studio3": {
+      "path": "arch_b-jumbo-v3.studio3",
+      "sha256": "acd6eed9414ee84836302715e6948d13655e4fd342a976e6de38a99bac3ec493"
+    },
+    "arch_b-micro-v2.studio3": {
+      "path": "arch_b-micro-v2.studio3",
+      "sha256": "fa7007b55079017bf2857474047a0928f9110a22d0d65213df277e9c32fc4d8b"
+    },
+    "arch_b-mini-v2.studio3": {
+      "path": "arch_b-mini-v2.studio3",
+      "sha256": "9c78bfd57c2750adc5be3d5e517ab865b0286d9e31140776e441c6e0de7534cb"
+    },
+    "arch_b-poker-v2.studio3": {
+      "path": "arch_b-poker-v2.studio3",
+      "sha256": "f9e134956af73e5cd965652bbe28eea5b78e0897c50694ed59f7ce92523f6890"
+    },
+    "arch_b-standard-v4.studio3": {
+      "path": "arch_b-standard-v4.studio3",
+      "sha256": "9d0d4fca553bec90279b4d71aa6a373a3acf60ded6998eae24338631da1b6fb2"
+    },
+    "arch_b-standard_double-v2.studio3": {
+      "path": "arch_b-standard_double-v2.studio3",
+      "sha256": "2bbd619da33d87ab82b7dc18309b09367a943612388db675c2128fc926483005"
+    },
+    "arch_b-tarot-v3.studio3": {
+      "path": "arch_b-tarot-v3.studio3",
+      "sha256": "64676b324225540f01d62ce8c270dc28271d093e7b24001b8f3ce658e508b3f2"
+    },
+    "legal-70mm_square-borderless-v1.studio3": {
+      "path": "borderless/legal-70mm_square-borderless-v1.studio3",
+      "sha256": "49287b73ee1f3f1cbc90dae8e8805b207d98f0d779c8543b98246817f975b773"
+    },
+    "legal-70mm_square-v1.studio3": {
+      "path": "legal-70mm_square-v1.studio3",
+      "sha256": "6c7cbe121cd2daf50f8e75fcde341083e3cb68f8ef8e67676b62bc2c73776df9"
+    },
+    "legal-american_mini-borderless-v1.studio3": {
+      "path": "borderless/legal-american_mini-borderless-v1.studio3",
+      "sha256": "cf6ff9e0392c622f8bad199ec42814a3b16251bef1784344c4522a1a65cc26ab"
+    },
+    "legal-american_mini-v1.studio3": {
+      "path": "legal-american_mini-v1.studio3",
+      "sha256": "5e99d1b2421a6a0c1b6aa8191e74debd2f403d259042a741bf0851e37a855e53"
+    },
+    "legal-bridge-borderless-v1.studio3": {
+      "path": "borderless/legal-bridge-borderless-v1.studio3",
+      "sha256": "5eda557a7778fb1a2240b640cecb0088a9ece02db5e88934918390878a0e7a38"
+    },
+    "legal-bridge-v1.studio3": {
+      "path": "legal-bridge-v1.studio3",
+      "sha256": "3e22187a5dd9d8511af9338f1719d44370ee7a6b375235bea88c45c6b5e4340b"
+    },
+    "legal-bridge_square-borderless-v1.studio3": {
+      "path": "borderless/legal-bridge_square-borderless-v1.studio3",
+      "sha256": "d3275c9893aaf2e2210e23e24a98d32a75291d64ce5cbd478f5737653a07b7c0"
+    },
+    "legal-bridge_square-v1.studio3": {
+      "path": "legal-bridge_square-v1.studio3",
+      "sha256": "b068d53154124147d9240c2fd4a701854a47b59930bc46674cd5a1f3b160f8aa"
+    },
+    "legal-business-borderless-v1.studio3": {
+      "path": "borderless/legal-business-borderless-v1.studio3",
+      "sha256": "435bc7e0ec7e9aa7e0347a11d280fdfe534daddb5b162d4c0f2411a8a2d96726"
+    },
+    "legal-business-v1.studio3": {
+      "path": "legal-business-v1.studio3",
+      "sha256": "7152024a23c9e9d95b9048ad4fdb8bb3d54ed32d22056736d6cb026bdc6b77ed"
+    },
+    "legal-catan-borderless-v1.studio3": {
+      "path": "borderless/legal-catan-borderless-v1.studio3",
+      "sha256": "58bcbd4d1ddff5e9131d5a59516cdaeb0a899f69b87e2da01b8f03f66b82a707"
+    },
+    "legal-catan-v1.studio3": {
+      "path": "legal-catan-v1.studio3",
+      "sha256": "6ad20a085c39d0962184c26c4a70457481c8eae3837361b216c4e0d94c7ae6a7"
+    },
+    "legal-credit-borderless-v1.studio3": {
+      "path": "borderless/legal-credit-borderless-v1.studio3",
+      "sha256": "634b0cc546efc0755d0da15f650a85c89d5845bca1fd1bb1024ed562c07dce5f"
+    },
+    "legal-credit-v1.studio3": {
+      "path": "legal-credit-v1.studio3",
+      "sha256": "23f3c97ea9d57898500f8dfced45037acb6e1fe590987be44a2166eb5686498b"
+    },
+    "legal-domino-borderless-v1.studio3": {
+      "path": "borderless/legal-domino-borderless-v1.studio3",
+      "sha256": "f12f134f2fe5ea8c586e071f39741e992859d2d711b681576aa1ad0a19fcdecd"
+    },
+    "legal-domino-v1.studio3": {
+      "path": "legal-domino-v1.studio3",
+      "sha256": "ff778d40597e3775cf98cf86a060ac775aa64db046b6701b37cc9cfc34f3a42f"
+    },
+    "legal-domino_square-borderless-v1.studio3": {
+      "path": "borderless/legal-domino_square-borderless-v1.studio3",
+      "sha256": "4b095cb68921404e1268990df6b9d45df1a24f4373765ac3ff75c8ac98ae397d"
+    },
+    "legal-domino_square-v1.studio3": {
+      "path": "legal-domino_square-v1.studio3",
+      "sha256": "98f433b69746fb2586ad433b765003aa77d9c0b6358d282895098719dc2e731b"
+    },
+    "legal-euro_business-borderless-v1.studio3": {
+      "path": "borderless/legal-euro_business-borderless-v1.studio3",
+      "sha256": "211566b389d6b0d0380dc2846b0958a0982e672a2a5eff72ee250ad201c88152"
+    },
+    "legal-euro_business-v1.studio3": {
+      "path": "legal-euro_business-v1.studio3",
+      "sha256": "ced9015be25ffb2d862908fb0feff73ccbf688fccc9242681e2add54c870ac03"
+    },
+    "legal-euro_mini-borderless-v1.studio3": {
+      "path": "borderless/legal-euro_mini-borderless-v1.studio3",
+      "sha256": "7a364f06cb619453bd3d96f8fa46dc77734494e37ce10960c555716f4b6c6020"
+    },
+    "legal-euro_mini-v1.studio3": {
+      "path": "legal-euro_mini-v1.studio3",
+      "sha256": "f86391dc2aae0b6e778f9703726773a40c1e639e73f38c488fed7d5c4d2c901b"
+    },
+    "legal-japanese-borderless-v1.studio3": {
+      "path": "borderless/legal-japanese-borderless-v1.studio3",
+      "sha256": "5adc8b987d4942e9850b9eb63cf152a758d448a668da605da28c84ecb7283beb"
+    },
+    "legal-japanese-v1.studio3": {
+      "path": "legal-japanese-v1.studio3",
+      "sha256": "3316e59db4f25d1686253bd3a42773a46ddd27ec7ff6f4fb3db547c06b640e7c"
+    },
+    "legal-jumbo-borderless-v1.studio3": {
+      "path": "borderless/legal-jumbo-borderless-v1.studio3",
+      "sha256": "59b1570e1af82d70b07476028d3ddbde1c83cf25fde27950990e4400560208db"
+    },
+    "legal-jumbo-v1.studio3": {
+      "path": "legal-jumbo-v1.studio3",
+      "sha256": "e5f3fbe9ecab2bfa142ee875022df783d0d1569441ff5d2c06447a8f5ff62ac7"
+    },
+    "legal-micro-borderless-v1.studio3": {
+      "path": "borderless/legal-micro-borderless-v1.studio3",
+      "sha256": "12d96a2c38f26e61b603a503546c047a73bd9d2fb903d991b5f5199137aa2a1f"
+    },
+    "legal-micro-v1.studio3": {
+      "path": "legal-micro-v1.studio3",
+      "sha256": "78b5d3815f338ba4e0e6eef1b5859ba4b3e9319f37fa9c61d66ebe49350ad65d"
+    },
+    "legal-mini-borderless-v1.studio3": {
+      "path": "borderless/legal-mini-borderless-v1.studio3",
+      "sha256": "50476f0a6f451ea687a5a1d655fdd5eece5a2461c2b9604c1a5bba88e9fbf4b8"
+    },
+    "legal-mini-v1.studio3": {
+      "path": "legal-mini-v1.studio3",
+      "sha256": "9dda20c1f834c530e0bd18f5c931304e31a6e4cd27da282ea9bd7715e73ca6f6"
+    },
+    "legal-poker-borderless-v1.studio3": {
+      "path": "borderless/legal-poker-borderless-v1.studio3",
+      "sha256": "d6ecab939195eac439631ae4c5d414167c6db138c083f3094532543b53af5624"
+    },
+    "legal-poker-v1.studio3": {
+      "path": "legal-poker-v1.studio3",
+      "sha256": "c1eedab5ee8059ca225ab3fc14c6213d341206f50cba7dd628a180ec370e380e"
+    },
+    "legal-standard-borderless-v1.studio3": {
+      "path": "borderless/legal-standard-borderless-v1.studio3",
+      "sha256": "78a2c3d7f15765396acf89dda61a8e02abf0d7c1af98902551ffe0f84fa58f35"
+    },
+    "legal-standard-v1.studio3": {
+      "path": "legal-standard-v1.studio3",
+      "sha256": "36f379af1eec95cab2cebf754e57d611cb11eace1cf9b8cb6975e796439683b0"
+    },
+    "legal-standard_double-borderless-v1.studio3": {
+      "path": "borderless/legal-standard_double-borderless-v1.studio3",
+      "sha256": "aa2d51a981302a11e5f39c673c8e7b4453e8aeb76dd3f0472362d6c4c7a5d50b"
+    },
+    "legal-standard_double-v1.studio3": {
+      "path": "legal-standard_double-v1.studio3",
+      "sha256": "c7e9bc9f49d82f68dfe8cb53cf862a51e90ed74c277d09799e1985cc3a1dc39b"
+    },
+    "legal-tarot-borderless-v1.studio3": {
+      "path": "borderless/legal-tarot-borderless-v1.studio3",
+      "sha256": "d6c5542b28b3a6ce45ff3b61dd95d3a3eac0dc906709d77d87e4300356cd8ff4"
+    },
+    "legal-tarot-v1.studio3": {
+      "path": "legal-tarot-v1.studio3",
+      "sha256": "bbf3297dbe61615d3ee0b304ac9072b3068dca8054ea3f01c136c9339a99cc14"
+    },
+    "letter-70mm_square-borderless-v2.studio3": {
+      "path": "borderless/letter-70mm_square-borderless-v2.studio3",
+      "sha256": "6aeb3143a307791d90f8a4d78aef2073196fe9cd90d9aa04066574bc93f291be"
+    },
+    "letter-70mm_square-v2.studio3": {
+      "path": "letter-70mm_square-v2.studio3",
+      "sha256": "dcd041ab02166197c7655a3e65b449eb73903a7f8edaf02560444930620bf8fe"
+    },
+    "letter-american_mini-borderless-v2.studio3": {
+      "path": "borderless/letter-american_mini-borderless-v2.studio3",
+      "sha256": "65f52ecd1d04dfa8fca48559c8addbeab5a418054eb82c99d1b5fa06c1703658"
+    },
+    "letter-american_mini-v2.studio3": {
+      "path": "letter-american_mini-v2.studio3",
+      "sha256": "f20114f7c9a0ddec50bbd763c8806c54102ab6985f713ecb6a547e6a0f497ea6"
+    },
+    "letter-bridge-borderless-v2.studio3": {
+      "path": "borderless/letter-bridge-borderless-v2.studio3",
+      "sha256": "a4a64e8df5ead4cdb8d7f83c9c4116ff80b9b9c04204d6735b385fcaeee6f1fc"
+    },
+    "letter-bridge-v4.studio3": {
+      "path": "letter-bridge-v4.studio3",
+      "sha256": "b92012664910f7b29f4923582b613b1183de782ee1b65ee00497bcc21256a1e5"
+    },
+    "letter-bridge_square-borderless-v2.studio3": {
+      "path": "borderless/letter-bridge_square-borderless-v2.studio3",
+      "sha256": "05d9e0d3417c92e882855e09a104206002914fb99f328aecf220f56ab626da1e"
+    },
+    "letter-bridge_square-v4.studio3": {
+      "path": "letter-bridge_square-v4.studio3",
+      "sha256": "f589a786050c505b62ec40b32d75ba1afcee8cb195f37267edeabca47dba11de"
+    },
+    "letter-business-borderless-v2.studio3": {
+      "path": "borderless/letter-business-borderless-v2.studio3",
+      "sha256": "06a82a5ca6f18fffaba45933ea611735cf4b5430d314713f03948cd3740b3bf1"
+    },
+    "letter-business-v2.studio3": {
+      "path": "letter-business-v2.studio3",
+      "sha256": "da81e44d09d34987b2ffa664070c8d8843040492776df21abd32ba7fb3d0b2a1"
+    },
+    "letter-catan-borderless-v2.studio3": {
+      "path": "borderless/letter-catan-borderless-v2.studio3",
+      "sha256": "cc663ef069106d523b2aadbf792a2dfe7859cdefd2ca093e8eb4a4542f25fcd2"
+    },
+    "letter-catan-v2.studio3": {
+      "path": "letter-catan-v2.studio3",
+      "sha256": "65c330fa91c61b8a70890fd7749ba355862d97df761250bd4265c45ee7ba8bd7"
+    },
+    "letter-credit-borderless-v2.studio3": {
+      "path": "borderless/letter-credit-borderless-v2.studio3",
+      "sha256": "ec2e21f7bbd4bfb64cb3ae4cd7be9f6ccacd08e678f9d0a201894d49f429f877"
+    },
+    "letter-credit-v2.studio3": {
+      "path": "letter-credit-v2.studio3",
+      "sha256": "2820c0e41aaee70c5082807b7e3d4d39ce41bcb2d038090ec991d3e34064016d"
+    },
+    "letter-domino-borderless-v2.studio3": {
+      "path": "borderless/letter-domino-borderless-v2.studio3",
+      "sha256": "682e27f55c5b197b8791b6e4660b4ef8289f0dde62e3d2fc8c38ba7de45a1b79"
+    },
+    "letter-domino-v3.studio3": {
+      "path": "letter-domino-v3.studio3",
+      "sha256": "8f1b45718939e18ecf96b2d786136f4452b862ad8b6212b28fb0d364da93645a"
+    },
+    "letter-domino_square-borderless-v2.studio3": {
+      "path": "borderless/letter-domino_square-borderless-v2.studio3",
+      "sha256": "04af42ded66d288d28733d113275c119d849d7b8477f7b04230d48cf57a712c8"
+    },
+    "letter-domino_square-v4.studio3": {
+      "path": "letter-domino_square-v4.studio3",
+      "sha256": "c052130099c4a667d16f4255c2790f7f073a00c8f8b69ba6c26dc684e354d928"
+    },
+    "letter-euro_business-borderless-v2.studio3": {
+      "path": "borderless/letter-euro_business-borderless-v2.studio3",
+      "sha256": "32a97d7ec06e2b5301c7115477d960625efb879703a78904856ce81081366d40"
+    },
+    "letter-euro_business-v2.studio3": {
+      "path": "letter-euro_business-v2.studio3",
+      "sha256": "a3dca2b21faf1fe95e525ae58be2dd19646990e547346ba509ba6830549caff6"
+    },
+    "letter-euro_mini-borderless-v2.studio3": {
+      "path": "borderless/letter-euro_mini-borderless-v2.studio3",
+      "sha256": "c251d52343e117346f5f54650b77e0520a4353d762d3d43009917f5ab259868d"
+    },
+    "letter-euro_mini-v2.studio3": {
+      "path": "letter-euro_mini-v2.studio3",
+      "sha256": "4aa6f7424055560a6beb034c3be66be3381914db14081f60c774b65287826349"
+    },
+    "letter-japanese-borderless-v2.studio3": {
+      "path": "borderless/letter-japanese-borderless-v2.studio3",
+      "sha256": "28556447235eb849b13bbe148079bc24053f12cdc5ad4d3f5ba3e52f90bd4b96"
+    },
+    "letter-japanese-v3.studio3": {
+      "path": "letter-japanese-v3.studio3",
+      "sha256": "16160b6e7dd5370c79ea9b3a72faea6730d0bafd3830c750bffe081e9a3a217d"
+    },
+    "letter-jumbo-borderless-v2.studio3": {
+      "path": "borderless/letter-jumbo-borderless-v2.studio3",
+      "sha256": "b49c9edf4f44722b75f87ffdb376280f23923061a5fb6525cd8b13acd62c3f6b"
+    },
+    "letter-jumbo-v2.studio3": {
+      "path": "letter-jumbo-v2.studio3",
+      "sha256": "06f2e1574cb20bec8799a1b10773aa0e82622989f3e9a762830c157dcfc907c8"
+    },
+    "letter-micro-borderless-v2.studio3": {
+      "path": "borderless/letter-micro-borderless-v2.studio3",
+      "sha256": "3dc4fc6f6b8e4c2dfc3ccdeb9be1dd5e1e184a1576049df8415fb1791ac3ff1a"
+    },
+    "letter-micro-v2.studio3": {
+      "path": "letter-micro-v2.studio3",
+      "sha256": "fd2165273b38de5826aaf670e2badfcf15c6799ddd6e08090ae2ba1efb32014d"
+    },
+    "letter-mini-borderless-v2.studio3": {
+      "path": "borderless/letter-mini-borderless-v2.studio3",
+      "sha256": "d51a4ac788093972e1ff71549221871c411c6adec554ac531f1d3fcdf1bb05da"
+    },
+    "letter-mini-v2.studio3": {
+      "path": "letter-mini-v2.studio3",
+      "sha256": "37cce1a9d5d5d1ec74a8749a226af54337cf70f5cd5548928c5cd74b34ada8d4"
+    },
+    "letter-poker-borderless-v2.studio3": {
+      "path": "borderless/letter-poker-borderless-v2.studio3",
+      "sha256": "2f748ea6fe5d7f2ba64f262e62f019252bee74f6715f60760e9200727bd6ea87"
+    },
+    "letter-poker-v4.studio3": {
+      "path": "letter-poker-v4.studio3",
+      "sha256": "198fc0c3994376ab9485162bd25d5a8514b3ceedf65cdf4e6438a8225d67bf4d"
+    },
+    "letter-standard-borderless-v2.studio3": {
+      "path": "borderless/letter-standard-borderless-v2.studio3",
+      "sha256": "e5a25f774470404c3848c40bd694acf02106f020616d33b120c991735ef7f900"
+    },
+    "letter-standard-v6.studio3": {
+      "path": "letter-standard-v6.studio3",
+      "sha256": "01acc200500ac4280d072e47890aef24b56af5ff37a40127fad50deebc6087c7"
+    },
+    "letter-standard_double-borderless-v2.studio3": {
+      "path": "borderless/letter-standard_double-borderless-v2.studio3",
+      "sha256": "0593a00709d39137b4a41a89dbc514f65a0e46d3104ffbf9d4e78019af5546a9"
+    },
+    "letter-standard_double-v3.studio3": {
+      "path": "letter-standard_double-v3.studio3",
+      "sha256": "b0f22ea804ac0605faf9f456a475c5ae47f1317189588220c3febddea8f39a5e"
+    },
+    "letter-tarot-borderless-v2.studio3": {
+      "path": "borderless/letter-tarot-borderless-v2.studio3",
+      "sha256": "0386c35b251221730b7c26456f9a421c0fa0ae1ff1f9c3147aa52b99a6adfa34"
+    },
+    "letter-tarot-v3.studio3": {
+      "path": "letter-tarot-v3.studio3",
+      "sha256": "5f7dd2e57db37b6741ae5ef9997cd5e3fa9421ee1b1181909447bfa35d69df9a"
+    },
+    "tabloid-70mm_square-borderless-v2.studio3": {
+      "path": "borderless/tabloid-70mm_square-borderless-v2.studio3",
+      "sha256": "87833f69c54c6d7461e24b273d34b18173d6bd94dc287f778ba6279031172fa4"
+    },
+    "tabloid-70mm_square-v2.studio3": {
+      "path": "tabloid-70mm_square-v2.studio3",
+      "sha256": "0b72668a6113aa08df328aa7a0eb729bdb1b345a14a515b1805caceb207096d5"
+    },
+    "tabloid-american_mini-borderless-v2.studio3": {
+      "path": "borderless/tabloid-american_mini-borderless-v2.studio3",
+      "sha256": "61d55b3e728d032b3f56dba7173aae1a4a33d11628480b3f4eff639610db0ad2"
+    },
+    "tabloid-american_mini-v2.studio3": {
+      "path": "tabloid-american_mini-v2.studio3",
+      "sha256": "dd5ba30f7332804a075374eaccbd876b79f8c0d06e7c4d6be1c92080d6735ee8"
+    },
+    "tabloid-bridge-borderless-v2.studio3": {
+      "path": "borderless/tabloid-bridge-borderless-v2.studio3",
+      "sha256": "2f56fc62ce83a368c61b08662f46f9c25f59590a8bf170307dea274aaa6ae8c4"
+    },
+    "tabloid-bridge-v3.studio3": {
+      "path": "tabloid-bridge-v3.studio3",
+      "sha256": "a80ab31077841a66ebb6e33eb7daf376eb078caf64315e203757b7b559285370"
+    },
+    "tabloid-bridge_square-borderless-v2.studio3": {
+      "path": "borderless/tabloid-bridge_square-borderless-v2.studio3",
+      "sha256": "cb505b83671b06adee7c90ab1c877aca92f5fb9e72b48eb672669c0173b84916"
+    },
+    "tabloid-bridge_square-v3.studio3": {
+      "path": "tabloid-bridge_square-v3.studio3",
+      "sha256": "5294c6dd94b57fde6eb5ce0fc16cc09f0c068e040c2ef9aa003b894e64d66500"
+    },
+    "tabloid-business-borderless-v2.studio3": {
+      "path": "borderless/tabloid-business-borderless-v2.studio3",
+      "sha256": "53d2260912d0f899af8c9df7cb995ec43374b78e6411776e77c49f9f2e6c14a6"
+    },
+    "tabloid-business-v2.studio3": {
+      "path": "tabloid-business-v2.studio3",
+      "sha256": "db1718350bdcf5fe1c96aa18741e950010a51f989d445c9aa9933249643e3052"
+    },
+    "tabloid-catan-borderless-v2.studio3": {
+      "path": "borderless/tabloid-catan-borderless-v2.studio3",
+      "sha256": "c09c1d81a15b1b4a3efad9347966b43c5f15586d6febaf17d8b0e2247795f58a"
+    },
+    "tabloid-catan-v2.studio3": {
+      "path": "tabloid-catan-v2.studio3",
+      "sha256": "452dc95fadf72667ce6bcf5cb1d5b3ecc99d0c4bd1dffbebf38193fa7c3eea17"
+    },
+    "tabloid-credit-borderless-v2.studio3": {
+      "path": "borderless/tabloid-credit-borderless-v2.studio3",
+      "sha256": "ab996af42f1d5e2dcb105236f8d31899d90cb3b80d721596ad8f5106b5bba88a"
+    },
+    "tabloid-credit-v2.studio3": {
+      "path": "tabloid-credit-v2.studio3",
+      "sha256": "b20342d4e8f7bf9e0837ab59cd5be10e41266e46955192c705941e252881b9a7"
+    },
+    "tabloid-domino-borderless-v2.studio3": {
+      "path": "borderless/tabloid-domino-borderless-v2.studio3",
+      "sha256": "8bbfc2bfba7246af669217da57c42a8aed072c8faf565d85bb81a8c1d9222c8a"
+    },
+    "tabloid-domino-v2.studio3": {
+      "path": "tabloid-domino-v2.studio3",
+      "sha256": "df3aea129e0539abad7b25f33610bb36cc59b46992cad2d85864293f71d6560b"
+    },
+    "tabloid-domino_square-borderless-v2.studio3": {
+      "path": "borderless/tabloid-domino_square-borderless-v2.studio3",
+      "sha256": "2f91f0b25053b51b3103b04d6181abfd0dd80a79c17e86a936b34520819dc59a"
+    },
+    "tabloid-domino_square-v4.studio3": {
+      "path": "tabloid-domino_square-v4.studio3",
+      "sha256": "7639375ed8f1789c73c07bcf17b89584b266d18304b320c98917f3dc8f060906"
+    },
+    "tabloid-euro_business-borderless-v2.studio3": {
+      "path": "borderless/tabloid-euro_business-borderless-v2.studio3",
+      "sha256": "2e948c8ddf6332889a1f6eadf695acc5884eba67c8ab30339d5d74f85bb81252"
+    },
+    "tabloid-euro_business-v2.studio3": {
+      "path": "tabloid-euro_business-v2.studio3",
+      "sha256": "ae76ad59a9f136818e0aea1d2d5cdc3a782f12da95b9b3792fd0ca251e3aab04"
+    },
+    "tabloid-euro_mini-borderless-v2.studio3": {
+      "path": "borderless/tabloid-euro_mini-borderless-v2.studio3",
+      "sha256": "7e77c37505f43a537de2e3043d6022d2ca632960f97e0595f10eecddce9bca3f"
+    },
+    "tabloid-euro_mini-v2.studio3": {
+      "path": "tabloid-euro_mini-v2.studio3",
+      "sha256": "1a1484dcee24e1c9d290d4f9f13d2a8036249017da960c2aa5846fa85ab8a4d6"
+    },
+    "tabloid-japanese-borderless-v2.studio3": {
+      "path": "borderless/tabloid-japanese-borderless-v2.studio3",
+      "sha256": "c521835895144013a8945ac19ff35b70036c0674475abe999b838db8a38acbae"
+    },
+    "tabloid-japanese-v2.studio3": {
+      "path": "tabloid-japanese-v2.studio3",
+      "sha256": "49a2c44e2e795f867ea7a5ea939591c735df49dc6a5f22020632e0377b63bca6"
+    },
+    "tabloid-jumbo-borderless-v2.studio3": {
+      "path": "borderless/tabloid-jumbo-borderless-v2.studio3",
+      "sha256": "588bf6c93f54c02c3984d6ed4668902ca99d17311592ed1c01bffadf63637805"
+    },
+    "tabloid-jumbo-v2.studio3": {
+      "path": "tabloid-jumbo-v2.studio3",
+      "sha256": "6fe1a67e082b7133a29a305de6b37d1d1278d4b1dbf481b4701a11ed5d5a7b1c"
+    },
+    "tabloid-micro-borderless-v2.studio3": {
+      "path": "borderless/tabloid-micro-borderless-v2.studio3",
+      "sha256": "4dc923493297c3e7005b502df7095b42158acd47e5f318e14bc1ff2c65786535"
+    },
+    "tabloid-micro-v2.studio3": {
+      "path": "tabloid-micro-v2.studio3",
+      "sha256": "5d57d63cef0147ee614b2f04e5d3da0a4acd33b3745e2a7c0918131478d14c3a"
+    },
+    "tabloid-mini-borderless-v2.studio3": {
+      "path": "borderless/tabloid-mini-borderless-v2.studio3",
+      "sha256": "aa3f558d60033bc075de7088fca165a362bf31a594f6dee89ccc9c38895ee129"
+    },
+    "tabloid-mini-v2.studio3": {
+      "path": "tabloid-mini-v2.studio3",
+      "sha256": "3de216860e7b6503339cdfbb801c7eddd26a78e2622360099b7b8fdebb17e7d6"
+    },
+    "tabloid-poker-borderless-v2.studio3": {
+      "path": "borderless/tabloid-poker-borderless-v2.studio3",
+      "sha256": "6494080679afc9c08152f98a10b63306acd1e8c996924dd266683fddd1de3566"
+    },
+    "tabloid-poker-v3.studio3": {
+      "path": "tabloid-poker-v3.studio3",
+      "sha256": "68cbd00e1e330e6e605293845e27c1161aa84894e893e7a2d6a627fd41a1dadc"
+    },
+    "tabloid-standard-borderless-v2.studio3": {
+      "path": "borderless/tabloid-standard-borderless-v2.studio3",
+      "sha256": "e45ff517174875ca89f8e206af37563fb57401d4e1f207ca2f1eee48db4230bb"
+    },
+    "tabloid-standard-v5.studio3": {
+      "path": "tabloid-standard-v5.studio3",
+      "sha256": "e906dbc83149e6850143372ffc661bc67c679d39bbc2dc82f2d4178b6031c38f"
+    },
+    "tabloid-standard_double-borderless-v2.studio3": {
+      "path": "borderless/tabloid-standard_double-borderless-v2.studio3",
+      "sha256": "048a0a43844f05531baac790989e63bae99f10a97d492b9b7c86dc9cfe246d91"
+    },
+    "tabloid-standard_double-v2.studio3": {
+      "path": "tabloid-standard_double-v2.studio3",
+      "sha256": "af2d241c11509a8eb7ffeb210595f0749e42f1c61f7b7488d0c3365d05120a71"
+    },
+    "tabloid-tarot-borderless-v2.studio3": {
+      "path": "borderless/tabloid-tarot-borderless-v2.studio3",
+      "sha256": "747c298c49f01e3a2858ae2099bb2ac5ad8a7b1522ef3e46932650843ccfb23d"
+    },
+    "tabloid-tarot-v3.studio3": {
+      "path": "tabloid-tarot-v3.studio3",
+      "sha256": "c4cd9f6b9584883dce656f77181406471ed984f98f27d04d4c83efb9f79d5014"
+    }
+  },
+  "exceptions": [
+    "a3-70mm_square-borderless-v2",
+    "a3-american_mini-borderless-v2",
+    "a3-bridge-borderless-v2",
+    "a3-bridge_square-borderless-v2",
+    "a3-business-borderless-v2",
+    "a3-catan-borderless-v2",
+    "a3-credit-borderless-v2",
+    "a3-domino-borderless-v2",
+    "a3-domino_square-borderless-v2",
+    "a3-euro_business-borderless-v2",
+    "a3-euro_mini-borderless-v2",
+    "a3-japanese-borderless-v2",
+    "a3-jumbo-borderless-v2",
+    "a3-micro-borderless-v2",
+    "a3-mini-borderless-v2",
+    "a3-poker-borderless-v2",
+    "a3-standard-borderless-v2",
+    "a3-standard_double-borderless-v2",
+    "a3-tarot-borderless-v2",
+    "arch_b-70mm_square-borderless-v2",
+    "arch_b-american_mini-borderless-v2",
+    "arch_b-bridge-borderless-v2",
+    "arch_b-bridge_square-borderless-v2",
+    "arch_b-business-borderless-v2",
+    "arch_b-catan-borderless-v2",
+    "arch_b-credit-borderless-v2",
+    "arch_b-domino-borderless-v2",
+    "arch_b-domino_square-borderless-v2",
+    "arch_b-euro_business-borderless-v2",
+    "arch_b-euro_mini-borderless-v2",
+    "arch_b-japanese-borderless-v2",
+    "arch_b-jumbo-borderless-v2",
+    "arch_b-micro-borderless-v2",
+    "arch_b-mini-borderless-v2",
+    "arch_b-poker-borderless-v2",
+    "arch_b-standard-borderless-v2",
+    "arch_b-standard_double-borderless-v2",
+    "arch_b-tarot-borderless-v2"
   ]
 }
