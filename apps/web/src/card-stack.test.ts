@@ -41,3 +41,11 @@ it("lets hits pass through raised non-final cards except for their own strips", 
   );
   expect(stack?.getPropertyValue("--card-stack-step")).toBe("43px");
 });
+
+it("keeps the raised card's copy, language, and print-status badges clickable", () => {
+  const selector = `${nonLastCard}:is(:hover, :focus-visible) > :is(.quantity, .card-language, .card-status, button)`;
+  const controls = rules.find(
+    (rule) => rule.selectorText.replace(/\s+/g, " ") === selector,
+  );
+  expect(controls?.style.getPropertyValue("pointer-events")).toBe("auto");
+});

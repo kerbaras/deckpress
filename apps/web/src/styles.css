@@ -1659,6 +1659,11 @@ button.first-run-empty {
 .card-stack > .playing-card:not(:last-child):is(:hover, :focus-visible) {
   pointer-events: none;
 }
+.card-stack
+  > .playing-card:not(:last-child):is(:hover, :focus-visible)
+  > :is(.quantity, .card-language, .card-status, button) {
+  pointer-events: auto;
+}
 .card-stack > .playing-card:not(:last-child)::after {
   content: "";
   position: absolute;
