@@ -24,6 +24,8 @@ it("uses the web backend when Tauri internals are missing", async () => {
 
   await expect(fetchHealth()).rejects.toBeInstanceOf(NotAvailableOnWebError);
   expect(imageSrc("art.png")).toBe("about:blank");
+  const cdnUrl = "https://cards.scryfall.io/normal/art.jpg";
+  expect(imageSrc(cdnUrl)).toBe(cdnUrl);
 });
 
 it("uses the web backend for the explicit web target even with Tauri available", async () => {
