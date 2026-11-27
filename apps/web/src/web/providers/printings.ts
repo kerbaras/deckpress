@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Art, ArtPolicy } from "../../core/index.ts";
-import type { Scryfall } from "./scryfall.ts";
+import type { RequestOptions, Scryfall, SearchOptions } from "./scryfall.ts";
 import { record, recordList, usableCard } from "./scryfall-card.ts";
 import { anyOf, searchBatches } from "./search-batches.ts";
 
@@ -177,15 +177,24 @@ export function policyProvider(api: Scryfall) {
     oracleIds: string[],
     language?: string,
     sets?: string[],
+    options?: RequestOptions,
+  ) {
+    const filters = ["game:paper"];
+    if (sets?.length) filters.push(anyOf(sets.map((set) => `set:${set}`)));
+    if (language) filters.push(`lang:${language}`);
+    return inventorySearch(oracleIds, filters, language, options);
+  }
+
+  async function inventorySearch(
+    oracleIds: string[],
+    filters: string[],
+    language: string | undefined,
+    options?: SearchOptions,
   ) {
     const ids = [
       ...new Set(oracleIds.filter((id) => uuid.safeParse(id).success)),
     ].sort();
     const prints = new Map<string, Printing[]>(ids.map((id) => [id, []]));
-    const setTerms = sets?.map((set) => `set:${set}`);
-    const filters = ["game:paper"];
-    if (setTerms?.length) filters.push(anyOf(setTerms));
-    if (language) filters.push(`lang:${language}`);
     const complete = await searchBatches(
       api,
       ids.map((id) => `oracleid:${id}`),
@@ -199,6 +208,7 @@ export function policyProvider(api: Scryfall) {
         return false;
       },
       oracleBatchSize,
+      options,
     );
     if (!complete)
       throw new Error(
@@ -208,24 +218,44 @@ export function policyProvider(api: Scryfall) {
   }
 
   return {
-    sets: () => api.sets(),
+    sets: (options?: RequestOptions) => api.sets(options),
     inventoryBatch,
-    async get(artId: string) {
+    coverageInventory(oracleIds: string[], signal?: AbortSignal) {
+      return inventorySearch(
+        oracleIds,
+        [
+          "game:paper",
+          "-is:promo",
+          anyOf(["st:expansion", "st:core", "st:commander", "st:token"]),
+        ],
+        undefined,
+        { background: true, includeMultilingual: false, signal },
+      );
+    },
+    async get(artId: string, options?: RequestOptions) {
       const id = artId.startsWith("scryfall:")
         ? artId.split(":")[1]
         : undefined;
       if (!id || !uuid.safeParse(id).success) return undefined;
-      const print = policyPrinting(await api.printing(id));
+      const print = policyPrinting(await api.printing(id, options));
       return print?.id === id ? print : undefined;
     },
-    async exact(anchor: Printing, lang: string) {
+    async exact(anchor: Printing, lang: string, options?: RequestOptions) {
       const print = policyPrinting(
-        await api.exact(anchor.set, anchor.collector, lang),
+        await api.exact(anchor.set, anchor.collector, lang, options),
       );
       return print && samePrintingNumber(anchor, print) ? print : undefined;
     },
-    async inventory(oracleId: string, language?: string) {
-      return (await inventoryBatch([oracleId], language)).get(oracleId) ?? [];
+    async inventory(
+      oracleId: string,
+      language?: string,
+      options?: RequestOptions,
+    ) {
+      return (
+        (await inventoryBatch([oracleId], language, undefined, options)).get(
+          oracleId,
+        ) ?? []
+      );
     },
   };
 }

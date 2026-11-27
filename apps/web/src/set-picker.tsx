@@ -54,7 +54,7 @@ export function SetPicker({
   const catalog = useSetCatalog();
   const coverage = useQuery({
     queryKey: ["set-coverage", deckId, revision],
-    queryFn: () => api.setCoverage(deckId),
+    queryFn: ({ signal }) => api.setCoverage(deckId, signal),
     enabled: expanded && showSuggestions,
     staleTime: 86_400_000,
     retry: false,

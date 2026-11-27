@@ -130,13 +130,15 @@ export async function planPolicy(
   deck: Deck,
   policy: ArtPolicy,
   preferences: PrintLanguagePreferences,
+  signal?: AbortSignal,
 ) {
+  const request = signal ? ([{ signal }] as const) : ([] as const);
   const oracleIds = deck.entries
     .filter(canChangeArt)
     .map(({ card }) => card.oracleId);
   const ranks =
     policy.kind === "matchSet" && policy.family && oracleIds.length
-      ? await setFamilyRanks(policy.set, await provider.sets())
+      ? await setFamilyRanks(policy.set, await provider.sets(...request))
       : undefined;
   const setFilter =
     policy.kind === "matchSet"
@@ -151,18 +153,20 @@ export async function planPolicy(
       const key = lang ?? "";
       const cached =
         batchMemo.get(key) ??
-        provider.inventoryBatch(oracleIds, lang, setFilter);
+        provider.inventoryBatch(oracleIds, lang, setFilter, ...request);
       batchMemo.set(key, cached);
       return (await cached).get(oracleId) ?? [];
     }
     const key = `${oracleId}:${lang ?? ""}`;
-    const cached = memo.get(key) ?? provider.inventory(oracleId, lang);
+    const cached =
+      memo.get(key) ?? provider.inventory(oracleId, lang, ...request);
     memo.set(key, cached);
     return cached;
   }
   const changes: ArtChange[] = [];
   const entries: DeckEntry[] = [];
   for (const entry of deck.entries) {
+    signal?.throwIfAborted();
     if (!canChangeArt(entry)) {
       changes.push(change(entry, "pinned", null, "Manual art is protected."));
       entries.push(entry);
@@ -213,10 +217,12 @@ export async function planLocalization(
   entryId: string,
   artId: string,
   preferences: PrintLanguagePreferences,
+  signal?: AbortSignal,
 ) {
+  const request = signal ? ([{ signal }] as const) : ([] as const);
   const entry = deck.entries.find((entry) => entry.id === entryId);
   if (!entry) throw new Error("Card not found");
-  const anchor = await provider.get(artId);
+  const anchor = await provider.get(artId, ...request);
   let candidate: Printing | undefined;
   if (
     anchor?.oracleId === entry.card.oracleId &&
@@ -225,12 +231,12 @@ export async function planLocalization(
     for (const language of languageOrder(preferences)) {
       candidate = localized(anchor, [anchor], language);
       if (candidate) break;
-      const exact = await provider.exact(anchor, language);
+      const exact = await provider.exact(anchor, language, ...request);
       if (exact) candidate = localized(anchor, [exact], language);
       if (candidate) break;
       candidate = localized(
         anchor,
-        await provider.inventory(anchor.oracleId, language),
+        await provider.inventory(anchor.oracleId, language, ...request),
         language,
       );
       if (candidate) break;

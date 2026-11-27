@@ -686,6 +686,7 @@ impl Providers {
                     .map(|entry| entry.card.oracle_id.as_str())
                     .collect(),
                 None,
+                None,
                 |_| {},
             )
             .await?;
@@ -1099,7 +1100,7 @@ impl Providers {
         oracle_ids: BTreeSet<&str>,
         language: &str,
     ) -> AppResult<HashMap<String, Vec<Printing>>> {
-        self.printing_inventory(oracle_ids, Some(language), |_| {})
+        self.printing_inventory(oracle_ids, Some(language), None, |_| {})
             .await
     }
 
@@ -1107,21 +1108,30 @@ impl Providers {
         &self,
         mut oracle_ids: BTreeSet<&str>,
         language: Option<&str>,
+        family_filter: Option<&str>,
         progress: impl Fn(PrintingLookupProgress),
     ) -> AppResult<HashMap<String, Vec<Printing>>> {
         if let Some(language) = language {
             validate_language(language)?;
         }
-        let cache_key = |oracle| match language {
+        let broad_key = |oracle| match language {
             Some(language) => format!("language-printings:{language}:{oracle}"),
             None => format!("policy-printings:{oracle}"),
+        };
+        let cache_key = |oracle| match family_filter {
+            Some(filter) => format!("family-printings:{filter}:{}", broad_key(oracle)),
+            None => broad_key(oracle),
         };
         let mut inventory = HashMap::new();
         let mut missing = Vec::new();
         oracle_ids.retain(|oracle| uuid::Uuid::parse_str(oracle).is_ok());
         let total = oracle_ids.len();
         for oracle in oracle_ids {
-            match self.store.cached(&cache_key(oracle))? {
+            let mut cached = self.store.cached(&cache_key(oracle))?;
+            if cached.is_none() && family_filter.is_some() {
+                cached = self.store.cached(&broad_key(oracle))?;
+            }
+            match cached {
                 Some(Value::Array(cards)) => {
                     inventory.insert(
                         oracle.to_owned(),
@@ -1137,10 +1147,14 @@ impl Providers {
                 total,
             });
         }
-        let suffix = language.map_or_else(
+        let mut suffix = language.map_or_else(
             || "game:paper".into(),
             |lang| format!("lang:{lang} game:paper"),
         );
+        if let Some(filter) = family_filter {
+            suffix.push(' ');
+            suffix.push_str(filter);
+        }
         for (query, batch) in printing_queries(&missing, &suffix, language.is_some()) {
             let mut found: HashMap<_, Vec<Value>> = batch
                 .iter()

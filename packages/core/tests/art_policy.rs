@@ -78,6 +78,29 @@ fn record_search(store: &Store, query: &str, page: u32, has_more: bool, data: &[
     );
 }
 
+fn record_family_search(
+    store: &Store,
+    oracle: &str,
+    language: Option<&str>,
+    filter: &str,
+    data: &[Value],
+) {
+    let (base_key, query) = match language {
+        Some(language) => (
+            format!("language-printings:{language}:{oracle}"),
+            format!("(oracleid:{oracle}) lang:{language} game:paper {filter}"),
+        ),
+        None => (
+            format!("policy-printings:{oracle}"),
+            format!("oracleid:{oracle} game:paper {filter}"),
+        ),
+    };
+    store
+        .remove("cache", &format!("family-printings:{filter}:{base_key}"))
+        .unwrap();
+    record_search(store, &query, 1, false, data);
+}
+
 fn record_sets(store: &Store) {
     record(
         store,
@@ -478,6 +501,7 @@ async fn family_rank_precedes_release_date_for_foundations() {
     let deck = store.create_deck(input).unwrap();
 
     let ranked = ["fdc", "fdn", "tfdc", "tfdn"];
+    let filter = "(set:fdc or set:fdn or set:tfdc or set:tfdn)";
     let prints = [
         in_set(base, "fdc", "2024-11-15"),
         in_set(base, "fdn", "2024-11-16"),
@@ -486,7 +510,7 @@ async fn family_rank_precedes_release_date_for_foundations() {
         in_set(base, "j25", "2026-10-04"),
     ];
     for (index, expected) in ranked.into_iter().enumerate() {
-        search(&store, None, 1, false, &prints[index..]);
+        record_family_search(&store, ORACLE, None, filter, &prints[index..]);
         let preview = service
             .preview_policy(&deck.id, deck.revision, set_policy("fdc", true))
             .await
@@ -506,16 +530,16 @@ async fn family_localization_keeps_both_faces_and_filters_out_of_family_scans() 
     preferences(&providers, "es", PrintLanguagePolicy::FallbackToEnglish);
     let service = ArtPolicies::new(store.clone(), providers);
     record_sets(&store);
-    search_oracle(
+    let filter = "(set:ecc or set:ecl or set:tecc or set:tecl)";
+    record_family_search(
         &store,
         oracle,
         None,
-        1,
-        false,
+        filter,
         &[in_set(en, "ecl", "2026-01-23")],
     );
     let mut spanish = vec![in_set(es, "pecl", "2026-01-24")];
-    search_oracle(&store, oracle, Some("es"), 1, false, &spanish);
+    record_family_search(&store, oracle, Some("es"), filter, &spanish);
     let mut input = common::new_deck("Localized family");
     input.entries = vec![entry(en)];
     let deck = store.create_deck(input).unwrap();
@@ -527,7 +551,7 @@ async fn family_localization_keeps_both_faces_and_filters_out_of_family_scans() 
     assert_eq!(fallback.changes[0].after.as_ref().unwrap().set, "ecl");
 
     spanish.push(in_set(es, "ecc", "2026-01-23"));
-    search_oracle(&store, oracle, Some("es"), 1, false, &spanish);
+    record_family_search(&store, oracle, Some("es"), filter, &spanish);
     let preview = service
         .preview_policy(&deck.id, deck.revision, set_policy("ecl", true))
         .await

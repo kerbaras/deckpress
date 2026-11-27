@@ -2015,6 +2015,7 @@ it("uses the selected printing's set for a deck-wide family preview", async () =
     deck.revision,
     { kind: "matchSet", set: "sta", family: true },
     expect.any(Function),
+    expect.any(AbortSignal),
   );
   const dialog = within(
     await screen.findByRole("dialog", { name: "Preview art changes" }),

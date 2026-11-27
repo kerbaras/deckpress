@@ -38,28 +38,47 @@ export function artHistory(
       deck: Deck,
       preferences: PrintLanguagePreferences,
     ) => Promise<{ changes: ArtPreview["changes"]; next: Deck | null }>,
+    signal?: AbortSignal,
   ): Promise<ArtPreview> {
     const { before, previewId } = await serialize(async () => {
+      signal?.throwIfAborted();
       const before = await atRevision(id, revision);
+      signal?.throwIfAborted();
       const previewId = crypto.randomUUID();
       pending.set(id, { id: previewId, next: null });
       return { before, previewId };
     });
-    const { changes, next } = await plan(before, await preferences());
-    return serialize(async () => {
-      await atRevision(id, revision);
-      if (pending.get(id)?.id !== previewId)
-        throw new Error("This art preview was superseded.");
-      pending.set(id, { id: previewId, next });
-      return { previewId, canApply: next !== null, changes };
-    });
+    try {
+      const prefs = await preferences();
+      signal?.throwIfAborted();
+      const { changes, next } = await plan(before, prefs);
+      return await serialize(async () => {
+        await atRevision(id, revision);
+        signal?.throwIfAborted();
+        if (pending.get(id)?.id !== previewId)
+          throw new Error("This art preview was superseded.");
+        pending.set(id, { id: previewId, next });
+        return { previewId, canApply: next !== null, changes };
+      });
+    } catch (error) {
+      if (pending.get(id)?.id === previewId) pending.delete(id);
+      throw error;
+    }
   }
 
   return {
-    previewPolicy(id: string, revision: number, policy: ArtPolicy) {
+    previewPolicy(
+      id: string,
+      revision: number,
+      policy: ArtPolicy,
+      signal?: AbortSignal,
+    ) {
       validatePolicy(policy);
-      return preview(id, revision, (deck, prefs) =>
-        planPolicy(provider, deck, policy, prefs),
+      return preview(
+        id,
+        revision,
+        (deck, prefs) => planPolicy(provider, deck, policy, prefs, signal),
+        signal,
       );
     },
     previewLocalization(
@@ -67,9 +86,14 @@ export function artHistory(
       revision: number,
       entryId: string,
       artId: string,
+      signal?: AbortSignal,
     ) {
-      return preview(id, revision, (deck, prefs) =>
-        planLocalization(provider, deck, entryId, artId, prefs),
+      return preview(
+        id,
+        revision,
+        (deck, prefs) =>
+          planLocalization(provider, deck, entryId, artId, prefs, signal),
+        signal,
       );
     },
     apply(id: string, revision: number, previewId: string) {

@@ -116,7 +116,7 @@ it("navigates suggestions and searches by keyboard, and sends the exact toggle",
   expect(commander).toHaveTextContent("ECC");
   expect(commander).toHaveTextContent("21 of 30 cards");
   expect(main).toHaveTextContent("2026-01-23");
-  expect(coverage).toHaveBeenCalledWith("deck");
+  expect(coverage).toHaveBeenCalledWith("deck", expect.any(AbortSignal));
   await user.keyboard("{ArrowDown}{ArrowDown}{ArrowUp}");
   expect(input).toHaveAttribute("aria-activedescendant", commander?.id);
   await user.keyboard("{Enter}");

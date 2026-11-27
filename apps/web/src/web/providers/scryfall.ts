@@ -5,14 +5,13 @@ import {
   readDocument,
 } from "../store/documents.ts";
 import { record, recordList } from "./scryfall-card.ts";
+import { scryfallQueue } from "./scryfall-queue.ts";
 
 const origin = "https://api.scryfall.com";
 export const scryfallCacheKind = "cache";
 const cacheTtl = 24 * 60 * 60 * 1000;
-const interval = 100;
 const backoff = 15_000;
 const maxBackoff = 30_000;
-const opaqueBackoff = 60_000;
 const retries = 3;
 
 type Identifier =
@@ -20,18 +19,29 @@ type Identifier =
   | { name: string; set?: string }
   | { set: string; collector_number: string };
 
+export interface RequestOptions {
+  signal?: AbortSignal | undefined;
+  background?: boolean;
+}
+
+export interface SearchOptions extends RequestOptions {
+  includeMultilingual?: boolean;
+}
+
 export interface Scryfall {
   collection(ids: Identifier[]): Promise<Record<string, unknown>[]>;
   exact(
     set: string,
     collectorNumber: string,
     language: string,
+    options?: RequestOptions,
   ): Promise<Record<string, unknown>>;
-  printing(id: string): Promise<unknown>;
-  sets(): Promise<SetInfo[]>;
+  printing(id: string, options?: RequestOptions): Promise<unknown>;
+  sets(options?: RequestOptions): Promise<SetInfo[]>;
   search(
     query: string,
     page: number,
+    options?: SearchOptions,
   ): Promise<{
     cards: Record<string, unknown>[];
     hasMore: boolean;
@@ -39,66 +49,18 @@ export interface Scryfall {
   }>;
 }
 
-function rateLimiter() {
-  let tail = Promise.resolve();
-  let next = 0;
-  let retryAfterSeconds: number | undefined;
-  const listeners = new Set<() => void>();
-
-  function reportRetry(seconds: number | undefined) {
-    if (retryAfterSeconds === seconds) return;
-    retryAfterSeconds = seconds;
-    for (const listener of listeners) listener();
-  }
-
-  async function waitForSlot() {
-    const delay = next - performance.now();
-    if (delay > interval) reportRetry(Math.ceil(delay / 1000));
-    for (
-      let wait = next - performance.now();
-      wait > 0;
-      wait = next - performance.now()
-    ) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.min(Math.ceil(wait), 2_147_483_647)),
-      );
-    }
-    next = performance.now() + interval;
-    reportRetry(undefined);
-  }
-
-  function enqueue<T>(
-    send: (
-      defer: (delay: number) => void,
-      wait: () => Promise<void>,
-    ) => Promise<T>,
-  ) {
-    const pending = tail.then(async () => {
-      await waitForSlot();
-      return send((delay) => {
-        next = Math.max(next, performance.now() + delay);
-      }, waitForSlot);
-    });
-    tail = pending.then(
-      () => {},
-      () => {},
-    );
-    return pending;
-  }
-  return {
-    enqueue,
-    getSnapshot: () => retryAfterSeconds,
-    subscribe(listener: () => void) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-      };
-    },
-  };
+function offlineError() {
+  return new Error("You are offline. Reconnect to the internet and try again.");
 }
 
-function retryDelay(response: Response, attempt: number) {
-  const header = response.headers.get("Retry-After")?.trim();
+function networkError() {
+  return new Error(
+    "Could not reach Scryfall. Check your internet connection and try again.",
+  );
+}
+
+function retryDelay(response: Response | undefined, attempt: number) {
+  const header = response?.headers.get("Retry-After")?.trim();
   if (header) {
     const milliseconds = /^\d+$/.test(header)
       ? Number(header) * 1000
@@ -108,78 +70,187 @@ function retryDelay(response: Response, attempt: number) {
   return Math.min(backoff * 2 ** attempt, maxBackoff);
 }
 
+interface Pending {
+  controller: AbortController;
+  task: Promise<unknown>;
+  subscribers: number;
+  foreground: number;
+}
+
 export function scryfallClient(
   cache: Pick<DocumentStore, "get" | "put">,
   fetcher: typeof fetch = (...args) => fetch(...args),
-) {
-  const { enqueue, ...retry } = rateLimiter();
-  const pendingByKey = new Map<string, Promise<unknown>>();
+): Scryfall & {
+  retry: Pick<ReturnType<typeof scryfallQueue>, "getSnapshot" | "subscribe">;
+} {
+  const { enqueue, defer, ...retry } = scryfallQueue();
+  const pendingByKey = new Map<string, Pending>();
+  let throttleUntil = 0;
 
-  function json(
+  async function request(
     path: string,
-    allowMissing = false,
-    body?: string,
-  ): Promise<unknown> {
-    const key = body ? `${path}\n${body}` : path;
-    const pending = pendingByKey.get(key);
-    if (pending) return pending;
-    const task = (async () => {
-      const hit = await cache
-        .get(scryfallCacheKind, key)
-        .catch(() => undefined);
-      if (hit && hit.updatedAt > Date.now() - cacheTtl) {
-        return readDocument(hit);
-      }
-      return enqueue(async (defer, wait) => {
-        const headers = { Accept: "application/json" };
-        const init = body
-          ? {
-              method: "POST",
-              body,
-              headers: { ...headers, "Content-Type": "application/json" },
-            }
-          : { headers };
-        let response: Response | undefined;
-        for (let attempt = 0; ; attempt++) {
+    key: string,
+    allowMissing: boolean,
+    body: string | undefined,
+    pending: Pending,
+  ) {
+    const hit = await cache.get(scryfallCacheKind, key).catch(() => undefined);
+    const { signal: sharedSignal } = pending.controller;
+    sharedSignal.throwIfAborted();
+    if (hit && hit.updatedAt > Date.now() - cacheTtl) return readDocument(hit);
+
+    const connectivity = new AbortController();
+    const offline = () => connectivity.abort(offlineError());
+    const signal = AbortSignal.any([sharedSignal, connectivity.signal]);
+    const background = () => pending.foreground === 0;
+    const headers = { Accept: "application/json" };
+    const init = body
+      ? {
+          method: "POST",
+          body,
+          headers: { ...headers, "Content-Type": "application/json" },
+        }
+      : { headers };
+    globalThis.addEventListener("offline", offline);
+    try {
+      if (navigator.onLine === false) offline();
+      for (let attempt = 0; ; attempt++) {
+        const response = await enqueue(signal, background, async () => {
+          if (navigator.onLine === false) offline();
+          signal.throwIfAborted();
+          let response: Response;
           try {
             response = await fetcher(origin + path, {
               ...init,
-              signal: AbortSignal.timeout(30_000),
+              signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
             });
           } catch (error) {
-            // Scryfall's throttled responses can omit CORS headers.
-            if (!(error instanceof TypeError))
-              throw new Error("Could not reach api.scryfall.com. Try again.");
-            response = undefined;
+            if (navigator.onLine === false) offline();
+            signal.throwIfAborted();
+            if (!(error instanceof TypeError)) throw networkError();
+            if (performance.now() >= throttleUntil)
+              return { failedAt: performance.now() };
+            defer(retryDelay(undefined, attempt));
+            return undefined;
           }
-          if (response && response.status !== 429) break;
-          defer(response ? retryDelay(response, attempt) : opaqueBackoff);
-          if (attempt === retries) {
-            throw new Error(
-              response
-                ? "Scryfall is still rate-limiting requests. Try again later."
-                : "Scryfall could not be reached after retrying. It may be rate limiting requests. Try again later.",
-            );
-          }
-          await wait();
+          if (response.status !== 429) return response;
+          const delay = retryDelay(response, attempt);
+          defer(delay);
+          throttleUntil = performance.now() + delay + maxBackoff;
+          return undefined;
+        });
+        if (response && !("failedAt" in response)) {
+          const missing = response.status === 404 && allowMissing;
+          if (!missing && !response.ok)
+            throw new Error(`Scryfall returned ${response.status}. Try again.`);
+          const value: unknown = missing
+            ? null
+            : await response.json().catch(() => {
+                signal.throwIfAborted();
+                throw new Error("Scryfall returned invalid JSON");
+              });
+          signal.throwIfAborted();
+          await cache
+            .put(document(scryfallCacheKind, key, value))
+            .catch(() => {});
+          return value;
         }
-        const missing = response.status === 404 && allowMissing;
-        if (!missing && !response.ok) {
-          throw new Error(`Scryfall returned ${response.status}. Try again.`);
+
+        if (response) {
+          // A CORS failure can hide a 429. A short, CORS-readable probe
+          // distinguishes a reachable API from a connection failure.
+          await enqueue(signal, background, async () => {
+            try {
+              if (navigator.onLine === false) offline();
+              signal.throwIfAborted();
+              const probe = await fetcher(`${origin}/sets`, {
+                method: "HEAD",
+                cache: "no-store",
+                headers,
+                signal: AbortSignal.any([signal, AbortSignal.timeout(3_000)]),
+              });
+              if (!probe.ok && probe.status !== 429) throw networkError();
+              const delay = retryDelay(
+                probe.status === 429 ? probe : undefined,
+                attempt,
+              );
+              defer(
+                probe.status === 429 && probe.headers.has("Retry-After")
+                  ? delay
+                  : response.failedAt + delay - performance.now(),
+              );
+              if (probe.status === 429)
+                throttleUntil = performance.now() + delay + maxBackoff;
+            } catch {
+              if (navigator.onLine === false) offline();
+              signal.throwIfAborted();
+              throw networkError();
+            }
+          });
         }
-        const value: unknown = missing
-          ? null
-          : await response.json().catch(() => {
-              throw new Error("Scryfall returned invalid JSON");
-            });
-        await cache
-          .put(document(scryfallCacheKind, key, value))
-          .catch(() => {});
-        return value;
+        if (attempt === retries)
+          throw new Error(
+            "Scryfall is still rate-limiting requests. Try again later.",
+          );
+      }
+    } finally {
+      globalThis.removeEventListener("offline", offline);
+    }
+  }
+
+  async function json(
+    path: string,
+    allowMissing = false,
+    body?: string,
+    { signal, background = false }: RequestOptions = {},
+  ): Promise<unknown> {
+    signal?.throwIfAborted();
+    const key = body ? `${path}\n${body}` : path;
+    let pending = pendingByKey.get(key);
+    if (!pending) {
+      const entry: Pending = {
+        controller: new AbortController(),
+        subscribers: 0,
+        foreground: 0,
+        task: Promise.resolve(),
+      };
+      entry.task = request(path, key, allowMissing, body, entry).finally(() => {
+        if (pendingByKey.get(key) === entry) pendingByKey.delete(key);
       });
-    })().finally(() => pendingByKey.delete(key));
-    pendingByKey.set(key, task);
-    return task;
+      pending = entry;
+      pendingByKey.set(key, entry);
+    }
+    const entry = pending;
+    entry.subscribers++;
+    if (!background) entry.foreground++;
+    return new Promise((resolve, reject) => {
+      function release() {
+        signal?.removeEventListener("abort", abort);
+        entry.subscribers--;
+        if (!background) entry.foreground--;
+      }
+      function abort() {
+        release();
+        if (entry.subscribers === 0 && pendingByKey.get(key) === entry) {
+          pendingByKey.delete(key);
+          entry.controller.abort();
+        }
+        reject(signal?.reason);
+      }
+      signal?.addEventListener("abort", abort, { once: true });
+      void entry.task.then(
+        (value) => {
+          if (signal?.aborted) return;
+          release();
+          resolve(value);
+        },
+        (error: unknown) => {
+          if (signal?.aborted) return;
+          release();
+          reject(error);
+        },
+      );
+    });
   }
 
   return {
@@ -192,15 +263,16 @@ export function scryfallClient(
         throw new Error("Unexpected Scryfall collection data");
       return recordList(response.data);
     },
-    async exact(set, collectorNumber, language) {
+    async exact(set, collectorNumber, language, options) {
       const path = [set, collectorNumber, language]
         .map(encodeURIComponent)
         .join("/");
-      return record(await json(`/cards/${path}`, true));
+      return record(await json(`/cards/${path}`, true, undefined, options));
     },
-    printing: (id) => json(`/cards/${encodeURIComponent(id)}`),
-    async sets() {
-      const response = record(await json("/sets"));
+    printing: (id, options) =>
+      json(`/cards/${encodeURIComponent(id)}`, false, undefined, options),
+    async sets(options) {
+      const response = record(await json("/sets", false, undefined, options));
       if (!Array.isArray(response.data))
         throw new Error("Unexpected Scryfall set catalog data");
       return recordList(response.data).map((set) =>
@@ -216,21 +288,23 @@ export function scryfallClient(
         }),
       );
     },
-    async search(query, page) {
+    async search(query, page, options) {
       const params = new URLSearchParams({
         q: query,
         unique: "prints",
-        include_multilingual: "true",
+        include_multilingual: String(options?.includeMultilingual ?? true),
         order: "released",
         dir: "desc",
         page: String(page),
       });
-      const result = record(await json(`/cards/search?${params}`, true));
+      const result = record(
+        await json(`/cards/search?${params}`, true, undefined, options),
+      );
       return {
         cards: recordList(result.data),
         hasMore: result.has_more === true,
         total: typeof result.total_cards === "number" ? result.total_cards : 0,
       };
     },
-  } satisfies Scryfall & { retry: typeof retry };
+  };
 }

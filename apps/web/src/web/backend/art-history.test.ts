@@ -51,6 +51,7 @@ async function setup(entries = [entry("m11")]) {
   const provider = {
     sets: vi.fn(async () => []),
     inventoryBatch: vi.fn(async () => new Map<string, Printing[]>()),
+    coverageInventory: vi.fn(async () => new Map<string, Printing[]>()),
     get: vi.fn(async (artId: string) =>
       prints.find(({ id }) => artId === `scryfall:${id}:0`),
     ),
@@ -213,7 +214,7 @@ it("passes copy quantities and keeps pinned copies in the coverage total", async
   const eligible = { ...entry("lea"), quantity: 3 };
   const pinned = { ...entry("lea", true), quantity: 2 };
   const { deck, provider } = await setup([eligible, pinned]);
-  provider.inventoryBatch.mockResolvedValue(
+  provider.coverageInventory.mockResolvedValue(
     new Map([[eligible.card.oracleId, [fromFixture("m11")]]]),
   );
   const setCoverage = vi.fn(() => "[]");
@@ -223,9 +224,10 @@ it("passes copy quantities and keeps pinned copies in the coverage total", async
   });
   try {
     await setMatching.setCoverage(provider, deck);
-    expect(provider.inventoryBatch).toHaveBeenCalledExactlyOnceWith([
-      eligible.card.oracleId,
-    ]);
+    expect(provider.coverageInventory).toHaveBeenCalledExactlyOnceWith(
+      [eligible.card.oracleId],
+      undefined,
+    );
     expect(setCoverage).toHaveBeenCalledExactlyOnceWith(
       JSON.stringify([
         [3, ["m11"]],

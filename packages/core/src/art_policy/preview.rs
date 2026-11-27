@@ -161,18 +161,23 @@ impl ArtPolicies {
         policy.validate()?;
         let (before, preview_id) = self.begin_preview(deck_id, revision)?;
         let preferences = self.providers.preferences_for_deck(&before)?;
-        let family_ranks = match &policy {
+        let family_members = match &policy {
             ArtPolicy::MatchSet { set, family: true }
                 if before.entries.iter().any(policy_can_change) =>
             {
-                Some(
-                    family(set, &self.providers.sets().await?)
-                        .into_iter()
-                        .collect(),
-                )
+                Some(family(set, &self.providers.sets().await?))
             }
             _ => None,
         };
+        let family_filter = family_members.as_ref().map(|members| {
+            let mut clauses: Vec<_> = members
+                .iter()
+                .map(|(set, _)| format!("set:{set}"))
+                .collect();
+            clauses.sort_unstable();
+            format!("({})", clauses.join(" or "))
+        });
+        let family_ranks = family_members.map(|members| members.into_iter().collect());
         let mut next = before.clone();
         next.art_policy = Some(policy.clone());
         let selection = PolicySelection {
@@ -203,6 +208,7 @@ impl ArtPolicies {
                     .map(|entry| entry.card.oracle_id.as_str())
                     .collect(),
                 None,
+                family_filter.as_deref(),
                 |update| report(None, update),
             )
             .await?;
@@ -251,6 +257,7 @@ impl ArtPolicies {
                         .map(|(_, anchor)| anchor.oracle_id.as_str())
                         .collect(),
                     Some(language),
+                    family_filter.as_deref(),
                     |update| report(Some(language), update),
                 )
                 .await?;
