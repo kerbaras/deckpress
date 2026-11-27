@@ -326,6 +326,10 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.reconnect-assignment:where(:has(> select:focus-visible)) > label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .sr-only {
   position: absolute;
   width: 1px;

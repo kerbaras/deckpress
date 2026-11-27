@@ -93,6 +93,30 @@ it("keeps the complete long filename in a tooltip", () => {
   );
 });
 
+it("uses the complete original filename to name the keyboard-focused assignment", async () => {
+  const user = userEvent.setup();
+  const filename = `${"long".repeat(60)}-original.png`;
+  render(
+    <ReconnectUploads
+      missing={[{ id: "missing", name: "Test art", filename }]}
+      onClose={() => {}}
+      onRestore={async () => {}}
+    />,
+  );
+
+  const picker = screen.getByLabelText("Original image files");
+  await user.upload(
+    picker,
+    new File(["replacement"], "replacement.png", { type: "image/png" }),
+  );
+  const assignment = screen.getByRole("combobox");
+  await waitFor(() => expect(assignment).toBeEnabled());
+  picker.focus();
+  await user.tab();
+  expect(assignment).toHaveFocus();
+  expect(assignment).toHaveAccessibleName(`Test art · ${filename}`);
+});
+
 it("describes a quota error with browser usage and the cache control", async () => {
   vi.stubGlobal("navigator", {
     storage: {

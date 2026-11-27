@@ -143,7 +143,7 @@ export function ReconnectUploads({
           const assigned = assignments.get(upload.id);
           const assignmentId = `reconnect-${upload.id}`;
           return (
-            <div className="field" key={upload.id}>
+            <div className="field reconnect-assignment" key={upload.id}>
               <label
                 className="truncate"
                 title={filename}
