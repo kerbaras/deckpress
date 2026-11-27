@@ -726,3 +726,57 @@ fn prints_scryfall_dfc_back_in_the_mirrored_slot() {
         }
     }
 }
+
+fn has_long_decimal(text: &str) -> bool {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .filter_map(|token| token.split_once('.'))
+        .any(|(whole, fraction)| !whole.is_empty() && fraction.len() > 2)
+}
+
+#[test]
+fn calibration_page_prints_a_rounded_trim_in_scm_and_free_modes() {
+    let png = common::png(372, 520, [30, 90, 200]);
+    for (settings, trim, scm_note) in [
+        (
+            PrintSettings {
+                layout_mode: LayoutMode::Scm,
+                dpi: 150,
+                ..PrintSettings::default()
+            },
+            "Selected trim: 62.99 × 87.97 mm",
+            Some("(SCM 300 PPI grid of 63 × 88 mm)"),
+        ),
+        (
+            PrintSettings {
+                dpi: 150,
+                ..PrintSettings::default()
+            },
+            "Selected trim: 63 × 88 mm",
+            None,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let raster_dir = dir.path().join("raster");
+        let services = PdfServices {
+            upscaler: None,
+            raster_dir: &raster_dir,
+        };
+        let output = build_pdf(
+            &common::deck(1),
+            &settings,
+            &services,
+            &CancelToken::default(),
+            &mut |_, _, _| {},
+            &mut |_| Ok(png.clone()),
+        )
+        .unwrap();
+        let pdf = lopdf::Document::load_mem(&output.bytes).unwrap();
+        let text = pdf.extract_text(&[1]).unwrap();
+        assert!(text.contains(trim), "{text}");
+        assert_eq!(text.contains("SCM"), scm_note.is_some(), "{text}");
+        if let Some(note) = scm_note {
+            assert!(text.contains(note), "{text}");
+        }
+        assert!(!has_long_decimal(&text), "{text}");
+    }
+}

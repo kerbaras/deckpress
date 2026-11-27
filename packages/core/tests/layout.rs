@@ -1,5 +1,6 @@
 use deckpress_core::layout::{
-    create_layout, duplex_slot, face_pixels, fit_sheet_label, mm_to_pt, sheet_label, FacePixels,
+    create_layout, duplex_slot, face_pixels, fit_sheet_label, mm_label, mm_to_pt, sheet_label,
+    FacePixels,
 };
 use deckpress_core::models::{Backs, Guides, Paper, PrintSettings};
 use serde::Deserialize;
@@ -37,6 +38,21 @@ fn formats_label_numbers_from_the_shared_vectors() {
             sheet_label(&settings, "Proof", 1, 1, false),
             format!("PROOF / SHEET 1 OF 1 / FRONTS / {expected} / PRINT AT 100%"),
         );
+    }
+}
+
+#[test]
+fn formats_mm_labels_from_the_shared_vectors() {
+    #[derive(Deserialize)]
+    struct Case {
+        value: f64,
+        expected: String,
+    }
+
+    let cases: Vec<Case> =
+        serde_json::from_str(include_str!("fixtures/mm-label-numbers.json")).unwrap();
+    for Case { value, expected } in cases {
+        assert_eq!(mm_label(value), expected, "{value}");
     }
 }
 

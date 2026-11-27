@@ -115,16 +115,26 @@ pub fn fit_sheet_label(layout: &PrintLayout, text: &str) -> Option<SheetLabelPla
     })
 }
 
-fn label_number(value: f64) -> String {
-    // Keep half-thousandths stable across small float differences at the JSON boundary.
-    let thousandths = (value * 1000.0 + 1e-9).round() as u32;
-    let whole = thousandths / 1000;
-    let fraction = thousandths % 1000;
+fn fixed_label(value: f64, places: i32) -> String {
+    // Keep half-units stable across small float differences at the JSON boundary.
+    let scale = 10_u32.pow(places as u32);
+    let scaled = (value * f64::from(scale) + 1e-9).round() as u32;
+    let whole = scaled / scale;
+    let fraction = scaled % scale;
     if fraction == 0 {
         return whole.to_string();
     }
-    let fraction = format!("{fraction:03}");
+    let fraction = format!("{fraction:0width$}", width = places as usize);
     format!("{whole}.{}", fraction.trim_end_matches('0'))
+}
+
+fn label_number(value: f64) -> String {
+    fixed_label(value, 3)
+}
+
+/// Millimetres for on-page text: at most 2 decimals, trailing zeros trimmed.
+pub fn mm_label(value: f64) -> String {
+    fixed_label(value, 2)
 }
 
 pub fn sheet_label(
