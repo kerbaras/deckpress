@@ -31,17 +31,19 @@ export async function setCoverage(
     provider.sets(),
     provider.inventoryBatch(eligible.map(({ card }) => card.oracleId)),
   ]);
-  const entries = eligible.map(({ card, quantity }) => [
-    quantity,
-    (inventory.get(card.oracleId) ?? [])
+  const entries = deck.entries.map((entry) => {
+    const { card, quantity } = entry;
+    if (!canChangeArt(entry)) return [quantity, []];
+    const sets = (inventory.get(card.oracleId) ?? [])
       .filter(
         (print) =>
           print.paper &&
           !print.promo &&
           print.illustrations.length === card.faces.length,
       )
-      .map(({ set }) => set),
-  ]);
+      .map(({ set }) => set);
+    return [quantity, sets];
+  });
   return z
     .array(setCoverageSchema)
     .parse(

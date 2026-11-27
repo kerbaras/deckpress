@@ -2,6 +2,7 @@ import { expect, it, vi } from "vitest";
 import fixture from "../../../../../packages/core/tests/fixtures/scryfall-art-policy.json";
 import type { PrintLanguagePreferences } from "../../api.ts";
 import { entrySchema, frontArt } from "../../core/index.ts";
+import * as coreWasm from "../core-wasm.ts";
 import {
   localized,
   type Printing,
@@ -206,6 +207,36 @@ it("requires known, ordered illustration IDs on every face across distinct print
     localized(unknown, [{ ...unknown, id: candidate.id }], "en"),
   ).toBeUndefined();
   expect(localized(unknown, [unknown], "en")).toBe(unknown);
+});
+
+it("passes copy quantities and keeps pinned copies in the coverage total", async () => {
+  const eligible = { ...entry("lea"), quantity: 3 };
+  const pinned = { ...entry("lea", true), quantity: 2 };
+  const { deck, provider } = await setup([eligible, pinned]);
+  provider.inventoryBatch.mockResolvedValue(
+    new Map([[eligible.card.oracleId, [fromFixture("m11")]]]),
+  );
+  const setCoverage = vi.fn(() => "[]");
+  const wasm = vi
+    .spyOn(coreWasm, "loadCoreWasm")
+    .mockResolvedValue({ setCoverage } as Awaited<
+      ReturnType<typeof coreWasm.loadCoreWasm>
+    >);
+  try {
+    await setMatching.setCoverage(provider, deck);
+    expect(provider.inventoryBatch).toHaveBeenCalledExactlyOnceWith([
+      eligible.card.oracleId,
+    ]);
+    expect(setCoverage).toHaveBeenCalledExactlyOnceWith(
+      JSON.stringify([
+        [3, ["m11"]],
+        [2, []],
+      ]),
+      "[]",
+    );
+  } finally {
+    wasm.mockRestore();
+  }
 });
 
 it.each([
