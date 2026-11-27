@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Art, ArtPolicy } from "../../core/index.ts";
 import type { Scryfall } from "./scryfall.ts";
 import { record, recordList, usableCard } from "./scryfall-card.ts";
+import { searchBatches } from "./search-batches.ts";
 
 export interface Printing {
   id: string;
@@ -173,24 +174,32 @@ export function policyProvider(api: Scryfall) {
     },
     async inventory(oracleId: string, language?: string) {
       if (!uuid.safeParse(oracleId).success) return [];
-      const query = `oracleid:${oracleId} game:paper${language ? ` lang:${language}` : ""}`;
       const prints: Printing[] = [];
-      for (let page = 1; page <= 100; page++) {
-        const result = await api.search(query, page);
-        for (const raw of result.cards) {
-          const print = policyPrinting(raw);
-          if (
-            print?.oracleId === oracleId &&
-            (!language || print.language === language)
-          ) {
-            prints.push(print);
+      const filters = language
+        ? ["game:paper", `lang:${language}`]
+        : ["game:paper"];
+      const complete = await searchBatches(
+        api,
+        [`oracleid:${oracleId}`],
+        filters,
+        (cards) => {
+          for (const raw of cards) {
+            const print = policyPrinting(raw);
+            if (
+              print?.oracleId === oracleId &&
+              (!language || print.language === language)
+            ) {
+              prints.push(print);
+            }
           }
-        }
-        if (!result.hasMore) return prints;
-      }
-      throw new Error(
-        "Scryfall has too many printings to evaluate this art policy.",
+          return false;
+        },
       );
+      if (!complete)
+        throw new Error(
+          "Scryfall has too many printings to evaluate this art policy.",
+        );
+      return prints;
     },
   };
 }
