@@ -4,8 +4,10 @@ use deckpress_core::layout;
 use deckpress_core::models::{Art, Deck, PrintSettings};
 use deckpress_core::pdf;
 use deckpress_core::png_export;
+use deckpress_core::raster::{encode_jpeg, rasterize};
 use deckpress_core::scm;
 use deckpress_core::set_family::{self, SetInfo};
+use deckpress_core::upload;
 use deckpress_core::upscaler::CancelToken;
 use deckpress_core::validate::validate_entries;
 use deckpress_core::{art_quality, cut_dxf, cut_svg, scm_cut};
@@ -47,6 +49,78 @@ fn lookup(images: &ImageBytes, key: &str) -> AppResult<Vec<u8>> {
         .dyn_ref::<Uint8Array>()
         .ok_or_else(|| AppError::user(format!("Image bytes for {key} must be a Uint8Array")))?;
     Ok(bytes.to_vec())
+}
+
+#[wasm_bindgen]
+pub struct PreparedUpload {
+    metadata: String,
+    png: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl PreparedUpload {
+    #[wasm_bindgen(getter)]
+    pub fn metadata(&self) -> String {
+        self.metadata.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn png(&self) -> Vec<u8> {
+        self.png.clone()
+    }
+}
+
+#[wasm_bindgen(js_name = prepareUpload)]
+pub fn prepare_upload(
+    bytes: &[u8],
+    input: &str,
+    id: &str,
+    released_at: String,
+) -> Result<PreparedUpload, JsError> {
+    let input = serde_json::from_str(input).map_err(js_error)?;
+    let (upload, image) = upload::prepare(bytes, input, id, released_at).map_err(js_error)?;
+    Ok(PreparedUpload {
+        metadata: serde_json::to_string(&upload).map_err(js_error)?,
+        png: upload::encode_original(image).map_err(js_error)?,
+    })
+}
+
+#[wasm_bindgen(js_name = setUploadBleed)]
+pub fn set_upload_bleed(
+    bytes: &[u8],
+    metadata: &str,
+    bleed: Option<f64>,
+) -> Result<String, JsError> {
+    let mut row = serde_json::from_str(metadata).map_err(js_error)?;
+    upload::set_bleed(bytes, &mut row, bleed).map_err(js_error)?;
+    serde_json::to_string(&row).map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = uploadSnapshot)]
+pub fn upload_snapshot(bytes: Vec<u8>, art: &str, thumbnail: bool) -> Result<Vec<u8>, JsError> {
+    let art: Art = serde_json::from_str(art).map_err(js_error)?;
+    let bleed = art.bleed_mm;
+    upload::snapshot(bytes, art, bleed, thumbnail).map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = uploadPreview)]
+pub fn upload_preview(bytes: &[u8], art: &str, settings_json: &str) -> Result<Vec<u8>, JsError> {
+    let settings = PrintSettings {
+        dpi: 150,
+        upscale: false,
+        ..settings(settings_json)?
+    };
+    let art = serde_json::from_str(art).map_err(js_error)?;
+    let output = rasterize(
+        bytes,
+        &art,
+        &settings,
+        None,
+        &CancelToken::default(),
+        &mut |_, _| {},
+    )
+    .map_err(js_error)?;
+    encode_jpeg(&output.image, 85).map_err(js_error)
 }
 
 /// Images are encoded PNG/JPEG/WebP, keyed by the deck's art imageUrl.

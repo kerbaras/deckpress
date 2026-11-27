@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures_util::StreamExt;
-use image::{metadata::Orientation, DynamicImage, ImageDecoder, ImageFormat, ImageReader};
+use image::{metadata::Orientation, ImageDecoder, ImageFormat, ImageReader};
 use reqwest::{redirect, Client, StatusCode};
 use serde::Serialize;
 use serde_json::Value;
@@ -20,16 +20,15 @@ use tokio::sync::Notify;
 use url::Url;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{new_id, now_iso, Art, Deck, NewDeck, Provider, Upload};
+use crate::models::{new_id, now_iso, Art, Deck, NewDeck, Upload};
 use crate::providers::USER_AGENT;
 pub use crate::raster::decode;
-use crate::raster::{
-    detect_upload_bleed, encode_png, strip_bleed, to_rgb, PIPELINE_VERSION, UPLOAD_CARD_MM,
-};
+use crate::raster::PIPELINE_VERSION;
 use crate::store::Store;
 use crate::upscaler::CancelToken;
 
-pub const UPLOAD_SCHEME: &str = "upload://";
+use crate::upload::{self, sniff, THUMBNAIL_EDGE};
+pub use crate::upload::{UploadInput, UPLOAD_SCHEME};
 pub const SET_ICON_MIME: &str = "image/svg+xml";
 /// Art URL prefix the Node API wrote into decks; still present in migrated
 /// databases.
@@ -55,13 +54,11 @@ pub fn upload_id(url: &str) -> Option<AppResult<String>> {
 }
 
 const MAX_DOWNLOAD: usize = 32 * 1024 * 1024;
-const MAX_UPLOAD: usize = 16 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
-const UPLOAD_THUMBNAIL_EDGE: u32 = 480;
 
 fn upload_thumbnail_name(id: &str, bleed_mm: f64) -> String {
     let key = image_key(&format!(
-        "{PIPELINE_VERSION}:{UPLOAD_THUMBNAIL_EDGE}:{id}:{bleed_mm}"
+        "{PIPELINE_VERSION}:{THUMBNAIL_EDGE}:{id}:{bleed_mm}"
     ));
     format!("{key}.png")
 }
@@ -168,15 +165,6 @@ pub async fn wait_for_leader(
     if still_pending {
         notified.await;
     }
-}
-
-fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
-    image::guess_format(bytes).ok().filter(|format| {
-        matches!(
-            format,
-            ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP
-        )
-    })
 }
 
 pub fn mime_for(bytes: &[u8]) -> &'static str {
@@ -462,13 +450,8 @@ impl Images {
         upload: &mut Upload,
         bleed_mm: Option<f64>,
     ) -> AppResult<()> {
-        validate_upload_bleed(bleed_mm)?;
-        let image = decode(&std::fs::read(self.upload_path(id))?)?;
-        let (bleed, dpi) = upload_resolution(image.width(), image.height(), bleed_mm);
-        upload.art.bleed_mm = bleed;
-        upload.art.dpi = dpi;
-        upload.bleed_auto = bleed_mm.is_none();
-        Ok(())
+        upload::validate_bleed(bleed_mm)?;
+        upload::set_bleed(&std::fs::read(self.upload_path(id))?, upload, bleed_mm)
     }
 
     /// Restores a backup and its explicit source bleed values for existing uploads.
@@ -520,16 +503,11 @@ impl Images {
 
     /// Renders a trim snapshot of an upload using the same crop as print export.
     pub async fn trimmed_upload(&self, url: &str, bleed_mm: f64) -> AppResult<Vec<u8>> {
-        validate_upload_bleed(Some(bleed_mm))?;
+        upload::validate_bleed(Some(bleed_mm))?;
         let (id, upload) = self.saved_upload(url)?;
         let bytes = tokio::fs::read(self.upload_path(&id)).await?;
-        tokio::task::spawn_blocking(move || {
-            if bleed_mm == 0.0 {
-                return Ok(bytes);
-            }
-            encode_png(&trim_upload(&bytes, upload.art, bleed_mm)?)
-        })
-        .await?
+        tokio::task::spawn_blocking(move || upload::snapshot(bytes, upload.art, bleed_mm, false))
+            .await?
     }
 
     fn upload_thumbnail_root(&self) -> PathBuf {
@@ -578,7 +556,7 @@ impl Images {
 
     /// Returns the cropped thumbnail for an upload at the requested bleed.
     pub async fn upload_thumbnail(&self, url: &str, bleed_mm: f64) -> AppResult<Vec<u8>> {
-        validate_upload_bleed(Some(bleed_mm))?;
+        upload::validate_bleed(Some(bleed_mm))?;
         let (id, upload) = self.saved_upload(url)?;
         if bleed_mm == 0.0 {
             return Ok(tokio::fs::read(self.upload_path(&id)).await?);
@@ -592,15 +570,7 @@ impl Images {
         }
         let bytes = tokio::fs::read(self.upload_path(&id)).await?;
         tokio::task::spawn_blocking(move || {
-            let rgb = trim_upload(&bytes, upload.art, bleed_mm)?;
-            let thumbnail = if rgb.width().max(rgb.height()) > UPLOAD_THUMBNAIL_EDGE {
-                DynamicImage::ImageRgb8(rgb)
-                    .thumbnail(UPLOAD_THUMBNAIL_EDGE, UPLOAD_THUMBNAIL_EDGE)
-                    .into_rgb8()
-            } else {
-                rgb
-            };
-            let bytes = encode_png(&thumbnail)?;
+            let bytes = upload::snapshot(bytes, upload.art, bleed_mm, true)?;
             std::fs::create_dir_all(dir)?;
             let tmp = path.with_extension(format!("part-{}", new_id()));
             std::fs::write(&tmp, &bytes)?;
@@ -611,91 +581,12 @@ impl Images {
     }
 
     pub fn upload(&self, bytes: &[u8], input: UploadInput) -> AppResult<Art> {
-        if bytes.len() > MAX_UPLOAD {
-            return Err(AppError::user("Uploads are limited to 16 MB"));
-        }
-        if sniff(bytes).is_none() {
-            return Err(AppError::user("Use PNG, JPEG or WebP"));
-        }
-        if input.name.trim().is_empty() || input.name.chars().count() > 300 {
-            return Err(AppError::user("Give the upload a name"));
-        }
-        validate_upload_bleed(input.bleed_mm)?;
-        let image = decode(bytes)?;
-        let (bleed_mm, dpi) = upload_resolution(image.width(), image.height(), input.bleed_mm);
         let id = new_id();
+        let (upload, image) = upload::prepare(bytes, input, &id, now_iso())?;
         let path = self.upload_path(&id);
         std::fs::create_dir_all(path.parent().expect("upload dir has a parent"))?;
         image.to_rgba8().save_with_format(&path, ImageFormat::Png)?;
-        let image_url = format!("{UPLOAD_SCHEME}{id}");
-        let art = Art {
-            id: format!("upload:{id}"),
-            provider: Provider::Upload,
-            name: input.name.trim().to_string(),
-            artist: if input.artist.trim().is_empty() {
-                "My upload".into()
-            } else {
-                input.artist.trim().chars().take(200).collect()
-            },
-            source: "My uploads".into(),
-            source_url: String::new(),
-            art_crop_url: String::new(),
-            thumbnail_url: image_url.clone(),
-            image_url,
-            set: String::new(),
-            collector_number: String::new(),
-            language: "en".into(),
-            illustration_id: None,
-            scan_quality: None,
-            bleed_mm,
-            dpi,
-            released_at: now_iso(),
-            tags: vec!["custom".into()],
-            back_image_url: String::new(),
-            back_thumbnail_url: String::new(),
-            english_fallback: false,
-        };
-        self.store.put(
-            "upload",
-            &id,
-            &Upload {
-                oracle_id: input.oracle_id,
-                art: art.clone(),
-                bleed_auto: input.bleed_mm.is_none(),
-            },
-        )?;
-        Ok(art)
+        self.store.put("upload", &id, &upload)?;
+        Ok(upload.art)
     }
-}
-
-fn trim_upload(bytes: &[u8], art: Art, bleed_mm: f64) -> AppResult<image::RgbImage> {
-    let art = Art { bleed_mm, ..art };
-    let rgb = to_rgb(decode(bytes)?, image::Rgb([255; 3]));
-    Ok(strip_bleed(&rgb, &art, &Default::default()))
-}
-
-fn validate_upload_bleed(bleed_mm: Option<f64>) -> AppResult<()> {
-    if bleed_mm.is_some_and(|bleed| !(0.0..=10.0).contains(&bleed)) {
-        return Err(AppError::user("Bleed must be between 0 and 10 mm"));
-    }
-    Ok(())
-}
-
-fn upload_resolution(width: u32, height: u32, declared_bleed: Option<f64>) -> (f64, f64) {
-    let bleed = declared_bleed.unwrap_or_else(|| detect_upload_bleed(width, height));
-    let dpi = f64::min(
-        f64::from(width) / ((UPLOAD_CARD_MM.0 + 2.0 * bleed) / 25.4),
-        f64::from(height) / ((UPLOAD_CARD_MM.1 + 2.0 * bleed) / 25.4),
-    )
-    .round()
-    .clamp(1.0, 10_000.0);
-    (bleed, dpi)
-}
-
-#[derive(Debug, Clone)]
-pub struct UploadInput {
-    pub oracle_id: String,
-    pub name: String,
-    pub artist: String,
-    pub bleed_mm: Option<f64>,
 }

@@ -69,6 +69,7 @@ import {
   useTask,
 } from "./ui.tsx";
 import { UpscaleComparison } from "./upscale-comparison.tsx";
+import { useUploadImage } from "./web/use-upload-image.ts";
 
 const paperNames = {
   a4: "A4",
@@ -2024,15 +2025,17 @@ function PreviewImage({
   height: number;
 }) {
   const effective = effectivePrintSettings(settings);
+  const preview = {
+    cardWidthMm: effective.cardWidthMm,
+    cardHeightMm: effective.cardHeightMm,
+    bleedMm: effective.bleedMm,
+    bleedMode: settings.bleedMode,
+    bleedColor: settings.bleedColor,
+  };
+  const upload = useUploadImage(art, preview);
   const url = isWebPreview()
-    ? imageSrc(art.imageUrl)
-    : previewSrc(art, {
-        cardWidthMm: effective.cardWidthMm,
-        cardHeightMm: effective.cardHeightMm,
-        bleedMm: effective.bleedMm,
-        bleedMode: settings.bleedMode,
-        bleedColor: settings.bleedColor,
-      });
+    ? (upload ?? imageSrc(art.imageUrl))
+    : previewSrc(art, preview);
   return (
     <ProofImage key={url} url={url} x={x} y={y} width={width} height={height} />
   );

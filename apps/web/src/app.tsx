@@ -242,17 +242,25 @@ export function App() {
     id: string,
     importedCards?: number,
     updatedUploads?: number,
+    uploadStatus?: { reconnectedUploads: number; missingUploads: number },
   ) => {
     if (!(await navigate(`decks/${id}`))) return;
     setImportedDeckId(id);
     if (updatedUploads !== undefined) {
-      const bleed =
-        updatedUploads > 0
-          ? `, updated source bleed on ${updatedUploads} ${updatedUploads === 1 ? "upload" : "uploads"}`
-          : "";
+      const reconnected = uploadStatus?.reconnectedUploads ?? 0;
+      const missing = uploadStatus?.missingUploads ?? 0;
+      const bleed = updatedUploads - reconnected;
+      const status = [
+        "Deck restored",
+        reconnected > 0 && `reconnected ${formatCount(reconnected, "upload")}`,
+        bleed > 0 && `updated source bleed on ${formatCount(bleed, "upload")}`,
+        missing > 0 && `${formatCount(missing, "upload")} missing`,
+      ]
+        .filter(Boolean)
+        .join(", ");
       setPendingImport({
         id,
-        text: `Deck restored${bleed}`,
+        text: status,
         restoreKey: ++restoreSequence.current,
       });
     } else if (importedCards !== undefined)
