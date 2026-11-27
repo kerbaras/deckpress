@@ -93,3 +93,26 @@ it("does not cache a download cancelled at the progress callback", async () => {
   ).rejects.toThrow();
   expect(cache.put).not.toHaveBeenCalled();
 });
+
+it("cancels a stalled stream reader immediately when aborted", async () => {
+  const cache = store();
+  const controller = new AbortController();
+  const stream = new ReadableStream<Uint8Array>({
+    start(enqueue) {
+      enqueue.enqueue(new TextEncoder().encode("go"));
+    },
+  });
+  const download = vi.fn().mockResolvedValue(new Response(stream));
+  const pending = readModel(
+    spec,
+    url,
+    cache,
+    controller.signal,
+    (done) => {
+      if (done === 2) controller.abort(new Error("stalled"));
+    },
+    download,
+  );
+  await expect(pending).rejects.toThrow("stalled");
+  expect(cache.put).not.toHaveBeenCalled();
+});

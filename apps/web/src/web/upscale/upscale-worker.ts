@@ -8,13 +8,16 @@ const scope = globalThis as unknown as {
 
 scope.onmessage = async ({ data: { image, model, assetBase } }) => {
   try {
+    scope.postMessage({ kind: "init", ready: false });
     const upscaler = await openUpscaler(model, new URL(assetBase));
+    scope.postMessage({ kind: "init", ready: true });
     try {
       const result = await upscaler.run(
         image,
         new AbortController().signal,
         (done, total, timing) =>
           scope.postMessage({ kind: "tile", done, total, timing }),
+        (ready) => scope.postMessage({ kind: "init", ready }),
       );
       scope.postMessage({ kind: "result", result }, [
         result.image.pixels.buffer,

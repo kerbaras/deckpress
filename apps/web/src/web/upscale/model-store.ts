@@ -27,6 +27,10 @@ async function readDownload(
   if (!response.ok || !response.body)
     throw new Error(`Model download failed (${response.status})`);
   const reader = response.body.getReader();
+  const abort = () => {
+    void reader.cancel(signal.reason).catch(() => {});
+  };
+  signal.addEventListener("abort", abort, { once: true });
   const data = new Uint8Array(bytes);
   let offset = 0;
   try {
@@ -41,7 +45,9 @@ async function readDownload(
       offset += value.length;
       progress?.(offset, bytes);
     }
+    signal.throwIfAborted();
   } finally {
+    signal.removeEventListener("abort", abort);
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }

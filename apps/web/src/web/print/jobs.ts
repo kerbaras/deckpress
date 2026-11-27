@@ -6,6 +6,11 @@ import type {
 } from "../../core/index.ts";
 import { webAssetBase } from "../asset-base.ts";
 import { downloadBlob } from "../backend/download.ts";
+import {
+  addReloadBlocker,
+  notifyReloadCheck,
+  trackReloadWork,
+} from "../pwa/register.ts";
 import { exportFileName } from "../store/settings.ts";
 import type {
   PrintInitStage,
@@ -33,7 +38,15 @@ class WorkerFailure extends Error {
   }
 }
 
-export async function runPrintWorker(
+export function runPrintWorker(
+  request: PrintRequest,
+  signal?: AbortSignal,
+  onProgress?: (event: Extract<PrintResponse, { kind: "progress" }>) => void,
+): Promise<PrintResult> {
+  return trackReloadWork(runPrintWorkerInner(request, signal, onProgress));
+}
+
+async function runPrintWorkerInner(
   request: PrintRequest,
   signal?: AbortSignal,
   onProgress?: (event: Extract<PrintResponse, { kind: "progress" }>) => void,
@@ -108,6 +121,20 @@ type JobRecord = { job: PrintJob; deck?: Deck; file?: Blob };
 const records = new Map<string, JobRecord>();
 let active: { id: string; controller: AbortController } | undefined;
 
+function hasPendingOrUnsavedJobs() {
+  for (const { job } of records.values()) {
+    if (
+      job.status === "queued" ||
+      job.status === "running" ||
+      (job.status === "completed" && !job.downloadStarted)
+    )
+      return true;
+  }
+  return false;
+}
+
+addReloadBlocker(hasPendingOrUnsavedJobs);
+
 async function next() {
   if (active) return;
   const record = [...records.values()].find(
@@ -150,6 +177,7 @@ async function next() {
     }
   } finally {
     active = undefined;
+    notifyReloadCheck();
     void next();
   }
 }
@@ -188,6 +216,7 @@ export const webJobs = {
       record.job.message = "Export cancelled";
       delete record.deck;
       if (active?.id === id) active.controller.abort();
+      notifyReloadCheck();
     }
     return { ...record.job };
   },
@@ -196,9 +225,11 @@ export const webJobs = {
     if (!record?.file) throw new Error("This export is not ready to download");
     downloadBlob(destination, record.file);
     record.job.downloadStarted = true;
+    notifyReloadCheck();
     return record.file.size;
   },
   get busy() {
     return !!active;
   },
+  hasPendingOrUnsaved: hasPendingOrUnsavedJobs,
 };

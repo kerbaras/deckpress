@@ -14,6 +14,7 @@ import { policyProvider } from "../providers/printings.ts";
 import { resolveCards } from "../providers/resolve.ts";
 import { scryfallCacheKind, scryfallClient } from "../providers/scryfall.ts";
 import { relatedTokens } from "../providers/tokens.ts";
+import { trackReloadWork } from "../pwa/register.ts";
 import { uploadAttachmentsSchema } from "../store/backup-uploads.ts";
 import { deckStore } from "../store/decks.ts";
 import { clearImageCache, imageSrc } from "../store/image-cache.ts";
@@ -69,17 +70,19 @@ export const webBackend: Backend = {
       case "get_deck":
         return decks.get(text.parse(args.id));
       case "create_deck":
-        return decks.create(args.deck);
+        return trackReloadWork(decks.create(args.deck));
       case "save_deck":
-        return decks.save(args.deck);
+        return trackReloadWork(decks.save(args.deck));
       case "delete_deck":
-        return decks.remove(text.parse(args.id));
+        return trackReloadWork(decks.remove(text.parse(args.id)));
       case "inspect_backup_uploads":
-        return decks.missingUploads(text.parse(args.contents));
+        return trackReloadWork(decks.missingUploads(text.parse(args.contents)));
       case "restore_deck":
-        return decks.restore(
-          text.parse(args.contents),
-          uploadAttachmentsSchema.optional().parse(args.attachments),
+        return trackReloadWork(
+          decks.restore(
+            text.parse(args.contents),
+            uploadAttachmentsSchema.optional().parse(args.attachments),
+          ),
         );
       case "scryfall_sets":
         return policyPrintings.sets();
@@ -326,7 +329,7 @@ export const webBackend: Backend = {
     }
     return notAvailableYet(name);
   },
-  uploadArt: uploads.upload,
+  uploadArt: (...args) => trackReloadWork(uploads.upload(...args)),
   matchArtStyle: () => notAvailableYet("Art style matching"),
   imageSrc,
   comparisonThumbnailSrc: (art) => imageSrc(art.thumbnailUrl),
