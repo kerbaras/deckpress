@@ -763,7 +763,7 @@ export const api = {
 export const fetchHealth = (_signal?: AbortSignal) =>
   command("health", healthResponseSchema);
 
-export function imageSrc(url: string): string {
+export function imageSrc(url: string): string | undefined {
   return getBackend().imageSrc(url);
 }
 export function uploadTrimSrc(art: Art, thumbnail = false) {
@@ -773,7 +773,10 @@ export function comparisonThumbnailSrc(art: Art, settings: PrintSettings) {
   return getBackend().comparisonThumbnailSrc(art, settings);
 }
 /** 150 DPI print-pipeline preview of one face, no AI. */
-export function previewSrc(art: unknown, settings: PreviewSettings): string {
+export function previewSrc(
+  art: unknown,
+  settings: PreviewSettings,
+): string | undefined {
   return getBackend().previewSrc(art, settings);
 }
 

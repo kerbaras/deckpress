@@ -44,7 +44,6 @@ function unsupportedSource(feature: string): Promise<never> {
   );
 }
 
-const placeholderImage = () => "about:blank";
 const documents = indexedDbDocuments();
 const uploads = uploadStore(documents);
 const decks = deckStore(documents, undefined, undefined, uploads);
@@ -331,7 +330,7 @@ export const webBackend: Backend = {
   matchArtStyle: () => notAvailableYet("Art style matching"),
   imageSrc,
   comparisonThumbnailSrc: (art) => imageSrc(art.thumbnailUrl),
-  previewSrc: placeholderImage,
+  previewSrc: () => undefined,
   async save({ defaultPath, filters }) {
     if (
       filters?.some(({ extensions }) =>

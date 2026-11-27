@@ -21,14 +21,15 @@ import "./set-picker.css";
 
 function SetIcon({ set }: { set: SetInfo }) {
   const [failed, setFailed] = useState(false);
-  return failed || !set.iconSvgUri ? (
+  const src = set.iconSvgUri && imageSrc(set.iconSvgUri);
+  return failed || !src ? (
     <span className="badge" aria-hidden="true">
       {set.code.toUpperCase()}
     </span>
   ) : (
     <img
       className="set-picker-icon"
-      src={imageSrc(set.iconSvgUri)}
+      src={src}
       alt=""
       loading="lazy"
       decoding="async"

@@ -23,7 +23,16 @@ function load(
   return result;
 }
 
-export function useUploadImage(art: Art, mode: boolean | PreviewSettings) {
+export interface UploadImage {
+  src: string | undefined;
+  failed: boolean;
+}
+
+/** Browser object URL for a web upload; `src` stays unset until it loads. */
+export function useUploadImage(
+  art: Art,
+  mode: boolean | PreviewSettings,
+): UploadImage {
   const source =
     isWebPreview() && art.provider === "upload" ? art.imageUrl : "";
   const artJson =
@@ -32,7 +41,7 @@ export function useUploadImage(art: Art, mode: boolean | PreviewSettings) {
       : "";
   const variant = typeof mode === "boolean" ? mode : JSON.stringify(mode);
   const key = JSON.stringify([source, artJson, variant]);
-  const [image, setImage] = useState<{ key: string; url: string }>();
+  const [image, setImage] = useState<{ key: string } & UploadImage>();
   useEffect(() => {
     if (!source) return;
     let active = true;
@@ -41,10 +50,10 @@ export function useUploadImage(art: Art, mode: boolean | PreviewSettings) {
       (blob) => {
         if (!active) return;
         url = URL.createObjectURL(blob);
-        setImage({ key, url });
+        setImage({ key, src: url, failed: false });
       },
       () => {
-        if (active) setImage({ key, url: "about:blank" });
+        if (active) setImage({ key, src: undefined, failed: true });
       },
     );
     return () => {
@@ -52,5 +61,5 @@ export function useUploadImage(art: Art, mode: boolean | PreviewSettings) {
       if (url) URL.revokeObjectURL(url);
     };
   }, [key, source, artJson, variant]);
-  return image?.key === key ? image.url : undefined;
+  return image?.key === key ? image : { src: undefined, failed: false };
 }
