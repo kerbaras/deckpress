@@ -52,6 +52,7 @@ import {
   UnkeyedLoading,
   useTask,
 } from "./ui.tsx";
+import { addReloadBlocker, notifyReloadCheck } from "./web/pwa/register.ts";
 import { WebStorage } from "./web/storage-settings.tsx";
 import { Workspace } from "./workspace.tsx";
 
@@ -128,10 +129,12 @@ export function App() {
   const artExitDestination = useRef<string | null>(null);
   const onPreviewChange = useCallback((changed: boolean) => {
     artPreview.current = changed;
+    if (!changed && isWebPreview()) notifyReloadCheck();
   }, []);
   const registerPolicyPreview = useCallback(
     (preview: typeof policyPreview.current) => {
       policyPreview.current = preview;
+      if (!preview && isWebPreview()) notifyReloadCheck();
     },
     [],
   );
@@ -197,6 +200,7 @@ export function App() {
   const window_ = useWindowState(confirmWindowExit);
   const onDirty = useCallback((value: boolean) => {
     dirty.current = value;
+    if (!value && isWebPreview()) notifyReloadCheck();
   }, []);
   const health = useQuery({
     queryKey: ["health"],
@@ -280,9 +284,13 @@ export function App() {
     const unload = (event: BeforeUnloadEvent) => {
       if (dirty.current || hasArtPreview()) event.preventDefault();
     };
+    const removeBlocker = isWebPreview()
+      ? addReloadBlocker(() => dirty.current || hasArtPreview())
+      : undefined;
     window.addEventListener("hashchange", onChange);
     window.addEventListener("beforeunload", unload);
     return () => {
+      removeBlocker?.();
       window.removeEventListener("hashchange", onChange);
       window.removeEventListener("beforeunload", unload);
     };

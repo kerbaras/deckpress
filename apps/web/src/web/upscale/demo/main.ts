@@ -16,6 +16,7 @@ const file = get<HTMLInputElement>("file");
 const model = get<HTMLSelectElement>("model");
 const run = get<HTMLButtonElement>("run");
 const cancel = get<HTMLButtonElement>("cancel");
+const retry = get<HTMLButtonElement>("retry");
 const status = get("status");
 const progress = get<HTMLProgressElement>("progress");
 const original = get<HTMLImageElement>("original");
@@ -57,6 +58,7 @@ function choose(picked: File | undefined) {
   clearResult();
   showTiming();
   run.disabled = false;
+  retry.hidden = true;
   status.textContent = picked.name;
 }
 
@@ -80,6 +82,7 @@ async function submit() {
   const { signal } = job;
   run.disabled = model.disabled = file.disabled = true;
   cancel.disabled = false;
+  retry.hidden = true;
   clearResult();
   showTiming();
   status.textContent = "Opening image and model…";
@@ -102,11 +105,13 @@ async function submit() {
     showTiming(proof.timing);
     status.textContent = "PNG ready to download.";
   } catch (error) {
-    status.textContent = signal.aborted
-      ? "Upscaling cancelled."
-      : error instanceof Error
-        ? error.message
-        : String(error);
+    if (signal.aborted) {
+      status.textContent = "Upscaling cancelled.";
+    } else {
+      status.textContent =
+        error instanceof Error ? error.message : String(error);
+      retry.hidden = false;
+    }
   } finally {
     job = undefined;
     run.disabled = model.disabled = file.disabled = false;
@@ -121,6 +126,7 @@ dropZone.addEventListener("drop", (event) => {
   choose(event.dataTransfer?.files[0]);
 });
 cancel.addEventListener("click", () => job?.abort());
+retry.addEventListener("click", () => void submit());
 document.querySelector("form")?.addEventListener("submit", (event) => {
   event.preventDefault();
   void submit();
