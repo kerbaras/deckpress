@@ -1,28 +1,36 @@
 //! Super-resolution behind the `Upscaler` trait. `tiling` turns any fixed-tile
-//! model into a whole-image upscaler; `ort_backend` runs ONNX models through
-//! ONNX Runtime; `manifest` knows which models exist, where they live and how
-//! to fetch and verify the ones that are not bundled.
+//! model into a whole-image upscaler. Native builds also include ONNX Runtime
+//! and the model manifest.
 
+#[cfg(feature = "native")]
 pub mod manifest;
+#[cfg(feature = "native")]
 pub mod ort_backend;
+#[cfg(feature = "native")]
 pub mod preview;
 pub mod tiling;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::Arc;
+#[cfg(feature = "native")]
+use std::sync::{Mutex, Weak};
 
 use image::RgbImage;
 use serde::Serialize;
+#[cfg(feature = "native")]
 use tokio::sync::Notify;
 
 use crate::error::AppResult;
 
+#[cfg(feature = "native")]
 type CancelHook = dyn Fn() + Send + Sync;
 
 #[derive(Default)]
 struct Cancellation {
     cancelled: AtomicBool,
+    #[cfg(feature = "native")]
     wake: Notify,
+    #[cfg(feature = "native")]
     hooks: Mutex<Vec<Weak<CancelHook>>>,
 }
 
@@ -32,6 +40,9 @@ pub struct CancelToken(Arc<Cancellation>);
 
 impl CancelToken {
     pub fn cancel(&self) {
+        #[cfg(not(feature = "native"))]
+        self.0.cancelled.store(true, Ordering::SeqCst);
+        #[cfg(feature = "native")]
         if !self.0.cancelled.swap(true, Ordering::SeqCst) {
             self.0.wake.notify_waiters();
             let mut hooks = self.0.hooks.lock().unwrap_or_else(|err| err.into_inner());
@@ -53,6 +64,7 @@ impl CancelToken {
         }
     }
 
+    #[cfg(feature = "native")]
     pub async fn cancelled(&self) {
         let notified = self.0.wake.notified();
         if !self.is_cancelled() {
@@ -60,6 +72,7 @@ impl CancelToken {
         }
     }
 
+    #[cfg(feature = "native")]
     fn on_cancel(&self, hook: impl Fn() + Send + Sync + 'static) -> AppResult<Arc<CancelHook>> {
         let mut hooks = self.0.hooks.lock().unwrap_or_else(|err| err.into_inner());
         self.check()?;

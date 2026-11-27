@@ -6,7 +6,7 @@
 //! or the corner fill colour.
 
 use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
-use image::{Rgb, RgbImage};
+use image::{DynamicImage, ImageDecoder, ImageReader, Rgb, RgbImage};
 
 use crate::error::{AppError, AppResult};
 use crate::layout::{face_pixels, mm_to_pixels};
@@ -16,8 +16,11 @@ use crate::upscaler::{CancelToken, Upscaler};
 /// Physical size MPC Autofill scans describe (2.5 x 3.5 inches).
 const MPC_CARD_MM: (f64, f64) = (63.5, 88.9);
 pub(crate) const UPLOAD_CARD_MM: (f64, f64) = (63.0, 88.0);
+#[cfg(feature = "native")]
 const MPC_BLEED_MM: f64 = 3.048;
+#[cfg(feature = "native")]
 const EIGHTH_INCH_MM: f64 = 3.175;
+#[cfg(feature = "native")]
 const BLEED_ASPECT_TOLERANCE: f64 = 0.0015;
 const TRIM_ASPECT_TOLERANCE: f64 = 0.01;
 
@@ -27,6 +30,22 @@ pub const PIPELINE_VERSION: u32 = 6;
 
 /// Corner radius of a real card.
 pub const CORNER_RADIUS_MM: f64 = 3.0;
+
+/// Decodes with size limits and applies the EXIF orientation, so camera
+/// photos come out upright.
+pub fn decode(bytes: &[u8]) -> AppResult<DynamicImage> {
+    let mut reader = ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(12_000);
+    limits.max_image_height = Some(12_000);
+    limits.max_alloc = Some(600 * 1024 * 1024);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder()?;
+    let orientation = decoder.orientation()?;
+    let mut image = DynamicImage::from_decoder(decoder)?;
+    image.apply_orientation(orientation);
+    Ok(image)
+}
 
 pub fn parse_hex_color(input: &str) -> Rgb<u8> {
     let hex = input.trim().trim_start_matches('#');
@@ -58,6 +77,7 @@ pub(crate) fn to_rgb(image: image::DynamicImage, background: Rgb<u8>) -> RgbImag
 }
 
 /// Match common full-bleed formats without treating any wide image as bleed.
+#[cfg(feature = "native")]
 pub(crate) fn detect_upload_bleed(width: u32, height: u32) -> f64 {
     let ratio = f64::from(width) / f64::from(height);
     let formats = [
@@ -394,7 +414,7 @@ pub fn rasterize(
     progress: &mut dyn FnMut(usize, usize),
 ) -> AppResult<RasterOutput> {
     let background = parse_hex_color(&settings.bleed_color);
-    let decoded = to_rgb(crate::images::decode(source)?, background);
+    let decoded = to_rgb(decode(source)?, background);
     let mut face = strip_bleed(&decoded, art, settings);
     let target = trim_pixels(settings);
     if target.0 == 0 || target.1 == 0 {

@@ -77,16 +77,17 @@ macro_rules! internal_from {
 
 internal_from!(
     std::io::Error,
-    rusqlite::Error,
     serde_json::Error,
     image::ImageError,
-    reqwest::Error,
-    tokio::task::JoinError,
     krilla::error::KrillaError,
     fast_image_resize::ResizeError,
     fast_image_resize::ImageBufferError,
 );
 
+#[cfg(feature = "native")]
+internal_from!(rusqlite::Error, reqwest::Error, tokio::task::JoinError);
+
+#[cfg(feature = "native")]
 impl<R> From<ort::Error<R>> for AppError {
     fn from(error: ort::Error<R>) -> Self {
         Self::internal(format!("ONNX Runtime: {error}"))
