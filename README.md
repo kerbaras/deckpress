@@ -4,7 +4,7 @@ Deckpress is a local desktop app for printing Magic: The Gathering proxies. Impo
 
 ## Web preview
 
-Open the [Deckpress web preview](https://kerbaras.github.io/deckpress/) in up-to-date desktop Chrome. Import a pasted or saved decklist, resolve it with Scryfall, and export a PDF or PNG ZIP at 600 DPI by default. Free layouts also export an SVG cut template.
+Open the [Deckpress web preview](https://kerbaras.github.io/deckpress/) in up-to-date desktop Chrome. Import a pasted or saved decklist, resolve it with Scryfall, and export a PDF or PNG ZIP at 600 DPI by default. Print Setup also offers matching SVG, DXF, or Silhouette Studio cut files depending on the layout. The Silhouette archive downloads the first time you use it.
 
 - Use HTTPS or localhost. The service worker reloads the page when it first takes control and supplies the cross-origin isolation headers required for threaded WASM. WebGPU needs a compatible GPU and driver with `shader-f16`. The browser tries WebGPU first, then threaded WASM when isolated, then single-threaded WASM. Chrome 137 or later is recommended.
 - The default General x4v3 model and the faster Anime model download from the site on first use and are checked against their SHA-256 hashes. After an online export you can reopen the site and export the same deck offline, as long as Chrome retains the app, model, and scans. Pick a smaller sheet range if a large export exhausts available memory.

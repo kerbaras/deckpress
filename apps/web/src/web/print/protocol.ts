@@ -13,7 +13,7 @@ export type PrintRequest =
       deck: Deck;
       settings: PrintSettings;
     }
-  | { kind: "svg"; settings: PrintSettings }
+  | { kind: "cut"; format: "svg" | "dxf" | "studio3"; settings: PrintSettings }
   | { kind: "calibration"; settings: PrintSettings }
   | { kind: "source-dpi"; settings: PrintSettings; arts: Art[] };
 
@@ -30,7 +30,7 @@ export type PrintResult =
       message: string;
       total: number;
     }
-  | { kind: "svg"; text: string }
+  | { kind: "cut"; file: Blob }
   | { kind: "calibration"; file: Blob }
   | { kind: "source-dpi"; readings: (SourceReading | null)[] };
 

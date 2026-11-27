@@ -224,13 +224,21 @@ export const webBackend: Backend = {
         return downloadBlob(text.parse(args.destination), result.file);
       }
       case "save_cut_template": {
+        const format = z
+          .enum(["svg", "dxf", "studio3"])
+          .default("svg")
+          .parse(args.format);
+        const destination = text.parse(args.destination);
+        if (!destination.endsWith(`.${format}`))
+          throw new Error(`Save the cut template as a .${format} file.`);
         const result = await runPrintWorker({
-          kind: "svg",
+          kind: "cut",
+          format,
           settings: printSettingsSchema.parse(args.settings),
         });
-        if (result.kind !== "svg")
+        if (result.kind !== "cut")
           throw new Error("Invalid cut template response");
-        return downloadText(text.parse(args.destination), result.text, "svg");
+        return downloadBlob(destination, result.file);
       }
       case "source_dpi": {
         const result = await runPrintWorker({
@@ -260,7 +268,7 @@ export const webBackend: Backend = {
     if (
       filters?.some(({ extensions }) =>
         extensions.some((extension) =>
-          ["json", "pdf", "zip", "svg"].includes(extension),
+          ["json", "pdf", "zip", "svg", "dxf", "studio3"].includes(extension),
         ),
       )
     ) {

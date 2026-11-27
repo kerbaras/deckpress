@@ -9,11 +9,6 @@ const formats = {
     limit: 512 * 1024,
     label: "MPC Autofill order",
   },
-  svg: {
-    mime: "image/svg+xml",
-    limit: 512 * 1024,
-    label: "Cut template",
-  },
 };
 
 export function downloadText(

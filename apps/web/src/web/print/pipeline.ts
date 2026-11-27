@@ -32,6 +32,11 @@ interface WasmPrint {
     images: Map<string, Uint8Array>,
   ): Uint8Array<ArrayBuffer>;
   buildCutSvg(settings: string): string;
+  buildCutDxf(settings: string): string;
+  buildCutStudio3(
+    settings: string,
+    archive: Uint8Array,
+  ): Uint8Array<ArrayBuffer>;
   buildDuplexCalibrationPdf(settings: string): Uint8Array<ArrayBuffer>;
 }
 
@@ -66,8 +71,34 @@ export async function print(
   const wasm: WasmPrint = await import(/* @vite-ignore */ url.href);
   await wasm.default();
   const settings = JSON.stringify(request.settings);
-  if (request.kind === "svg")
-    return { kind: "svg", text: wasm.buildCutSvg(settings) };
+  if (request.kind === "cut") {
+    if (request.format === "studio3") {
+      const response = await fetch(
+        new URL("print/cutting-templates.zip", base),
+      );
+      if (!response.ok)
+        throw new Error(
+          `Could not load the Silhouette templates (${response.status}).`,
+        );
+      const archive = new Uint8Array(await response.arrayBuffer());
+      return {
+        kind: "cut",
+        file: new Blob([wasm.buildCutStudio3(settings, archive)], {
+          type: "application/octet-stream",
+        }),
+      };
+    }
+    const svg = request.format === "svg";
+    return {
+      kind: "cut",
+      file: new Blob(
+        [svg ? wasm.buildCutSvg(settings) : wasm.buildCutDxf(settings)],
+        {
+          type: svg ? "image/svg+xml" : "image/vnd.dxf",
+        },
+      ),
+    };
+  }
   if (request.kind === "calibration")
     return {
       kind: "calibration",

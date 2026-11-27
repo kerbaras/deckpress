@@ -1,8 +1,21 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, expect, it, vi } from "vitest";
-import { api, fetchHealth, imageSrc, UrlImportError } from "../../api.ts";
+import legacyBackup from "../../../../../packages/core/tests/fixtures/deck-backup-before-board-names.json";
+import {
+  api,
+  downloadCutTemplate,
+  fetchHealth,
+  imageSrc,
+  UrlImportError,
+} from "../../api.ts";
+import { deckSchema } from "../../core/index.ts";
+import * as printJobs from "../print/jobs.ts";
+import * as downloads from "./download.ts";
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 it("routes commands and image URLs through Tauri when the runtime is present", async () => {
   vi.stubEnv("VITE_TARGET", "");
@@ -44,3 +57,29 @@ it("uses the web backend for the explicit web target even with Tauri available",
   });
   expect(ipc).not.toHaveBeenCalled();
 });
+
+it.each(["svg", "dxf", "studio3"] as const)(
+  "downloads a %s cut template from the web print worker",
+  async (format) => {
+    vi.stubEnv("VITE_TARGET", "web");
+    const ipc = vi.fn();
+    mockIPC(ipc);
+
+    const deck = deckSchema.parse(legacyBackup);
+    const file = new Blob(["cut file"]);
+    const worker = vi
+      .spyOn(printJobs, "runPrintWorker")
+      .mockResolvedValue({ kind: "cut", file });
+    const download = vi.spyOn(downloads, "downloadBlob").mockReturnValue(null);
+
+    const destination = await downloadCutTemplate(deck, format);
+    expect(destination?.endsWith(`-cut-template.${format}`)).toBe(true);
+    expect(worker).toHaveBeenCalledWith({
+      kind: "cut",
+      format,
+      settings: deck.printSettings,
+    });
+    expect(download).toHaveBeenCalledWith(destination, file);
+    expect(ipc).not.toHaveBeenCalled();
+  },
+);

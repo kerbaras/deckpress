@@ -4564,6 +4564,116 @@ it("saves a cut template from the Other exports menu and explains it in SCM mode
   ).not.toHaveAttribute("aria-disabled");
 });
 
+it("exports the selected SCM Studio file or falls back to DXF for unsupported and Free layouts", async () => {
+  const user = userEvent.setup();
+  const saveDialog = vi.fn();
+  const saveTemplate = vi.fn();
+  mockIPC((cmd, args) => {
+    if (cmd === "export_file_name") return exportFileName(args);
+    if (cmd === "plugin:dialog|save") return saveDialog(args);
+    if (cmd === "save_cut_template") return saveTemplate(args);
+  });
+  function PrintHarness() {
+    const [value, setValue] = useState(deck);
+    return (
+      <PrintSetup
+        deck={value}
+        onChange={setValue}
+        onSave={async (value) => value}
+        onJobs={() => {}}
+        mpcExport={{ busy: false, run: () => {} }}
+      />
+    );
+  }
+  renderWithClient(<PrintHarness />);
+  const mode = screen.getByRole("combobox", { name: "Layout mode" });
+  const menu = screen.getByRole("button", { name: "Other exports" });
+  await user.selectOptions(mode, "scm");
+  await user.selectOptions(
+    screen.getByRole("combobox", { name: "SCM registration marks" }),
+    "4",
+  );
+  await user.click(menu);
+  const studioLabel = "Silhouette Studio cut file (.studio3)";
+  const studio = screen.getByRole("menuitem", { name: studioLabel });
+  expect(studio).toHaveAccessibleDescription(
+    "Matches a4-standard-v5. Print the PDF at 100%. Select Cameo 5 Alpha in Silhouette Studio for 4 marks.",
+  );
+  expect(screen.queryByRole("menuitem", { name: "DXF cut lines" })).toBeNull();
+  saveDialog.mockReturnValueOnce("/chosen/Burn-a4-standard-v5.studio3");
+  await user.click(studio);
+  await waitFor(() =>
+    expect(saveTemplate).toHaveBeenCalledWith({
+      format: "studio3",
+      destination: "/chosen/Burn-a4-standard-v5.studio3",
+      settings: expect.objectContaining({
+        scmTemplate: {
+          paper: "a4",
+          card: "standard",
+          variant: "default",
+          marks: 4,
+        },
+      }),
+    }),
+  );
+  expect(saveDialog).toHaveBeenLastCalledWith({
+    options: expect.objectContaining({
+      defaultPath: "Burn-a4-standard-v5.studio3",
+      filters: [
+        { name: "Silhouette Studio cut file", extensions: ["studio3"] },
+      ],
+    }),
+  });
+  const picker = screen.getByRole("combobox", {
+    name: "Silhouette Cameo template",
+  });
+  await user.selectOptions(picker, "arch_b:borderless");
+  expect(picker).toHaveValue("arch_b:borderless");
+  await user.click(menu);
+  expect(screen.queryByRole("menuitem", { name: studioLabel })).toBeNull();
+  const dxf = screen.getByRole("menuitem", { name: "DXF cut lines" });
+  expect(dxf).toHaveAccessibleDescription(/sheet exceeds the 12×24 mat/);
+  saveDialog.mockReturnValueOnce("/chosen/borderless.dxf");
+  await user.click(dxf);
+  await waitFor(() =>
+    expect(saveTemplate).toHaveBeenLastCalledWith({
+      format: "dxf",
+      destination: "/chosen/borderless.dxf",
+      settings: expect.objectContaining({
+        scmTemplate: {
+          paper: "arch_b",
+          card: "standard",
+          variant: "borderless",
+          marks: 4,
+        },
+      }),
+    }),
+  );
+  expect(saveDialog).toHaveBeenLastCalledWith({
+    options: expect.objectContaining({
+      defaultPath: expect.stringMatching(
+        /^Burn-arch_b-standard-borderless-v\d+\.dxf$/,
+      ),
+      filters: [{ name: "DXF cut lines", extensions: ["dxf"] }],
+    }),
+  });
+  await user.selectOptions(mode, "free");
+  await user.click(menu);
+  expect(screen.queryByRole("menuitem", { name: studioLabel })).toBeNull();
+  saveDialog.mockReturnValueOnce("/chosen/free.dxf");
+  await user.click(screen.getByRole("menuitem", { name: "DXF cut lines" }));
+  await waitFor(() =>
+    expect(saveTemplate).toHaveBeenLastCalledWith({
+      format: "dxf",
+      destination: "/chosen/free.dxf",
+      settings: expect.objectContaining({ layoutMode: "free" }),
+    }),
+  );
+  expect(saveDialog).toHaveBeenLastCalledWith({
+    options: expect.objectContaining({ defaultPath: "Burn-cut-template.dxf" }),
+  });
+});
+
 it("mounts the print preset status before saving", async () => {
   const user = userEvent.setup();
   const store = vi

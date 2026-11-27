@@ -7,7 +7,7 @@ use deckpress_core::png_export;
 use deckpress_core::scm;
 use deckpress_core::upscaler::CancelToken;
 use deckpress_core::validate::validate_entries;
-use deckpress_core::{art_quality, cut_svg};
+use deckpress_core::{art_quality, cut_dxf, cut_svg, scm_cut};
 use deckpress_core::{AppError, AppResult};
 use js_sys::{JsString, Map, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -108,6 +108,16 @@ pub fn assess_source(
     let settings = scm::effective_print_settings(&settings(settings_json)?).map_err(js_error)?;
     serde_json::to_string(&art_quality::assess_source(width, height, &art, &settings))
         .map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = buildCutDxf)]
+pub fn build_cut_dxf(settings_json: &str) -> Result<String, JsError> {
+    cut_dxf::build_cut_dxf(&settings(settings_json)?).map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = buildCutStudio3)]
+pub fn build_cut_studio3(settings_json: &str, archive: &[u8]) -> Result<Vec<u8>, JsError> {
+    scm_cut::studio3_from_archive(&settings(settings_json)?, archive).map_err(js_error)
 }
 
 /// Coordinates are in PDF points, measured from the top left.

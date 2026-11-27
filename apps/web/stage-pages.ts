@@ -46,6 +46,7 @@ export function stagePages(): Plugin {
         "ort-wasm-simd-threaded.asyncify.wasm",
       ];
       const print = ["deckpress_core_wasm.js", "deckpress_core_wasm_bg.wasm"];
+      const cutArchive = "cutting-templates.zip";
       const modelFiles = models.filter(
         ({ bundled, scale, tile }) => bundled && scale === 4 && tile === 256,
       );
@@ -55,6 +56,10 @@ export function stagePages(): Plugin {
         ),
         ...print.map((file) =>
           copyFile(resolve(core, file), resolve(out, "print", file)),
+        ),
+        copyFile(
+          resolve(workspace, "packages/core/assets/scm", cutArchive),
+          resolve(out, "print", cutArchive),
         ),
         ...modelFiles.map(async ({ file, sha256 }) => {
           const bytes = await readFile(resolve(bundled, file));
@@ -90,6 +95,7 @@ export function stagePages(): Plugin {
         ...files,
         ...runtime.map((file) => `ort/${file}`),
         ...print.map((file) => `print/${file}`),
+        `print/${cutArchive}`,
       ]) {
         hash.update(file).update(await readFile(resolve(out, file)));
       }
