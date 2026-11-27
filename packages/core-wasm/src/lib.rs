@@ -16,6 +16,8 @@ use js_sys::{JsString, Map, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 
+mod language;
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(typescript_type = "Map<string, Uint8Array>")]

@@ -1,15 +1,25 @@
-import type { ArtPreview, PrintLanguagePreferences } from "../../api.ts";
+import type {
+  ArtPreview,
+  ArtPreviewProgress,
+  PrintLanguagePreferences,
+} from "../../api.ts";
 import type { ArtPolicy, Deck } from "../../core/index.ts";
+import { supportedLanguage } from "../providers/languages.ts";
 import type { policyProvider } from "../providers/printings.ts";
 import type { deckStore } from "../store/decks.ts";
 import { planLocalization, planPolicy, validatePolicy } from "./art-plan.ts";
+import { languageOverride, planDeckLanguage } from "./language-plan.ts";
+import { canChangeArt } from "./set-matching.ts";
 
 export function artHistory(
   decks: Pick<ReturnType<typeof deckStore>, "get" | "save">,
   provider: ReturnType<typeof policyProvider>,
   preferences: () => Promise<PrintLanguagePreferences>,
 ) {
-  const pending = new Map<string, { id: string; next: Deck | null }>();
+  const pending = new Map<
+    string,
+    { id: string; next: Deck | null; language?: string }
+  >();
   const undo = new Map<string, { appliedRevision: number; before: Deck }>();
   let tail = Promise.resolve();
 
@@ -38,6 +48,7 @@ export function artHistory(
       deck: Deck,
       preferences: PrintLanguagePreferences,
     ) => Promise<{ changes: ArtPreview["changes"]; next: Deck | null }>,
+    language?: string,
   ): Promise<ArtPreview> {
     const { before, previewId } = await serialize(async () => {
       const before = await atRevision(id, revision);
@@ -50,9 +61,18 @@ export function artHistory(
       await atRevision(id, revision);
       if (pending.get(id)?.id !== previewId)
         throw new Error("This art preview was superseded.");
-      pending.set(id, { id: previewId, next });
-      return { previewId, canApply: next !== null, changes };
+      pending.set(id, { id: previewId, next, ...(language && { language }) });
+      return { previewId, canApply: next !== null, changes, language };
     });
+  }
+
+  function languagePending(id: string, previewId: string) {
+    const preview = pending.get(id);
+    if (preview?.id !== previewId || !preview.language)
+      throw new Error(
+        "This language preview expired. Preview the changes again.",
+      );
+    return { preview, language: preview.language };
   }
 
   return {
@@ -71,6 +91,52 @@ export function artHistory(
       return preview(id, revision, (deck, prefs) =>
         planLocalization(provider, deck, entryId, artId, prefs),
       );
+    },
+    previewLanguage(
+      id: string,
+      revision: number,
+      language: string,
+      onProgress?: (progress: ArtPreviewProgress) => void,
+    ) {
+      if (!supportedLanguage(language))
+        throw new Error("Unsupported print language.");
+      return preview(
+        id,
+        revision,
+        (deck, prefs) =>
+          planDeckLanguage(provider, deck, language, prefs, onProgress),
+        language,
+      );
+    },
+    async overrideLanguage(
+      id: string,
+      revision: number,
+      previewId: string,
+      entryId: string,
+      artId: string,
+    ) {
+      const before = await atRevision(id, revision);
+      languagePending(id, previewId);
+      const index = before.entries.findIndex((entry) => entry.id === entryId);
+      const original = before.entries[index];
+      if (!original) throw new Error("Card not found");
+      if (!canChangeArt(original)) throw new Error("Manual art is protected.");
+      const printing = await provider.get(artId);
+      return serialize(async () => {
+        await atRevision(id, revision);
+        const { preview, language } = languagePending(id, previewId);
+        const next = preview.next ?? before;
+        const { entry, change } = await languageOverride(
+          original,
+          next.entries[index] ?? original,
+          printing,
+          language,
+        );
+        const entries = next.entries.slice();
+        entries[index] = entry;
+        preview.next = { ...next, entries };
+        return change;
+      });
     },
     apply(id: string, revision: number, previewId: string) {
       return serialize(async () => {

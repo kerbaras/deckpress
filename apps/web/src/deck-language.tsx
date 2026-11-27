@@ -1,59 +1,44 @@
 import { useState } from "react";
-import type { ArtPreview, LanguageTier } from "./api.ts";
-import { PrintSummary } from "./art-policy.tsx";
+import type { ArtPreview, ArtPreviewProgress, LanguageTier } from "./api.ts";
+import { PrintSummary, previewStatus } from "./art-policy.tsx";
 import type { Deck, DeckEntry } from "./core/index.ts";
 import { languageList, printLanguages } from "./print-language.tsx";
 import { useScryfallPrints } from "./scryfall-editions.ts";
+import { scryfallRetryMessage, useScryfallRetry } from "./scryfall-status.ts";
 import { ErrorNotice, Modal, StatusRegion, useTask } from "./ui.tsx";
-
-export const deckLanguageUnavailable =
-  "Deck language switching is not available on the web yet.";
 
 export function DeckLanguageControl({
   language,
   disabled,
-  web,
   onSelect,
   onUndo,
 }: {
   language: string | undefined;
   disabled: boolean;
-  web: boolean;
   onSelect: (language: string, opener: HTMLSelectElement) => void;
   onUndo: (() => void) | undefined;
 }) {
-  const [showAvailability, setShowAvailability] = useState(false);
   return (
     <div className="deck-language-control">
-      {web ? (
-        <button
-          type="button"
-          className="quiet"
-          onClick={() => setShowAvailability(true)}
+      <label className="inline-label">
+        Deck language
+        <select
+          value={language ?? ""}
+          disabled={disabled}
+          onChange={(event) =>
+            onSelect(event.currentTarget.value, event.currentTarget)
+          }
         >
-          Deck language
-        </button>
-      ) : (
-        <label className="inline-label">
-          Deck language
-          <select
-            value={language ?? ""}
-            disabled={disabled}
-            onChange={(event) =>
-              onSelect(event.currentTarget.value, event.currentTarget)
-            }
-          >
-            <option value="" disabled>
-              Import default
+          <option value="" disabled>
+            Import default
+          </option>
+          {printLanguages.map(([code, name]) => (
+            <option value={code} key={code}>
+              {name}
             </option>
-            {printLanguages.map(([code, name]) => (
-              <option value={code} key={code}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+          ))}
+        </select>
+      </label>
       {onUndo && (
         <button
           type="button"
@@ -63,11 +48,6 @@ export function DeckLanguageControl({
         >
           Undo language change
         </button>
-      )}
-      {showAvailability && (
-        <Modal title="Deck language" onClose={() => setShowAvailability(false)}>
-          <p>{deckLanguageUnavailable}</p>
-        </Modal>
       )}
     </div>
   );
@@ -88,6 +68,7 @@ export function DeckLanguagePreview({
   deck,
   language,
   preview,
+  progress,
   error,
   busy,
   onKeep,
@@ -97,6 +78,7 @@ export function DeckLanguagePreview({
   deck: Deck;
   language: string;
   preview: ArtPreview | undefined;
+  progress: ArtPreviewProgress | undefined;
   error: unknown;
   busy: boolean;
   onKeep: () => void;
@@ -104,6 +86,7 @@ export function DeckLanguagePreview({
   onOverride: (entryId: string, artId: string) => Promise<void>;
 }) {
   const [override, setOverride] = useState<DeckEntry>();
+  const retry = useScryfallRetry();
   const counts = new Map<LanguageTier, number>();
   for (const { tier, quantity } of preview?.changes ?? []) {
     if (tier) counts.set(tier, (counts.get(tier) ?? 0) + quantity);
@@ -121,7 +104,11 @@ export function DeckLanguagePreview({
         onClose={onKeep}
       >
         <StatusRegion className="hint" label="Language preview status">
-          {!preview && !error && "Finding matching printings on Scryfall…"}
+          {!preview &&
+            !error &&
+            (retry === undefined
+              ? previewStatus(progress)
+              : scryfallRetryMessage(retry))}
           {preview &&
             `${target} preview ready. ${review?.length ?? 0} rows to review.`}
         </StatusRegion>

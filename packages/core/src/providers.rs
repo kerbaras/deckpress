@@ -511,13 +511,6 @@ pub(crate) fn validate_language(language: &str) -> AppResult<()> {
     }
 }
 
-pub(crate) fn scryfall_art_id(art_id: &str) -> Option<uuid::Uuid> {
-    art_id
-        .strip_prefix("scryfall:")
-        .and_then(|rest| rest.split(':').next())
-        .and_then(|id| uuid::Uuid::parse_str(id).ok())
-}
-
 fn valid_languages(languages: &[String]) -> bool {
     !languages.is_empty()
         && languages.iter().enumerate().all(|(index, language)| {
@@ -1072,7 +1065,7 @@ impl Providers {
     }
 
     pub(crate) async fn policy_printing(&self, art_id: &str) -> AppResult<Option<Printing>> {
-        let Some(id) = scryfall_art_id(art_id) else {
+        let Some(id) = crate::language_deck::scryfall_art_id(art_id) else {
             return Ok(None);
         };
         let raw = self

@@ -50,6 +50,7 @@ async function setup(entries = [entry("m11")]) {
   };
   const provider = {
     sets: vi.fn(async () => []),
+    anchors: vi.fn(async () => new Map<string, Printing>()),
     inventoryBatch: vi.fn(async () => new Map<string, Printing[]>()),
     get: vi.fn(async (artId: string) =>
       prints.find(({ id }) => artId === `scryfall:${id}:0`),
@@ -113,6 +114,80 @@ it("localizes around unusable exact scans without changing illustrations, then p
   await expect(history.undo(deck.id, 2)).rejects.toThrow(
     "There is no art change to undo.",
   );
+});
+
+it("stages a language override, saves it without pinning and keeps web upload metadata through undo", async () => {
+  const original = entry("lea");
+  const upload = {
+    ...entry("m11"),
+    selectedArt: {
+      ...frontArt(original),
+      id: "upload:protected",
+      provider: "upload" as const,
+      contentHash: "a".repeat(64),
+      filename: "custom-art.png",
+    },
+  };
+  const { deck, decks, history, provider } = await setup([original, upload]);
+  const printing = fromFixture("m10", "es");
+  const scan = printing.scans?.[0];
+  if (!scan) throw new Error("Missing Spanish scan");
+  const anchor = frontArt(original);
+  const update = {
+    id: original.id,
+    policyArt: [scan],
+    requestedLanguages: ["es"],
+    languageAnchor: anchor.id,
+    languageChoices: {},
+  };
+  const change = {
+    entryId: original.id,
+    name: original.card.name,
+    quantity: original.quantity,
+    before: anchor,
+    after: scan,
+    kind: "changed",
+    tier: "sameArt",
+    reason: "",
+  };
+  const override = { ...update, languageChoices: { es: printing.id } };
+  vi.spyOn(coreWasm, "loadCoreWasm");
+  vi.mocked(coreWasm.loadCoreWasm, { partial: true }).mockResolvedValue({
+    deckLanguageLookups: () =>
+      JSON.stringify({
+        anchorIds: [original.card.id],
+        oracleIds: [original.card.oracleId],
+      }),
+    planDeckLanguage: () =>
+      JSON.stringify({ updates: [update], changes: [change] }),
+    overrideDeckLanguagePrint: () =>
+      JSON.stringify({
+        update: override,
+        change: { ...change, tier: "override" },
+      }),
+  });
+  const preview = await history.previewLanguage(deck.id, 0, "es");
+  expect(preview).toMatchObject({ language: "es", canApply: true });
+  await expect(
+    history.overrideLanguage(deck.id, 0, preview.previewId, upload.id, scan.id),
+  ).rejects.toThrow("protected");
+  expect(provider.get).not.toHaveBeenCalled();
+  const changed = await history.overrideLanguage(
+    deck.id,
+    0,
+    preview.previewId,
+    original.id,
+    scan.id,
+  );
+  expect(changed).toMatchObject({ tier: "override" });
+  expect(await decks.get(deck.id)).toEqual(deck);
+  const applied = await history.apply(deck.id, 0, preview.previewId);
+  expect(applied.entries[0]).toMatchObject({ ...override, selectedArt: null });
+  expect(applied.entries[1]).toEqual(deck.entries[1]);
+  expect((await decks.get(deck.id)).printLanguage).toBe("es");
+  const undone = await history.undo(deck.id, applied.revision);
+  expect(undone.printLanguage).toBeUndefined();
+  expect(undone.entries).toEqual(deck.entries);
 });
 
 it("reports empty translations in strict mode and marks English fallback when allowed", async () => {
