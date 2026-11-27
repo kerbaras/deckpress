@@ -91,6 +91,8 @@ export const entrySchema = z.object({
   selectedBack: artSchema.nullable().default(null),
   artPinned: z.boolean().optional(),
   policyArt: z.array(artSchema).min(1).max(2).optional(),
+  languageAnchor: z.string().optional(),
+  languageChoices: z.record(z.string(), z.uuid()).optional(),
   excluded: z.boolean().default(false),
   requestedLanguages: z.array(z.string()).optional(),
 });
@@ -201,6 +203,7 @@ export const deckSchema = z.object({
   coverEntryId: z.string().max(36).default(""),
   missingPrints: z.array(missingPrintSchema).optional(),
   artPolicy: artPolicySchema.optional(),
+  printLanguage: z.string().optional(),
   printSettings: printSettingsSchema,
   revision: z.number().int().min(0),
   createdAt: z.iso.datetime(),
@@ -373,6 +376,8 @@ export function mergeImport(
           old.card.id === entry.card.id && old.policyArt?.every(permitsArt)
             ? old.policyArt
             : undefined,
+        languageAnchor: old.languageAnchor ?? entry.languageAnchor,
+        languageChoices: old.languageChoices ?? entry.languageChoices,
         excluded: old.excluded,
       });
       used.add(old.id);

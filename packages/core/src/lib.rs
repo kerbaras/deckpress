@@ -16,6 +16,9 @@ pub mod error;
 pub mod images;
 #[cfg(feature = "native")]
 pub mod jobs;
+#[cfg(feature = "native")]
+mod language_deck;
+pub mod language_switch;
 pub mod layout;
 pub mod models;
 pub mod pdf;

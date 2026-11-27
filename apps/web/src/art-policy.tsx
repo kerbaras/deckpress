@@ -204,10 +204,19 @@ const labels = {
   fallback: "English fallback",
 };
 
-function PrintSummary({ art, label }: { art: Art; label: string }) {
+export function PrintSummary({
+  art,
+  back,
+  label,
+}: {
+  art: Art;
+  back?: Art | undefined;
+  label: string;
+}) {
   return (
     <div className="art-change-print">
       <ArtThumbnail art={art} name="" />
+      {back && <ArtThumbnail art={back} name="" />}
       <div>
         <span className="hint">{label}</span>
         <div>

@@ -16,10 +16,12 @@ const modes: Mode[] = ["paste", "file", "url"];
 const modeLabels = { paste: "Paste", file: "File", url: "URL" };
 
 export function ImportPanel({
+  deckId,
   existing,
   onApply,
   beforeApply,
 }: {
+  deckId?: string | undefined;
   existing: number;
   onApply: (result: ImportResult, replace: boolean) => Promise<void>;
   /** Returns false to stop a save before it starts, e.g. while a host form is incomplete. */
@@ -88,7 +90,10 @@ export function ImportPanel({
       reset();
       try {
         setResult(
-          await api.import(mode === "url" ? { url: url.trim() } : { text }),
+          await api.import({
+            ...(mode === "url" ? { url: url.trim() } : { text }),
+            ...(deckId && { deckId }),
+          }),
         );
         setResolvedMode(mode);
       } catch (error) {
