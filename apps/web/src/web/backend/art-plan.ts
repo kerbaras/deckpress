@@ -5,7 +5,6 @@ import {
   type Deck,
   type DeckEntry,
   frontArt,
-  isArtPinned,
 } from "../../core/index.ts";
 import {
   comparePrints,
@@ -15,6 +14,7 @@ import {
   type policyProvider,
   samePrintingNumber,
 } from "../providers/printings.ts";
+import { canChangeArt, setFamilyRanks } from "./set-matching.ts";
 
 type ArtChange = ArtPreview["changes"][number];
 
@@ -131,8 +131,25 @@ export async function planPolicy(
   policy: ArtPolicy,
   preferences: PrintLanguagePreferences,
 ) {
+  const oracleIds = deck.entries
+    .filter(canChangeArt)
+    .map(({ card }) => card.oracleId);
+  const ranks =
+    policy.kind === "matchSet" && policy.family && oracleIds.length
+      ? await setFamilyRanks(policy.set, await provider.sets())
+      : undefined;
+  const familySets = ranks && [...ranks.keys()];
+  const batchMemo = new Map<string, Promise<Map<string, Printing[]>>>();
   const memo = new Map<string, Promise<Printing[]>>();
-  function inventory(oracleId: string, lang?: string) {
+  async function inventory(oracleId: string, lang?: string) {
+    if (familySets) {
+      const key = lang ?? "";
+      const cached =
+        batchMemo.get(key) ??
+        provider.inventoryBatch(oracleIds, lang, familySets);
+      batchMemo.set(key, cached);
+      return (await cached).get(oracleId) ?? [];
+    }
     const key = `${oracleId}:${lang ?? ""}`;
     const cached = memo.get(key) ?? provider.inventory(oracleId, lang);
     memo.set(key, cached);
@@ -141,10 +158,7 @@ export async function planPolicy(
   const changes: ArtChange[] = [];
   const entries: DeckEntry[] = [];
   for (const entry of deck.entries) {
-    if (
-      isArtPinned(entry) ||
-      entry.card.faces.some((art) => art.provider !== "scryfall")
-    ) {
+    if (!canChangeArt(entry)) {
       changes.push(change(entry, "pinned", null, "Manual art is protected."));
       entries.push(entry);
       continue;
@@ -154,14 +168,14 @@ export async function planPolicy(
     const anchor = options
       .filter(
         (p) =>
-          permits(policy, p) &&
+          permits(policy, p, ranks) &&
           p.illustrations.length === entry.card.faces.length,
       )
-      .sort((a, b) => comparePrints(policy, a, b, true))[0];
+      .sort((a, b) => comparePrints(policy, a, b, true, ranks))[0];
     let candidate: Printing | undefined;
     if (anchor) {
       for (const language of languageOrder(preferences)) {
-        const known = localized(anchor, options, language, policy);
+        const known = localized(anchor, options, language, policy, ranks);
         candidate =
           known && samePrintingNumber(anchor, known)
             ? known
@@ -170,6 +184,7 @@ export async function planPolicy(
                 [...options, ...(await inventory(oracleId, language))],
                 language,
                 policy,
+                ranks,
               );
         if (candidate) break;
       }

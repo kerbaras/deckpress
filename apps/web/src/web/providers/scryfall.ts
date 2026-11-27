@@ -1,3 +1,4 @@
+import { type SetInfo, setInfoSchema } from "../../core/sets.ts";
 import {
   type DocumentStore,
   document,
@@ -24,6 +25,7 @@ export interface Scryfall {
     language: string,
   ): Promise<Record<string, unknown>>;
   printing(id: string): Promise<unknown>;
+  sets(): Promise<SetInfo[]>;
   search(
     query: string,
     page: number,
@@ -136,6 +138,23 @@ export function scryfallClient(
       return record(await json(`/cards/${path}`, true));
     },
     printing: (id) => json(`/cards/${encodeURIComponent(id)}`),
+    async sets() {
+      const response = record(await json("/sets"));
+      if (!Array.isArray(response.data))
+        throw new Error("Unexpected Scryfall set catalog data");
+      return recordList(response.data).map((set) =>
+        setInfoSchema.parse({
+          code: set.code,
+          name: set.name,
+          setType: set.set_type,
+          parentSetCode: set.parent_set_code ?? null,
+          digital: set.digital,
+          releasedAt: set.released_at,
+          iconSvgUri: set.icon_svg_uri,
+          cardCount: set.card_count,
+        }),
+      );
+    },
     async search(query, page) {
       const params = new URLSearchParams({
         q: query,

@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import fixture from "../../../../../packages/core/tests/fixtures/scryfall-languages.json";
+import setFixture from "../../../../../packages/core/tests/fixtures/scryfall-set-families.json";
 import { memoryDocuments } from "../store/memory.test-helper.ts";
 import { scryfallClient } from "./scryfall.ts";
 
@@ -29,4 +30,23 @@ it("serializes requests, spaces their starts by 100 ms, and uses cached response
     fixture.exact_fr,
   );
   expect(starts).toEqual([0, 100]);
+});
+
+it("loads and caches the shared Scryfall set catalog", async () => {
+  const fakeFetch = vi.fn(async () => Response.json(setFixture));
+  const store = memoryDocuments();
+  const client = scryfallClient(store, fakeFetch);
+  const sets = await client.sets();
+  expect(sets.find(({ code }) => code === "fdc")).toMatchObject({
+    code: "fdc",
+    name: "Foundations Commander",
+    setType: "commander",
+    parentSetCode: "fdn",
+  });
+  expect(sets.find(({ code }) => code === "fdn")?.parentSetCode).toBeNull();
+  await expect(scryfallClient(store, fakeFetch).sets()).resolves.toEqual(sets);
+  expect(fakeFetch).toHaveBeenCalledExactlyOnceWith(
+    "https://api.scryfall.com/sets",
+    expect.anything(),
+  );
 });
