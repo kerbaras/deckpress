@@ -302,7 +302,7 @@ async fn exact_set_preview_reuses_family_inventory_only_for_covered_sets() {
             let data = if query.contains("set:ecc") {
                 vec![family_card.clone()]
             } else {
-                vec![family_card.clone(), jumpstart.clone()]
+                vec![jumpstart.clone()]
             };
             tx.send(query.into_owned()).unwrap();
             while {
@@ -338,12 +338,91 @@ async fn exact_set_preview_reuses_family_inventory_only_for_covered_sets() {
         assert_eq!(preview.changes[0].after.as_ref().unwrap().set, expected);
         match set {
             "ecl" => assert!(requests.try_recv().unwrap().contains("set:ecc")),
-            "j25" => assert!(!requests.try_recv().unwrap().contains("set:")),
+            "j25" => assert_eq!(
+                requests.try_recv().unwrap(),
+                format!("oracleid:{ORACLE} game:paper set:j25")
+            ),
             _ => {}
         }
         assert!(requests.try_recv().is_err(), "extra request for {set}");
     }
     mock.abort();
+}
+
+#[tokio::test]
+async fn exact_set_preview_batches_only_oracles_without_covering_inventory() {
+    let cards = cards();
+    let base = printing(&cards, "m11", "en");
+    let oracles: Vec<_> = (1..=4)
+        .map(|id| uuid::Uuid::from_u128(id).to_string())
+        .collect();
+    let mut input = common::new_deck("Mixed printing cache coverage");
+    let mut targets = Vec::new();
+    for oracle in &oracles {
+        let mut raw = base.clone();
+        raw["oracle_id"] = json!(oracle);
+        input.entries.push(entry(&raw));
+        targets.push(in_set(&raw, "fdc", "2024-11-15"));
+    }
+
+    let store = Arc::new(Store::in_memory().unwrap());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = url::Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    drop(listener);
+    let providers = Arc::new(Providers::with_scryfall_origin(store.clone(), origin).unwrap());
+    preferences(&providers, "en", PrintLanguagePolicy::Strict);
+    let service = ArtPolicies::new(store.clone(), providers);
+    store
+        .put(
+            "cache",
+            &format!("policy-printings:{}", oracles[0]),
+            &[&targets[0]],
+        )
+        .unwrap();
+    let family_key = format!(
+        "family-printings:(set:fdc or set:fdn):policy-printings:{}",
+        oracles[1]
+    );
+    store.put("cache", &family_key, &[&targets[1]]).unwrap();
+    store
+        .put(
+            "cache",
+            &format!("family-printing-index:fdc:policy-printings:{}", oracles[1]),
+            &family_key,
+        )
+        .unwrap();
+    record_search(
+        &store,
+        &format!(
+            "(oracleid:{} or oracleid:{}) game:paper set:fdc",
+            oracles[2], oracles[3]
+        ),
+        1,
+        false,
+        &targets[2..3],
+    );
+    let deck = store.create_deck(input).unwrap();
+    let preview = service
+        .preview_policy(&deck.id, deck.revision, set_policy("fdc", false))
+        .await
+        .unwrap();
+    for (change, target) in preview.changes[..3].iter().zip(&targets) {
+        let art = change.after.as_ref().unwrap();
+        assert_eq!(
+            art.id,
+            format!("scryfall:{}:0", target["id"].as_str().unwrap())
+        );
+    }
+    assert!(preview.changes[3].after.is_none());
+
+    let mut input = common::new_deck("Cached exact-set miss");
+    input.entries.push(deck.entries[3].clone());
+    let deck = store.create_deck(input).unwrap();
+    let preview = service
+        .preview_policy(&deck.id, deck.revision, set_policy("fdc", false))
+        .await
+        .unwrap();
+    assert!(preview.changes[0].after.is_none());
 }
 
 #[tokio::test]
@@ -484,18 +563,22 @@ async fn family_matches_commander_and_leaves_unmatched_and_protected_art_untouch
     let dfc_oracle = old_dfc["oracle_id"].as_str().unwrap();
     let mut oracles = [ORACLE, dfc_oracle];
     oracles.sort_unstable();
+    let query = format!(
+        "(oracleid:{} or oracleid:{}) game:paper",
+        oracles[0], oracles[1]
+    );
+    let printings = [
+        in_set(base, "ecc", "2026-01-23"),
+        in_set(old_dfc, "pecl", "2026-01-23"),
+    ];
+    record_search(&store, &query, 1, false, &printings);
+    record_search(&store, &format!("{query} set:ecl"), 1, false, &[]);
     record_search(
         &store,
-        &format!(
-            "(oracleid:{} or oracleid:{}) game:paper",
-            oracles[0], oracles[1]
-        ),
+        &format!("{query} (set:ecc or set:ecl or set:tecc or set:tecl)"),
         1,
         false,
-        &[
-            in_set(base, "ecc", "2026-01-23"),
-            in_set(old_dfc, "pecl", "2026-01-23"),
-        ],
+        &printings[..1],
     );
 
     let mut pinned = entry(base);
@@ -642,7 +725,13 @@ async fn invalid_catalog_is_an_error_for_families_but_not_legacy_exact_policies(
     preferences(&providers, "en", PrintLanguagePolicy::Strict);
     let service = ArtPolicies::new(store.clone(), providers.clone());
     record(&store, SETS_URL, &json!({"data": [{"code": "ecl"}]}));
-    search(&store, None, 1, false, &[in_set(base, "ecl", "2026-01-23")]);
+    record_search(
+        &store,
+        &format!("oracleid:{ORACLE} game:paper set:ecl"),
+        1,
+        false,
+        &[in_set(base, "ecl", "2026-01-23")],
+    );
     let mut input = common::new_deck("Invalid set catalog");
     input.entries = vec![entry(base)];
     let deck = store.create_deck(input).unwrap();

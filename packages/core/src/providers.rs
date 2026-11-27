@@ -1307,16 +1307,22 @@ impl Providers {
         };
         let family_index =
             |set: &str, oracle| format!("family-printing-index:{set}:{}", broad_key(oracle));
-        let cache_key = |oracle| match &family_filter {
-            Some(filter) => format!("family-printings:{filter}:{}", broad_key(oracle)),
-            None => broad_key(oracle),
+        let cache_key = |oracle| match (&family_filter, scope) {
+            (Some(filter), _) => format!("family-printings:{filter}:{}", broad_key(oracle)),
+            (_, PrintingInventoryScope::Exact(set)) => {
+                format!("exact-printings:{set}:{}", broad_key(oracle))
+            }
+            _ => broad_key(oracle),
         };
         let mut inventory = HashMap::new();
         let mut missing = Vec::new();
         oracle_ids.retain(|oracle| uuid::Uuid::parse_str(oracle).is_ok());
         let total = oracle_ids.len();
         for oracle in oracle_ids {
-            let mut cached = self.store.cached(&cache_key(oracle))?;
+            let mut cached = match scope {
+                PrintingInventoryScope::Exact(_) => self.store.cached(&broad_key(oracle))?,
+                _ => self.store.cached(&cache_key(oracle))?,
+            };
             if cached.is_none() {
                 match scope {
                     PrintingInventoryScope::All => {}
@@ -1328,6 +1334,9 @@ impl Providers {
                             self.store.cached(&family_index(set, oracle))?
                         {
                             cached = self.store.cached(&key)?;
+                        }
+                        if cached.is_none() {
+                            cached = self.store.cached(&cache_key(oracle))?;
                         }
                     }
                 }
@@ -1356,6 +1365,10 @@ impl Providers {
             suffix.push(' ');
             suffix.push_str(filter);
         }
+        if let PrintingInventoryScope::Exact(set) = scope {
+            suffix.push_str(" set:");
+            suffix.push_str(set);
+        }
         for (query, batch) in printing_queries(&missing, &suffix, language.is_some()) {
             let mut found: HashMap<_, Vec<Value>> = batch
                 .iter()
@@ -1372,6 +1385,10 @@ impl Providers {
                             if let Some(bucket) = scryfall_oracle_id(raw)
                                 .and_then(|oracle| found.get_mut(oracle))
                                 .filter(|_| language.is_none_or(|language| raw["lang"] == language))
+                                .filter(|_| match scope {
+                                    PrintingInventoryScope::Exact(set) => raw["set"] == set,
+                                    _ => true,
+                                })
                             {
                                 bucket.push(raw.clone());
                             }
