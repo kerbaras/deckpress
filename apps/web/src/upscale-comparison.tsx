@@ -52,7 +52,7 @@ function CropPicker({
   position,
   onMove,
 }: {
-  src: string;
+  src: string | undefined;
   position: CropPosition;
   onMove: (position: CropPosition) => void;
 }) {
@@ -105,7 +105,7 @@ function CropPicker({
           if (event.pointerId === pointerId.current) clearDrag();
         }}
       >
-        <img src={src} alt="" draggable={false} />
+        {src && <img src={src} alt="" draggable={false} />}
         <span
           className="upscale-crop-target"
           aria-hidden="true"
