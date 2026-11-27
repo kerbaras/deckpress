@@ -26,6 +26,16 @@ export interface RequestOptions {
 
 export interface SearchOptions extends RequestOptions {
   includeMultilingual?: boolean;
+  unique?: "cards" | "prints";
+}
+
+export class ScryfallHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`Scryfall returned ${status}. Try again.`);
+    this.status = status;
+  }
 }
 
 export interface Scryfall {
@@ -145,7 +155,7 @@ export function scryfallClient(
         if (response && !("failedAt" in response)) {
           const missing = response.status === 404 && allowMissing;
           if (!missing && !response.ok)
-            throw new Error(`Scryfall returned ${response.status}. Try again.`);
+            throw new ScryfallHttpError(response.status);
           const value: unknown = missing
             ? null
             : await response.json().catch(() => {
@@ -299,7 +309,7 @@ export function scryfallClient(
     async search(query, page, options) {
       const params = new URLSearchParams({
         q: query,
-        unique: "prints",
+        unique: options?.unique ?? "prints",
         include_multilingual: String(options?.includeMultilingual ?? true),
         order: "released",
         dir: "desc",

@@ -7,6 +7,7 @@ pub mod art_policy;
 pub mod art_quality;
 #[cfg(feature = "native")]
 pub mod builder;
+pub mod card_names;
 pub mod cut_dxf;
 pub mod cut_svg;
 #[cfg(feature = "native")]
