@@ -3,7 +3,7 @@ import { type ReactNode, useId, useState } from "react";
 import burnImage from "../../../docs/prototype/assets/48fcafcca79ea3dd7877c5b56f9fecb3.jpg";
 import cubeImage from "../../../docs/prototype/assets/87e0158039c89cf1bdd854a215188d1d.jpg";
 import atraxaImage from "../../../docs/prototype/assets/06140bf59bb49753e6e56092cfe63477.jpg";
-import { api, importedDeckFields } from "./api.ts";
+import { api, importedDeckFields, isWebPreview } from "./api.ts";
 import type { Deck } from "./core/index.ts";
 import { ImportDeck } from "./import-deck.tsx";
 import { ErrorNotice, useTask } from "./ui.tsx";
@@ -45,6 +45,7 @@ export function FirstRun({
   onBuild?: () => void;
 }) {
   const task = useTask();
+  const web = isWebPreview();
   const [importing, setImporting] = useState(false);
   const startSample = (sample: (typeof samples)[number]) =>
     void task.run(async () => {
@@ -66,14 +67,18 @@ export function FirstRun({
       <section className="first-run" aria-labelledby="first-run-title">
         <h2 id="first-run-title">Start your first deck</h2>
         <p className="first-run-lede">
-          Bring a list or build one from suggestions, pick the art for each
-          card, and export a PDF at the exact card size.
+          Bring a list{!web && " or build one from suggestions"}, pick the art
+          for each card, and export a PDF at the exact card size.
         </p>
         <div className="first-run-actions">
           <StartAction
             icon={<ListPlus size={20} />}
             label="Import a list"
-            hint="Paste text, choose a file, or link a public Moxfield or Archidekt deck."
+            hint={
+              web
+                ? "Paste a list or choose a decklist file."
+                : "Paste text, choose a file, or link a public Moxfield or Archidekt deck."
+            }
             onClick={() => setImporting(true)}
           />
           {onBuild && (
@@ -97,8 +102,8 @@ export function FirstRun({
           <HardDrive size={15} aria-hidden="true" />
           <span>
             Your decks, art choices and PDFs stay on this machine. Samples and
-            imports look up card data and images online from Scryfall, and URL
-            imports read the deck from the site you link.
+            imports look up card data and images online from Scryfall
+            {!web && ", and URL imports read the deck from the site you link"}.
           </span>
         </p>
       </section>

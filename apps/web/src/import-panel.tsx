@@ -6,7 +6,7 @@ import {
   RotateCw,
 } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { api, type ImportResult, UrlImportError } from "./api.ts";
+import { api, type ImportResult, isWebPreview, UrlImportError } from "./api.ts";
 import { isMpcXml } from "./core/index.ts";
 import { ImportReview, importStatus } from "./import-review.tsx";
 import { countCards, ErrorNotice, StatusRegion, useTask } from "./ui.tsx";
@@ -54,6 +54,7 @@ export function ImportPanel({
   const saveError = result === lastSaveResult ? save.error : null;
   const busy = task.busy || save.busy;
   const mpc = mode !== "url" && isMpcXml(text);
+  const web = isWebPreview();
   const resolving = mpc ? "Reading MPC Autofill order…" : "Resolving cards…";
   const reset = () => {
     setResult(null);
@@ -132,7 +133,13 @@ export function ImportPanel({
         ))}
       </div>
       <fieldset disabled={busy}>
-        {mode === "url" ? (
+        {mode === "url" && web ? (
+          <p className="hint">
+            Moxfield, Archidekt, MPC Autofill, and Google Drive links require
+            the desktop app. Paste a plain-text list or choose a decklist file
+            here.
+          </p>
+        ) : mode === "url" ? (
           <>
             <label className="field">
               Public deck URL
@@ -160,7 +167,8 @@ export function ImportPanel({
                 <FileUp size={22} />
                 <strong>Choose a decklist</strong>
                 <span>
-                  TXT, CSV, Arena export, MTGO .dek or MPC Autofill XML
+                  TXT, CSV, Arena export, MTGO .dek
+                  {!web && " or MPC Autofill XML"}
                 </span>
                 <input
                   type="file"
@@ -216,25 +224,33 @@ export function ImportPanel({
               />
             </label>
             <p className="hint">
-              Plain text, Arena, CSV, named MTGO XML and MPC Autofill XML. Set
-              codes and collector numbers keep the exact printing.
+              Plain text, Arena, CSV, and named MTGO XML
+              {!web && ", plus MPC Autofill XML"}. Set codes and collector
+              numbers keep the exact printing.
             </p>
           </>
         )}
-        <button
-          type="button"
-          className="wide"
-          disabled={mode === "url" ? !url.trim() : !text.trim()}
-          onClick={() => resolve("resolve")}
-        >
-          {task.busy
-            ? reading
-              ? "Reading decklist file…"
-              : resolving
-            : mpc
-              ? "Read MPC Autofill order"
-              : "Resolve on Scryfall"}
-        </button>
+        {mpc && web && (
+          <p className="hint">MPC Autofill XML requires the desktop app.</p>
+        )}
+        {(mode !== "url" || !web) && (
+          <button
+            type="button"
+            className="wide"
+            disabled={
+              mode === "url" ? !url.trim() : !text.trim() || (web && mpc)
+            }
+            onClick={() => resolve("resolve")}
+          >
+            {task.busy
+              ? reading
+                ? "Reading decklist file…"
+                : resolving
+              : mpc
+                ? "Read MPC Autofill order"
+                : "Resolve on Scryfall"}
+          </button>
+        )}
       </fieldset>
       <ErrorNotice error={task.error} />
       {urlError && mode === "url" && (

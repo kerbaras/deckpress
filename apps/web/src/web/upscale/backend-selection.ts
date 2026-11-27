@@ -1,7 +1,13 @@
 export type Backend = { provider: "webgpu" | "wasm"; threads: number };
 
 export type BrowserCapabilities = {
-  gpu?: { requestAdapter(): Promise<unknown> } | undefined;
+  gpu?:
+    | {
+        requestAdapter(): Promise<{
+          features: { has(name: string): boolean };
+        } | null>;
+      }
+    | undefined;
   crossOriginIsolated: boolean;
   hardwareConcurrency: number;
 };
@@ -14,14 +20,16 @@ export async function backendCandidates({
   const threads = crossOriginIsolated
     ? Math.max(1, Math.floor(hardwareConcurrency) || 1)
     : 1;
-  const wasm: Backend = { provider: "wasm", threads };
+  const wasm: Backend[] = [{ provider: "wasm", threads }];
+  if (threads > 1) wasm.push({ provider: "wasm", threads: 1 });
   try {
-    if (await gpu?.requestAdapter())
-      return [{ provider: "webgpu", threads }, wasm];
+    const adapter = await gpu?.requestAdapter();
+    if (adapter?.features.has("shader-f16"))
+      return [{ provider: "webgpu", threads }, ...wasm];
   } catch {
-    return [wasm];
+    return wasm;
   }
-  return [wasm];
+  return wasm;
 }
 
 export async function openBackend<T>(

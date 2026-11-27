@@ -5,7 +5,11 @@ const newDeckSchema = deckSchema
   .omit({ id: true, revision: true, createdAt: true, updatedAt: true })
   .extend({
     entries: deckSchema.shape.entries.default([]),
-    printSettings: deckSchema.shape.printSettings.prefault({}),
+    printSettings: deckSchema.shape.printSettings
+      .extend({
+        dpi: deckSchema.shape.printSettings.shape.dpi.default(600),
+      })
+      .prefault({}),
   });
 
 function validateDeck(deck: Deck): Deck {
@@ -63,11 +67,27 @@ export function deckStore(
   return {
     create,
     async restore(contents: string) {
-      let input: unknown;
+      let input: ReturnType<typeof newDeckSchema.parse>;
       try {
         input = newDeckSchema.parse(JSON.parse(contents));
       } catch {
         throw new Error("Invalid deck backup");
+      }
+      if (
+        input.entries.some((entry) =>
+          [
+            ...entry.card.faces,
+            ...(entry.policyArt ?? []),
+            entry.selectedArt,
+            entry.selectedBack,
+          ].some(
+            (art) => art?.provider === "upload" || art?.provider === "mpc",
+          ),
+        )
+      ) {
+        throw new Error(
+          "Backups with custom uploads or MPC art require the desktop app.",
+        );
       }
       return { deck: await create(input), updatedUploads: 0 };
     },

@@ -2,7 +2,7 @@ import type { ModelSpec } from "./models.ts";
 
 export type DownloadProgress = (downloaded: number, total: number) => void;
 
-const MODEL_CACHE = "deckpress-upscale-models-v1";
+export const MODEL_CACHE = "deckpress-upscale-models-v1";
 type ModelCache = Pick<Cache, "match" | "put" | "delete">;
 
 class IntegrityError extends Error {
@@ -102,4 +102,11 @@ export async function loadModel(
     throw new Error("Models must be served from this origin");
   void navigator.storage?.persist?.().catch(() => {});
   return readModel(spec, url, await caches.open(MODEL_CACHE), signal, progress);
+}
+
+export async function isModelCached(spec: ModelSpec, base: URL) {
+  return !!(await globalThis.caches?.match(
+    new URL(`models/${spec.file}`, base),
+    { cacheName: MODEL_CACHE },
+  ));
 }

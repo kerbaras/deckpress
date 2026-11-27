@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +8,7 @@ import { test } from 'node:test';
 import {
   buildCutDxf,
   buildCutSvg,
+  buildCutStudio3,
   buildPdf,
   buildPngZip,
   initSync,
@@ -40,8 +42,10 @@ test('SCM A4 WASM export matches the native PDF geometry', (t) => {
     /must be a Uint8Array/,
   );
   const externalUpscale = JSON.stringify({ ...scmSettings, dpi: 150, upscale: true });
-  const pdf = buildPdf(externalUpscale, deckJson, images);
-  assert.equal(Buffer.from(pdf.subarray(0, 5)).toString('ascii'), '%PDF-');
+  const pdf = Buffer.from(buildPdf(externalUpscale, deckJson, images));
+  assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.ok(pdf.includes('AI 4x upscaling applied to eligible images'));
+  assert.ok(!pdf.includes('Lanczos resizing; source detail unchanged'));
 });
 
 test('layout coordinates, SCM catalog and cut SVG are available', () => {
@@ -58,6 +62,9 @@ test('layout coordinates, SCM catalog and cut SVG are available', () => {
   const cutFile = catalog.exports[`${scm.scm.name}.studio3`];
   assert.ok(catalog.files.includes(cutFile.path));
   assert.match(cutFile.sha256, /^[a-f0-9]{64}$/);
+  const archive = readFileSync(new URL('../../core/assets/scm/cutting-templates.zip', import.meta.url));
+  const studio3 = buildCutStudio3(settingsJson, archive);
+  assert.equal(createHash('sha256').update(studio3).digest('hex'), cutFile.sha256);
   assert.throws(() => buildCutSvg(settingsJson), /Use the SCM .studio3 cutting template/);
   const freeJson = JSON.stringify({ layoutMode: 'free' });
   const free = JSON.parse(layoutJson(freeJson));

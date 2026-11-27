@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "Deckpress",
+  "short_name": "Deckpress",
+  "description": "Build card decks and export print-ready PDFs in your browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#131417",
+  "theme_color": "#131417",
+  "icons": [
+    {
+      "src": "deckpress.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

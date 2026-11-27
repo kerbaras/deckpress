@@ -23,11 +23,8 @@ WASM. Run the selected model once online before reloading offline. The page,
 worker and runtime files are cached by the service worker. Model files use
 a separate cache and are checked against `packages/core/models.json` on each use.
 
-The compact and fast models ship with the repo. To offer the quality model,
-download the release asset listed in the manifest and stage it in
-`"$public/models/"` under its manifest filename before building. Do not commit
-the model or point the browser at the GitHub release URL; the browser needs a
-same-origin copy.
+The demo lists the compact and fast models staged by these commands. The
+optional x4plus quality model is available in the desktop app.
 
 ## Chrome proof
 

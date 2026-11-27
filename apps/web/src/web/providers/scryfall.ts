@@ -6,6 +6,7 @@ import {
 import { record, recordList } from "./scryfall-card.ts";
 
 const origin = "https://api.scryfall.com";
+export const scryfallCacheKind = "cache";
 const cacheTtl = 24 * 60 * 60 * 1000;
 const interval = 100;
 const backoff = 30_000;
@@ -70,7 +71,9 @@ export function scryfallClient(
     const pending = pendingByKey.get(key);
     if (pending) return pending;
     const task = (async () => {
-      const hit = await cache.get("cache", key).catch(() => undefined);
+      const hit = await cache
+        .get(scryfallCacheKind, key)
+        .catch(() => undefined);
       if (hit && hit.updatedAt > Date.now() - cacheTtl) {
         return readDocument(hit);
       }
@@ -107,7 +110,9 @@ export function scryfallClient(
           : await response.json().catch(() => {
               throw new Error("Scryfall returned invalid JSON");
             });
-        await cache.put(document("cache", key, value)).catch(() => {});
+        await cache
+          .put(document(scryfallCacheKind, key, value))
+          .catch(() => {});
         return value;
       });
     })().finally(() => pendingByKey.delete(key));

@@ -26,7 +26,6 @@ import {
   isWebPreview,
   type ModelStatus,
   saveFileDialog,
-  upscalingUnavailable,
 } from "./api.ts";
 import { DiscardPreview } from "./art-picker.tsx";
 import { formatCount, type PrintJob } from "./core/index.ts";
@@ -53,6 +52,7 @@ import {
   UnkeyedLoading,
   useTask,
 } from "./ui.tsx";
+import { WebStorage } from "./web/storage-settings.tsx";
 import { Workspace } from "./workspace.tsx";
 
 declare global {
@@ -105,6 +105,7 @@ function readSidebar(): boolean {
 }
 
 export function App() {
+  const web = isWebPreview();
   const [route, setRoute] = useState(routeFromHash);
   const [importedDeckId, setImportedDeckId] = useState<string>();
   const [sidebarOpen, setSidebarOpen] = useState(readSidebar);
@@ -395,8 +396,15 @@ export function App() {
               <button
                 type="button"
                 key={id}
+                disabled={web && (id === "discover" || id === "builder")}
+                title={
+                  web && (id === "discover" || id === "builder")
+                    ? "Requires the desktop app"
+                    : web && id === "jobs"
+                      ? "Exports"
+                      : name
+                }
                 className="sidebar-row"
-                title={name}
                 aria-current={
                   !deckId && route.startsWith(id) ? "page" : undefined
                 }
@@ -406,7 +414,9 @@ export function App() {
                 }
               >
                 <Icon size={16} aria-hidden="true" />
-                <span className="sidebar-label">{name}</span>
+                <span className="sidebar-label">
+                  {web && id === "jobs" ? "Exports" : name}
+                </span>
                 {id === "jobs" && activeJobs > 0 && (
                   <span className="sidebar-count">
                     {activeJobs}
@@ -525,9 +535,9 @@ export function App() {
               <LocalSettings focusModels={route === "settings/models"} />
             ) : route === "sources" ? (
               <Sources />
-            ) : route === "discover" ? (
+            ) : !web && route === "discover" ? (
               <DeckSearch open={openImportedDeck} />
-            ) : route === "builder" ? (
+            ) : !web && route === "builder" ? (
               <DeckBuilder
                 onDirty={onDirty}
                 onBack={() => void navigate("decks")}
@@ -539,7 +549,7 @@ export function App() {
                 openImported={openImportedDeck}
                 createRequest={newDeckRequest}
                 onCreateHandled={() => setNewDeckRequest(0)}
-                onBuild={() => void navigate("builder")}
+                {...(!web && { onBuild: () => void navigate("builder") })}
               />
             )}
           </ToolbarSlotProvider>
@@ -745,6 +755,7 @@ function PrintJobs({
   onRetry: (jobs: PrintJob[]) => void;
   onOpenSetup: (job: PrintJob) => Promise<void>;
 }) {
+  const web = isWebPreview();
   const query = useQuery({
     queryKey: ["jobs"],
     queryFn: ({ signal }) => api.jobs(signal),
@@ -762,7 +773,7 @@ function PrintJobs({
   return (
     <>
       <PageToolbar
-        title="Print jobs"
+        title={web ? "Exports" : "Print jobs"}
         subtitle={
           active
             ? `${active} in progress`
@@ -782,6 +793,12 @@ function PrintJobs({
         </button>
       </PageToolbar>
       <div className="page-content">
+        {web && (
+          <p className="hint">
+            Download the PDF and print it from your browser. Printer queues
+            require the desktop app.
+          </p>
+        )}
         <StatusRegion label="Export save status">
           {task.error ? "" : saveStatus}
         </StatusRegion>
@@ -832,7 +849,7 @@ function PrintJobs({
                     )}
                     <span>
                       {job.completed.toLocaleString()} /{" "}
-                      {formatCount(job.total, "face")}
+                      {formatCount(job.total, web ? "source image" : "face")}
                     </span>
                   </div>
                   {job.status === "completed" && job.calibrationPage && (
@@ -845,7 +862,7 @@ function PrintJobs({
                 <div className="job-actions">
                   {job.status === "completed" ? (
                     <>
-                      {job.format === "pdf" && (
+                      {!web && job.format === "pdf" && (
                         <button
                           type="button"
                           className="primary"
@@ -860,9 +877,9 @@ function PrintJobs({
                       )}
                       <button
                         type="button"
-                        className="icon-button"
-                        aria-label="Save a copy"
-                        title="Save a copy…"
+                        className={web ? "primary" : "icon-button"}
+                        aria-label={web ? undefined : "Save a copy"}
+                        title={web ? undefined : "Save a copy…"}
                         disabled={task.busy}
                         onClick={() =>
                           void task.run(async () => {
@@ -885,26 +902,34 @@ function PrintJobs({
                               );
                               await api.savePdf(job.id, destination);
                               setSaveStatus(
-                                `Export for ${job.deckName} saved.`,
+                                web
+                                  ? `Download started for ${job.deckName}.`
+                                  : `Export for ${job.deckName} saved.`,
                               );
                             }
                           })
                         }
                       >
                         <Download size={16} />
+                        {web &&
+                          (job.format === "pdf"
+                            ? "Download PDF"
+                            : "Download PNG ZIP")}
                       </button>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label="Show in folder"
-                        title="Show in folder"
-                        disabled={task.busy}
-                        onClick={() =>
-                          void task.run(() => api.revealPdf(job.id))
-                        }
-                      >
-                        <FolderOpen size={16} />
-                      </button>
+                      {!web && (
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label="Show in folder"
+                          title="Show in folder"
+                          disabled={task.busy}
+                          onClick={() =>
+                            void task.run(() => api.revealPdf(job.id))
+                          }
+                        >
+                          <FolderOpen size={16} />
+                        </button>
+                      )}
                     </>
                   ) : ["queued", "running"].includes(job.status) ? (
                     <button
@@ -983,6 +1008,7 @@ function PrintJobs({
 }
 
 function LocalSettings({ focusModels }: { focusModels: boolean }) {
+  const web = isWebPreview();
   const modelsHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (focusModels) modelsHeading.current?.focus();
@@ -1008,16 +1034,18 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
   return (
     <>
       <PageToolbar title="Settings">
-        <button
-          type="button"
-          className="icon-button quiet"
-          aria-label="Open data folder"
-          title="Open data folder"
-          disabled={busy}
-          onClick={() => void task.run(() => api.openDataDir())}
-        >
-          <FolderOpen size={16} />
-        </button>
+        {!web && (
+          <button
+            type="button"
+            className="icon-button quiet"
+            aria-label="Open data folder"
+            title="Open data folder"
+            disabled={busy}
+            onClick={() => void task.run(() => api.openDataDir())}
+          >
+            <FolderOpen size={16} />
+          </button>
+        )}
       </PageToolbar>
       <div className="page-content settings-page">
         <section className="panel settings-card">
@@ -1050,125 +1078,153 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
         {query.data && (
           <PrintLanguageSettings saved={query.data.printLanguage} />
         )}
-        <section className="panel settings-card">
-          <StatusRegion label="Model download status">
-            {downloadName && download.isPending
-              ? `Downloading ${downloadName}…`
-              : downloadName && download.isSuccess
-                ? `${downloadName} downloaded.`
-                : ""}
-          </StatusRegion>
-          <div className="section-heading">
-            <h2 ref={modelsHeading} tabIndex={-1}>
-              Local AI upscaling
-            </h2>
-            <span className={`badge ${loaded ? "official" : ""}`}>
-              {loaded
-                ? `Loaded · ${loaded.executionProvider}`
-                : "Loads on first export"}
-            </span>
-          </div>
-          <ErrorNotice error={upscalingUnavailable()} />
-          <p>
-            Real-ESRGAN models run through ONNX Runtime inside the app: Core ML
-            on macOS, DirectML on Windows, CUDA or CPU on Linux. Every model
-            upscales 4× in 256 px tiles with feathered seams, then the result is
-            resized to your target DPI. Fine lettering can change, so always
-            check a proof.
-          </p>
-          {failedModelId && !busy && (
-            <ErrorNotice
-              error={download.error}
-              retry={() => download.mutate(failedModelId)}
-            />
-          )}
-          <div className="model-list">
-            {(query.data?.models ?? []).map((model) => (
-              <ModelRow
-                key={model.id}
-                model={model}
-                isDefault={model.id === query.data?.defaultModel}
-                loaded={loaded?.modelId === model.id}
-                busy={busy}
-                downloading={
-                  model.downloading ||
-                  (download.isPending && download.variables === model.id)
-                }
-                onDownload={() => download.mutate(model.id)}
-                onLoad={() =>
-                  void task.run(async () => {
-                    await api.loadModel(model.id);
-                    await query.refetch();
-                  })
-                }
-              />
-            ))}
-          </div>
-          <p className="hint">
-            The compact and fast models ship with the app. The quality model is
-            downloaded once on request and verified by SHA-256 before it is
-            loaded. Without a GPU the quality model is roughly ten times slower
-            than the compact one.
-          </p>
-          {query.data?.styleModel && (
-            <div className="model-row">
-              <div>
-                <strong>{query.data.styleModel.name}</strong>
-                <span className="muted">
-                  {" · beta · "}
-                  {(query.data.styleModel.bytes / 1024 / 1024).toFixed(1)} MB ·{" "}
-                  {query.data.styleModel.license}
-                  {query.data.styleModel.installed ? "" : " · missing"}
+        {web ? (
+          <>
+            <section className="panel settings-card">
+              <h2 ref={modelsHeading} tabIndex={-1}>
+                Browser AI upscaling
+              </h2>
+              <p>
+                Choose a model in Print setup. It downloads from this site on
+                first use and is stored in this browser.
+              </p>
+              <ul>
+                {query.data?.models.map((model) => (
+                  <li key={model.id}>
+                    {model.name} ·{" "}
+                    {model.installed ? "Cached" : "Downloads on first use"}
+                  </li>
+                ))}
+              </ul>
+              <p className="hint">
+                WebGPU requires a compatible GPU. With cross-origin isolation,
+                WASM can use multiple threads.
+              </p>
+            </section>
+            <WebStorage onCleared={() => void query.refetch()} />
+          </>
+        ) : (
+          <>
+            <section className="panel settings-card">
+              <StatusRegion label="Model download status">
+                {downloadName && download.isPending
+                  ? `Downloading ${downloadName}…`
+                  : downloadName && download.isSuccess
+                    ? `${downloadName} downloaded.`
+                    : ""}
+              </StatusRegion>
+              <div className="section-heading">
+                <h2 ref={modelsHeading} tabIndex={-1}>
+                  Local AI upscaling
+                </h2>
+                <span className={`badge ${loaded ? "official" : ""}`}>
+                  {loaded
+                    ? `Loaded · ${loaded.executionProvider}`
+                    : "Loads on first export"}
                 </span>
-                <p className="hint">{query.data.styleModel.description}</p>
               </div>
-            </div>
-          )}
-          <div className="toolbar">
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Refresh model status"
-              title="Refresh status"
-              onClick={() => void query.refetch()}
-            >
-              <RefreshCw size={15} />
-            </button>
-            <ExternalLink href="https://github.com/xinntao/Real-ESRGAN">
-              Real-ESRGAN & license
-              <LinkIcon size={13} />
-            </ExternalLink>
-          </div>
-        </section>
-        <section className="panel settings-card">
-          <h2>Storage & portability</h2>
-          <p>
-            Decks, personal ratings and labels live in local SQLite. Images,
-            upscaled results and PDFs are cached on disk in the application data
-            directory.
-          </p>
-          <p className="mono hint">{query.data?.dataDir}</p>
-          <p>
-            Use “Back up deck” to export a JSON project. It preserves
-            quantities, art choices and print settings, but not image files.
-            Custom uploads remain on this machine; keep the data directory when
-            moving your library.
-          </p>
-          <div className="toolbar">
-            <button
-              type="button"
-              onClick={() => void task.run(() => api.openDataDir())}
-            >
-              <FolderOpen size={15} />
-              Open data folder
-            </button>
-          </div>
-          <p className="hint">
-            Deckpress is a single-user desktop application. Nothing listens on
-            the network; only Scryfall and MPC are contacted, and only to fetch
-            card data and images.
-          </p>
-        </section>
+              <p>
+                Real-ESRGAN models run through ONNX Runtime inside the app: Core
+                ML on macOS, DirectML on Windows, CUDA or CPU on Linux. Every
+                model upscales 4× in 256 px tiles with feathered seams, then the
+                result is resized to your target DPI. Fine lettering can change,
+                so always check a proof.
+              </p>
+              {failedModelId && !busy && (
+                <ErrorNotice
+                  error={download.error}
+                  retry={() => download.mutate(failedModelId)}
+                />
+              )}
+              <div className="model-list">
+                {(query.data?.models ?? []).map((model) => (
+                  <ModelRow
+                    key={model.id}
+                    model={model}
+                    isDefault={model.id === query.data?.defaultModel}
+                    loaded={loaded?.modelId === model.id}
+                    busy={busy}
+                    downloading={
+                      model.downloading ||
+                      (download.isPending && download.variables === model.id)
+                    }
+                    onDownload={() => download.mutate(model.id)}
+                    onLoad={() =>
+                      void task.run(async () => {
+                        await api.loadModel(model.id);
+                        await query.refetch();
+                      })
+                    }
+                  />
+                ))}
+              </div>
+              <p className="hint">
+                The compact and fast models ship with the app. The quality model
+                is downloaded once on request and verified by SHA-256 before it
+                is loaded. Without a GPU the quality model is roughly ten times
+                slower than the compact one.
+              </p>
+              {query.data?.styleModel && (
+                <div className="model-row">
+                  <div>
+                    <strong>{query.data.styleModel.name}</strong>
+                    <span className="muted">
+                      {" · beta · "}
+                      {(query.data.styleModel.bytes / 1024 / 1024).toFixed(1)}{" "}
+                      MB · {query.data.styleModel.license}
+                      {query.data.styleModel.installed ? "" : " · missing"}
+                    </span>
+                    <p className="hint">{query.data.styleModel.description}</p>
+                  </div>
+                </div>
+              )}
+              <div className="toolbar">
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Refresh model status"
+                  title="Refresh status"
+                  onClick={() => void query.refetch()}
+                >
+                  <RefreshCw size={15} />
+                </button>
+                <ExternalLink href="https://github.com/xinntao/Real-ESRGAN">
+                  Real-ESRGAN & license
+                  <LinkIcon size={13} />
+                </ExternalLink>
+              </div>
+            </section>
+            <section className="panel settings-card">
+              <h2>Storage & portability</h2>
+              <p>
+                Decks, personal ratings and labels live in local SQLite. Images,
+                upscaled results and PDFs are cached on disk in the application
+                data directory.
+              </p>
+              <p className="mono hint">{query.data?.dataDir}</p>
+              <p>
+                Use “Back up deck” to export a JSON project. It preserves
+                quantities, art choices and print settings, but not image files.
+                Custom uploads remain on this machine; keep the data directory
+                when moving your library.
+              </p>
+              <div className="toolbar">
+                <button
+                  type="button"
+                  onClick={() => void task.run(() => api.openDataDir())}
+                >
+                  <FolderOpen size={15} />
+                  Open data folder
+                </button>
+              </div>
+              <p className="hint">
+                Deckpress is a single-user desktop application. Nothing listens
+                on the network; only Scryfall and MPC are contacted, and only to
+                fetch card data and images.
+              </p>
+            </section>
+          </>
+        )}
         <section className="panel settings-card">
           <h2>Resolution and DPI</h2>
           <p>
@@ -1178,9 +1234,10 @@ function LocalSettings({ focusModels }: { focusModels: boolean }) {
             high-resolution scan.
           </p>
           <p>
-            Use 300 DPI for proofs and 800 DPI for most home printing. Use 1200
-            DPI when your print shop requests it. High-resolution MPC images may
-            already meet the target without AI.
+            Use 300 DPI for proofs and {web ? 600 : 800} DPI for most home
+            printing. Use 1200 DPI when your print shop requests it.
+            {!web &&
+              " High-resolution MPC images may already meet the target without AI."}
           </p>
         </section>
       </div>

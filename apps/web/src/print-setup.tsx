@@ -23,9 +23,11 @@ import {
 } from "react";
 import {
   api,
+  cardImageCrossOrigin,
   downloadCutTemplate,
+  imageSrc,
+  isWebPreview,
   previewSrc,
-  printPreviewUnavailable,
 } from "./api.ts";
 import {
   type Art,
@@ -168,6 +170,7 @@ export function PrintSetup({
   mpcExport: { busy: boolean; run: () => void };
 }) {
   const settings = deck.printSettings;
+  const web = isWebPreview();
   const isScm = settings.layoutMode === "scm";
   const template = settings.scmTemplate;
   const system = useQuery({
@@ -283,7 +286,7 @@ export function PrintSetup({
     (model) =>
       model.id === (settings.upscaleModel || system.data?.defaultModel),
   );
-  const upscalerReady = !!selectedModel?.installed;
+  const upscalerReady = !!selectedModel && (web || selectedModel.installed);
   const noCards = cards.length === 0;
   const emptyRange = !!layout && !noCards && selectedSheets === 0;
   const blockedModel = settings.upscale && !upscalerReady;
@@ -451,11 +454,13 @@ export function PrintSetup({
       label: "MPC Autofill XML",
       hint: "Order file with the chosen art, for MakePlayingCards.",
       icon: <FileCode size={16} aria-hidden="true" />,
-      disabledReason: mpcExport.busy
-        ? "Wait for the current deck task to finish."
-        : deck.entries.length
-          ? undefined
-          : "Add cards to the deck first.",
+      disabledReason: web
+        ? "MPC Autofill requires the desktop app."
+        : mpcExport.busy
+          ? "Wait for the current deck task to finish."
+          : deck.entries.length
+            ? undefined
+            : "Add cards to the deck first.",
       onSelect: mpcExport.run,
     },
     ...(cutFile
@@ -535,22 +540,25 @@ export function PrintSetup({
         announcementId={cutTemplateStatus.id}
       >
         {cutTemplateStatus.path &&
-          `Cut template saved to ${cutTemplateStatus.path}`}
+          (web
+            ? `Downloaded ${cutTemplateStatus.path}`
+            : `Cut template saved to ${cutTemplateStatus.path}`)}
       </StatusRegion>
-      <UpscaleComparison
-        entries={entries}
-        models={models}
-        settings={settings}
-        activeModel={settings.upscale ? selectedModel?.id : null}
-        onChoose={(id) =>
-          change(
-            id === null
-              ? { upscale: false }
-              : { upscale: true, upscaleModel: id },
-          )
-        }
-      />
-      <ErrorNotice error={printPreviewUnavailable()} />
+      {!web && (
+        <UpscaleComparison
+          entries={entries}
+          models={models}
+          settings={settings}
+          activeModel={settings.upscale ? selectedModel?.id : null}
+          onChoose={(id) =>
+            change(
+              id === null
+                ? { upscale: false }
+                : { upscale: true, upscaleModel: id },
+            )
+          }
+        />
+      )}
       <div className="print-layout">
         <div className="print-controls">
           <div className="panel presets">
@@ -578,7 +586,7 @@ export function PrintSetup({
                         value === "proof"
                           ? { dpi: 300 }
                           : value === "letter"
-                            ? { paper: "letter" }
+                            ? { paper: "letter", dpi: web ? 600 : 800 }
                             : value === "shop"
                               ? {
                                   paper: "a3",
@@ -587,15 +595,19 @@ export function PrintSetup({
                                   gapMm: 2,
                                   marginMm: 6,
                                 }
-                              : {},
+                              : { dpi: web ? 600 : 800 },
                       ),
                     );
                   event.target.value = "";
                 }}
               >
                 <option value="">Custom settings</option>
-                <option value="home">Home inkjet · A4 / 800 DPI</option>
-                <option value="letter">Home inkjet · Letter / 800 DPI</option>
+                <option value="home">
+                  Home inkjet · A4 / {web ? 600 : 800} DPI
+                </option>
+                <option value="letter">
+                  Home inkjet · Letter / {web ? 600 : 800} DPI
+                </option>
                 <option value="proof">Quick proof · A4 / 300 DPI</option>
                 <option value="shop">Print shop · A3 / 1200 DPI</option>
                 <option value="saved">Your saved preset</option>
@@ -1098,8 +1110,12 @@ export function PrintSetup({
                 }
               >
                 <option value={300}>300 DPI · proof</option>
-                <option value={600}>600 DPI · home print</option>
-                <option value={800}>800 DPI · recommended</option>
+                <option value={600}>
+                  600 DPI · {web ? "recommended" : "home print"}
+                </option>
+                <option value={800}>
+                  800 DPI · {web ? "high resolution" : "recommended"}
+                </option>
                 <option value={1200}>1200 DPI · print shop</option>
                 {![300, 600, 800, 1200].includes(settings.dpi) && (
                   <option value={settings.dpi}>{settings.dpi} DPI</option>
@@ -1165,25 +1181,34 @@ export function PrintSetup({
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.name}
-                    {model.installed ? "" : " · download required"}
+                    {model.installed
+                      ? ""
+                      : web
+                        ? " · downloads on first use"
+                        : " · download required"}
                   </option>
                 ))}
               </select>
             </label>
             <p className="hint">
-              {system.data
-                ? upscalerReady
-                  ? `Real-ESRGAN 4× through ONNX Runtime${
-                      system.data.loaded
-                        ? ` on ${system.data.loaded.executionProvider}`
-                        : ""
-                    }. Runs on this machine, only when a scan is below the target resolution.`
-                  : "Download the selected model under Settings → Local AI upscaling before exporting."
-                : "Checking the local AI engine…"}
+              {web
+                ? "Models download on first use and run in this browser. WebGPU is preferred when available. WASM is the fallback."
+                : system.data
+                  ? upscalerReady
+                    ? `Real-ESRGAN 4× through ONNX Runtime${
+                        system.data.loaded
+                          ? ` on ${system.data.loaded.executionProvider}`
+                          : ""
+                      }. Runs on this machine, only when a scan is below the target resolution.`
+                    : "Download the selected model under Settings → Local AI upscaling before exporting."
+                  : "Checking the local AI engine…"}
             </p>
             <p className="hint">
               AI can change fine text. Export one proof sheet before processing
-              the full deck. Preview uses 150 DPI without AI.
+              the full deck.{" "}
+              {web
+                ? "This layout preview uses the original scans."
+                : "Preview uses 150 DPI without AI."}
             </p>
             <label className="check-label">
               <input
@@ -1999,13 +2024,15 @@ function PreviewImage({
   height: number;
 }) {
   const effective = effectivePrintSettings(settings);
-  const url = previewSrc(art, {
-    cardWidthMm: effective.cardWidthMm,
-    cardHeightMm: effective.cardHeightMm,
-    bleedMm: effective.bleedMm,
-    bleedMode: settings.bleedMode,
-    bleedColor: settings.bleedColor,
-  });
+  const url = isWebPreview()
+    ? imageSrc(art.imageUrl)
+    : previewSrc(art, {
+        cardWidthMm: effective.cardWidthMm,
+        cardHeightMm: effective.cardHeightMm,
+        bleedMm: effective.bleedMm,
+        bleedMode: settings.bleedMode,
+        bleedColor: settings.bleedColor,
+      });
   return (
     <ProofImage key={url} url={url} x={x} y={y} width={width} height={height} />
   );
@@ -2047,6 +2074,7 @@ function ProofImage({
   ) : (
     <g>
       <image
+        crossOrigin={cardImageCrossOrigin(url)}
         href={url}
         x={x}
         y={y}

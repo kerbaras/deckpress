@@ -4,18 +4,23 @@ import {
   artSchema,
   type HealthResponse,
   importLineSchema,
+  printSettingsSchema,
 } from "../../core/index.ts";
+import { webAssetBase } from "../asset-base.ts";
+import { runPrintWorker, webJobs } from "../print/jobs.ts";
 import { betterScan, searchArt } from "../providers/art.ts";
 import { policyProvider } from "../providers/printings.ts";
 import { resolveCards } from "../providers/resolve.ts";
-import { scryfallClient } from "../providers/scryfall.ts";
+import { scryfallCacheKind, scryfallClient } from "../providers/scryfall.ts";
 import { relatedTokens } from "../providers/tokens.ts";
 import { deckStore } from "../store/decks.ts";
-import { imageSrc } from "../store/image-cache.ts";
+import { clearImageCache, imageSrc } from "../store/image-cache.ts";
 import { indexedDbDocuments } from "../store/indexed-db.ts";
 import { exportFileName, settingsStore } from "../store/settings.ts";
+import { isModelCached, MODEL_CACHE } from "../upscale/model-store.ts";
+import { defaultWebModel, webModels } from "../upscale/models.ts";
 import { artHistory } from "./art-history.ts";
-import { downloadText } from "./download.ts";
+import { downloadBlob, downloadText } from "./download.ts";
 import type { Backend } from "./types.ts";
 
 export class NotAvailableOnWebError extends Error {
@@ -99,7 +104,41 @@ export const webBackend: Backend = {
       case "update_upload_bleed":
         return notAvailableYet("Art uploads");
       case "settings":
-        return settings.settings();
+        return {
+          ...(await settings.settings()),
+          defaultModel: defaultWebModel,
+          models: await Promise.all(
+            webModels.map(async (model) => ({
+              ...model,
+              bundled: false,
+              installed: await isModelCached(model, webAssetBase()).catch(
+                () => false,
+              ),
+              downloading: false,
+            })),
+          ),
+        };
+      case "web_storage_usage": {
+        const estimate = await navigator.storage?.estimate?.();
+        return {
+          usage: estimate?.usage ?? null,
+          quota: estimate?.quota ?? null,
+        };
+      }
+      case "clear_web_cache": {
+        if (webJobs.busy)
+          throw new Error(
+            "Wait for exports to finish before clearing the cache.",
+          );
+        const rows = await documents.list(scryfallCacheKind);
+        await Promise.all([
+          clearImageCache(),
+          caches.delete(MODEL_CACHE),
+          caches.delete("deckpress-web-art-v1"),
+          ...rows.map(({ id }) => documents.remove(scryfallCacheKind, id)),
+        ]);
+        return null;
+      }
       case "save_print_language":
         return settings.savePrintLanguage(args.preferences);
       case "save_appearance":
@@ -180,8 +219,53 @@ export const webBackend: Backend = {
           "xml",
         );
       case "list_jobs":
+        return webJobs.list();
       case "create_job":
-        return unsupportedSource("Printing and print jobs");
+        return webJobs.create(
+          await decks.get(text.parse(args.deckId)),
+          printSettingsSchema.parse(args.settings),
+          z.enum(["pdf", "png"]).parse(args.format),
+        );
+      case "cancel_job":
+        return webJobs.cancel(text.parse(args.id));
+      case "save_pdf":
+        return webJobs.save(text.parse(args.id), text.parse(args.destination));
+      case "save_duplex_calibration": {
+        const result = await runPrintWorker({
+          kind: "calibration",
+          settings: printSettingsSchema.parse(args.settings),
+        });
+        if (result.kind !== "calibration")
+          throw new Error("Invalid calibration response");
+        return downloadBlob(text.parse(args.destination), result.file);
+      }
+      case "save_cut_template": {
+        const format = z
+          .enum(["svg", "dxf", "studio3"])
+          .default("svg")
+          .parse(args.format);
+        const destination = text.parse(args.destination);
+        if (!destination.endsWith(`.${format}`))
+          throw new Error(`Save the cut template as a .${format} file.`);
+        const result = await runPrintWorker({
+          kind: "cut",
+          format,
+          settings: printSettingsSchema.parse(args.settings),
+        });
+        if (result.kind !== "cut")
+          throw new Error("Invalid cut template response");
+        return downloadBlob(destination, result.file);
+      }
+      case "source_dpi": {
+        const result = await runPrintWorker({
+          kind: "source-dpi",
+          settings: printSettingsSchema.parse(args.settings),
+          arts: z.array(artSchema).parse(args.arts),
+        });
+        if (result.kind !== "source-dpi")
+          throw new Error("Invalid source DPI response");
+        return result.readings;
+      }
       case "begin_upscale_comparison":
       case "compare_upscalers":
       case "load_model":
@@ -199,17 +283,9 @@ export const webBackend: Backend = {
   async save({ defaultPath, filters }) {
     if (
       filters?.some(({ extensions }) =>
-        extensions.some(
-          (ext) => ext === "svg" || ext === "dxf" || ext === "studio3",
+        extensions.some((extension) =>
+          ["json", "pdf", "zip", "svg", "dxf", "studio3"].includes(extension),
         ),
-      )
-    ) {
-      return notAvailableYet("Cut template export");
-    }
-    if (
-      filters?.some(
-        ({ extensions }) =>
-          extensions.includes("json") || extensions.includes("xml"),
       )
     ) {
       return defaultPath ?? null;

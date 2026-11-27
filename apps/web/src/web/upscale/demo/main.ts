@@ -1,10 +1,7 @@
-import {
-  type UpscaleProgress,
-  upscaleImage,
-  upscaleModels,
-} from "../upscale.ts";
+import { decodeRgb, encodePng } from "../image.ts";
+import { webModels } from "../models.ts";
+import { type UpscaleProgress, upscaleImage } from "../upscale.ts";
 import type { Timing } from "../worker-protocol.ts";
-import { decodeRgb, encodePng } from "./image.ts";
 import { installIsolation } from "./isolation.ts";
 import "./style.css";
 
@@ -28,7 +25,7 @@ const dropZone = get("drop-zone");
 let source: File | undefined;
 let job: AbortController | undefined;
 
-for (const spec of upscaleModels) model.add(new Option(spec.name, spec.id));
+for (const spec of webModels) model.add(new Option(spec.name, spec.id));
 
 function clearResult() {
   if (result.src) URL.revokeObjectURL(result.src);
@@ -77,7 +74,7 @@ function update(event: UpscaleProgress) {
 }
 
 async function submit() {
-  const spec = upscaleModels.find(({ id }) => id === model.value);
+  const spec = webModels.find(({ id }) => id === model.value);
   if (!source || !spec || job) return;
   job = new AbortController();
   const { signal } = job;
@@ -88,6 +85,7 @@ async function submit() {
   status.textContent = "Opening image and model…";
   try {
     const image = await decodeRgb(source);
+    if (!image) throw new Error("Could not decode the image");
     get("original-size").textContent = `${image.width} × ${image.height}`;
     const proof = await upscaleImage(image, spec, {
       assetBase,

@@ -56,6 +56,12 @@ it("leaves other dialogs unsupported and rejects invalid export names or sizes",
       defaultPath: "deck.pdf",
       filters: [{ name: "PDF", extensions: ["pdf"] }],
     }),
+  ).resolves.toBe("deck.pdf");
+  await expect(
+    webBackend.save({
+      defaultPath: "deck.exe",
+      filters: [{ name: "Executable", extensions: ["exe"] }],
+    }),
   ).rejects.toBeInstanceOf(NotAvailableOnWebError);
   expect(() => downloadText("deck.txt", "{}", "json")).toThrow(".json");
   expect(() => downloadText("deck.xml", "é".repeat(262_145), "xml")).toThrow(
