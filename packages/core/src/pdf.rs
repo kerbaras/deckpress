@@ -110,6 +110,7 @@ pub struct PdfServices<'a> {
 #[derive(Default)]
 struct PdfRender<'a> {
     upscaler: Option<&'a dyn Upscaler>,
+    pre_upscaled: bool,
     #[cfg(feature = "native")]
     raster_dir: Option<&'a Path>,
 }
@@ -705,6 +706,7 @@ pub fn build_pdf(
         PdfRender {
             upscaler: services.upscaler,
             raster_dir: Some(services.raster_dir),
+            pre_upscaled: false,
         },
         cancel,
         progress,
@@ -713,12 +715,14 @@ pub fn build_pdf(
 }
 
 /// Builds a PDF without a disk cache or an inference model. The caller may
-/// supply pre-upscaled image bytes; this path still applies the print raster.
+/// supply pre-upscaled image bytes and set `settings.upscale` to describe them
+/// in the PDF metadata. This path still applies the print raster.
 pub fn build_pdf_from_images(
     deck: &Deck,
     settings: &PrintSettings,
     read_source: &mut dyn FnMut(&str) -> AppResult<Vec<u8>>,
 ) -> AppResult<PdfOutput> {
+    let pre_upscaled = settings.upscale;
     let settings = PrintSettings {
         upscale: false,
         ..settings.clone()
@@ -726,7 +730,10 @@ pub fn build_pdf_from_images(
     build_document(
         deck,
         &settings,
-        PdfRender::default(),
+        PdfRender {
+            pre_upscaled,
+            ..PdfRender::default()
+        },
         &CancelToken::default(),
         &mut |_, _, _| {},
         read_source,
@@ -759,21 +766,21 @@ fn build_document(
         .unwrap_or_default();
     let font = font()?;
     let mut document = Document::new();
+    let raster_description = match (settings.upscale, services.pre_upscaled) {
+        (true, _) => "AI 4x upscaling enabled",
+        (_, true) => "AI 4x upscaling applied to eligible images",
+        _ => "Lanczos resizing; source detail unchanged",
+    };
     document.set_metadata(
         Metadata::new()
             .title(format!("{} - playtest proxies", deck.name))
             .creator("Deckpress".into())
             .producer("Deckpress / krilla".into())
             .description(format!(
-                "PRINT AT 100% / ACTUAL SIZE. {} x {} mm cards, {} DPI raster. {}.",
+                "PRINT AT 100% / ACTUAL SIZE. {} x {} mm cards, {} DPI raster. {raster_description}.",
                 mm_label(settings.card_width_mm),
                 mm_label(settings.card_height_mm),
-                settings.dpi,
-                if settings.upscale {
-                    "AI 4x upscaling enabled"
-                } else {
-                    "Lanczos resizing; source detail unchanged"
-                }
+                settings.dpi
             )),
     );
     if settings.calibration_page {

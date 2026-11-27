@@ -31,6 +31,14 @@ pub(crate) fn has_dxf_fallback(template_name: &str) -> bool {
 }
 
 pub fn studio3(settings: &PrintSettings) -> AppResult<Vec<u8>> {
+    studio3_from_archive(
+        settings,
+        include_bytes!("../assets/scm/cutting-templates.zip"),
+    )
+}
+
+/// Extract the matching Studio file from a separately delivered SCM archive.
+pub fn studio3_from_archive(settings: &PrintSettings, archive: &[u8]) -> AppResult<Vec<u8>> {
     if settings.layout_mode != LayoutMode::Scm {
         return Err(AppError::user(
             "Select an SCM layout to export a .studio3 file",
@@ -45,7 +53,6 @@ pub fn studio3(settings: &PrintSettings) -> AppResult<Vec<u8>> {
                 "SCM has no .studio3 file for {name}. Export DXF cut lines instead."
             ))
         })?;
-    let archive = include_bytes!("../assets/scm/cutting-templates.zip");
     let mut archive = ZipArchive::new(Cursor::new(archive)).map_err(AppError::internal)?;
     let mut entry = archive
         .by_name(&cut_file.path)

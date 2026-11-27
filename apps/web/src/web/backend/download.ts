@@ -21,6 +21,10 @@ export function downloadText(
     throw new Error(`Save the ${label} as a .${extension} file.`);
   const blob = new Blob([contents], { type: mime });
   if (blob.size > limit) throw new Error(`${label} is too large to save.`);
+  return downloadBlob(destination, blob);
+}
+
+export function downloadBlob(destination: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

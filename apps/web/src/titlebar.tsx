@@ -17,7 +17,12 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { api, defaultWindowChrome, type WindowChrome } from "./api.ts";
+import {
+  api,
+  defaultWindowChrome,
+  isWebPreview,
+  type WindowChrome,
+} from "./api.ts";
 
 /** Null outside Tauri (Vite in a browser, Vitest). */
 function currentWindow(): Window | null {
@@ -210,6 +215,7 @@ export function TitleBar({
         </div>
       )}
       <div className="toolbar-slot gap-2" ref={onSlot} data-tauri-drag-region />
+      {isWebPreview() && <span className="badge mr-3">Web preview</span>}
       {state.customControls && <WindowControls />}
     </header>
   );
