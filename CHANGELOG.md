@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.1
+
+### Fixed
+
+- Use the title bar's minimize, maximize and close buttons while a dialog is open. Closing the window now also warns about queued or running exports. (#141)
+- Scrolling past the end of a page, such as Print Setup, no longer moves the title bar off screen; only the page content scrolls. (#142)
+
 ## v0.1.0
 
 ### Added
