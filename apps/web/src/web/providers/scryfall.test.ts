@@ -3,6 +3,7 @@ import delver from "../../../../../packages/core/tests/fixtures/scryfall-art-pol
 import fixture from "../../../../../packages/core/tests/fixtures/scryfall-languages.json";
 import type { ImportLine } from "../../core/index.ts";
 import { betterScan, searchArt } from "./art.ts";
+import { policyProvider } from "./printings.ts";
 import { resolveCards } from "./resolve.ts";
 import type { Scryfall } from "./scryfall.ts";
 import { normalizeScryfall } from "./scryfall-card.ts";
@@ -24,9 +25,40 @@ function mockScryfall(overrides: Partial<Scryfall> = {}): Scryfall {
     exact: async () => ({}),
     search: async () => emptyPage,
     printing: async () => undefined,
+    sets: async () => [],
     ...overrides,
   };
 }
+
+it("batches distinct oracle IDs, pages each group and preserves its family and language filters", async () => {
+  const ids = Array.from({ length: 19 }, () => crypto.randomUUID()).sort();
+  const first = ids[0];
+  const last = ids.at(-1);
+  if (!first || !last) throw new Error("Invalid test IDs");
+  const search = vi.fn(async (query: string, page: number) => {
+    const id = query.includes(first) ? first : last;
+    return {
+      cards: [{ ...delver[0], oracle_id: id, lang: "en" }],
+      hasMore: id === first && page === 1,
+      total: 1,
+    };
+  });
+  const prints = await policyProvider(mockScryfall({ search })).inventoryBatch(
+    [...ids, first, "invalid"],
+    "en",
+    ["ecc", "ecl", "tecc"],
+  );
+  expect(search.mock.calls.map(([, page]) => page)).toEqual([1, 2, 1]);
+  expect(
+    search.mock.calls.map(([query]) => query.match(/oracleid:/g)?.length),
+  ).toEqual([18, 18, 1]);
+  for (const [query] of search.mock.calls)
+    expect(query).toContain(
+      "game:paper (set:ecc or set:ecl or set:tecc) lang:en",
+    );
+  expect(prints.get(first)).toHaveLength(2);
+  expect(prints.get(last)).toHaveLength(1);
+});
 
 it("maps double-faced scans, Scryfall metadata and placeholder errors", () => {
   const card = normalizeScryfall(delver[0]);
@@ -119,12 +151,70 @@ it("uses localized name search, preserves line numbers for misses, and skips req
       {
         zone: "side",
         board: "Test board",
-        card: { faces: [{ language: "es" }] },
+        card: {
+          id: fixture.search_es.data[0]?.id,
+          faces: [{ language: "es" }],
+        },
       },
     ],
     issues: [{ line: 1, kind: "notFound" }],
     missingPrints: [],
   });
+});
+
+it("batches a hundred Spanish names and oracles without changing their printings", async () => {
+  const englishSample = fixture.collection.data[0];
+  const spanishSample = fixture.search_es.data[0];
+  if (!englishSample || !spanishSample) throw new Error("Missing scan fixture");
+  const cards = Array.from({ length: 100 }, (_, index) => {
+    const suffix = String(index).padStart(12, "0");
+    const oracle_id = `00000000-0000-4000-8000-${suffix}`;
+    const name = `English Card ${index}`;
+    const printed_name = `Carta ${index}`;
+    return {
+      en: { ...englishSample, name, oracle_id },
+      es: {
+        ...spanishSample,
+        id: `00000001-0000-4000-8000-${suffix}`,
+        oracle_id,
+        name,
+        printed_name,
+      },
+    };
+  });
+  const collection = vi.fn<Scryfall["collection"]>(async (ids) =>
+    cards.flatMap(({ en }) =>
+      ids.some((id) => "name" in id && id.name === en.name) ? [en] : [],
+    ),
+  );
+  const search = vi.fn<Scryfall["search"]>(async (query) => ({
+    ...emptyPage,
+    cards: cards.flatMap(({ es }) =>
+      query.includes(`oracleid:${es.oracle_id}`) ||
+      query.includes(`!"${es.printed_name}"`)
+        ? [es]
+        : [],
+    ),
+  }));
+  const result = await resolveCards(
+    mockScryfall({ collection, search }),
+    cards.map(({ es }, index) => ({
+      ...printLine,
+      name: index % 2 === 0 ? es.name : es.printed_name,
+      set: "",
+      collectorNumber: "",
+    })),
+    { ...spanish, languages: ["es"] },
+  );
+  expect(result.issues).toEqual([]);
+  expect(result.entries.map(({ card }) => card.id)).toEqual(
+    cards.map(({ es }) => es.id),
+  );
+  expect(collection).toHaveBeenCalledTimes(2);
+  expect(search).toHaveBeenCalledTimes(10);
+  expect(search.mock.calls.every(([query]) => query.endsWith(" lang:es"))).toBe(
+    true,
+  );
 });
 
 it("filters print results by oracle, language, and face; better scans match the same art and language", async () => {

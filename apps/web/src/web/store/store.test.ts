@@ -84,9 +84,9 @@ it("restores an older Rust backup as a new deck and preserves its DPI", async ()
   const front = first?.card.faces[0];
   if (!first || !front)
     throw new Error("Backup fixture requires a front image");
-  first.selectedArt = { ...front, provider: "upload" };
+  first.selectedArt = { ...front, provider: "mpc" };
   await expect(decks.restore(JSON.stringify(uploads))).rejects.toThrow(
-    "Backups with custom uploads",
+    "Backups with MPC art",
   );
 });
 

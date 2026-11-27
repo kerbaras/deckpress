@@ -1,5 +1,7 @@
 import type { Art, PrintFailureTarget } from "../../core/index.ts";
+import { loadCoreWasm } from "../core-wasm.ts";
 import { downloadImage } from "../store/image-cache.ts";
+import { readUploadImage } from "../store/upload-files.ts";
 import { decodeRgb, encodePng } from "../upscale/image.ts";
 import { loadModel } from "../upscale/model-store.ts";
 import { defaultWebModel, webModels } from "../upscale/models.ts";
@@ -13,33 +15,6 @@ import type {
   SourceReading,
 } from "./protocol.ts";
 
-interface WasmPrint {
-  default: () => Promise<unknown>;
-  assessSource(
-    width: number,
-    height: number,
-    art: string,
-    settings: string,
-  ): string;
-  buildPdf(
-    settings: string,
-    deck: string,
-    images: Map<string, Uint8Array>,
-  ): Uint8Array<ArrayBuffer>;
-  buildPngZip(
-    settings: string,
-    deck: string,
-    images: Map<string, Uint8Array>,
-  ): Uint8Array<ArrayBuffer>;
-  buildCutSvg(settings: string): string;
-  buildCutDxf(settings: string): string;
-  buildCutStudio3(
-    settings: string,
-    archive: Uint8Array,
-  ): Uint8Array<ArrayBuffer>;
-  buildDuplexCalibrationPdf(settings: string): Uint8Array<ArrayBuffer>;
-}
-
 export class PrintError extends Error {
   readonly target: PrintFailureTarget;
   constructor(cause: unknown, target: PrintFailureTarget) {
@@ -49,6 +24,7 @@ export class PrintError extends Error {
 }
 
 function image(art: Art) {
+  if (art.provider === "upload") return readUploadImage(art.imageUrl);
   if (art.provider !== "scryfall")
     throw new Error(
       "This art source is unavailable on the web. Choose a Scryfall scan.",
@@ -67,9 +43,7 @@ export async function print(
   base: URL,
   send: (progress: Extract<PrintResponse, { kind: "progress" }>) => void,
 ): Promise<PrintResult> {
-  const url = new URL("print/deckpress_core_wasm.js", base);
-  const wasm: WasmPrint = await import(/* @vite-ignore */ url.href);
-  await wasm.default();
+  const wasm = await loadCoreWasm(base);
   const settings = JSON.stringify(request.settings);
   if (request.kind === "cut") {
     if (request.format === "studio3") {

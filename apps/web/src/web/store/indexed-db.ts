@@ -66,6 +66,12 @@ export function indexedDbDocuments(): DocumentStore {
       transact("readwrite", async (store) => {
         await request(store.put(document));
       }),
+    putMany: (documents) =>
+      transact("readwrite", async (store) => {
+        await Promise.all(
+          documents.map((document) => request(store.put(document))),
+        );
+      }),
     remove: (kind, id) =>
       transact("readwrite", (store) => request(store.delete([kind, id]))),
     change: (kind, id, update) =>

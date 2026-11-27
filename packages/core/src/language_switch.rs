@@ -1,11 +1,14 @@
 //! Ranks a supplied inventory without network or storage dependencies.
 
-use std::collections::HashMap;
+use std::{cmp::Ordering, collections::HashMap};
 
 use chrono::NaiveDate;
 use serde::Serialize;
 
-use crate::art_policy::{same_illustrations, ArtPolicy, Printing, Treatment};
+use crate::art_policy::{
+    selection::{compare_release, compare_scan_quality, same_illustrations, PolicySelection},
+    ArtPolicy, Printing,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,31 +21,6 @@ pub enum LanguageTier {
     KeptCurrent,
     Pinned,
     Override,
-}
-
-fn allowed(print: &Printing, policy: Option<&ArtPolicy>, sets: &HashMap<String, u8>) -> bool {
-    match policy {
-        None => true,
-        Some(ArtPolicy::MatchSet { set, .. }) => {
-            !print.promo && (print.set == *set || sets.contains_key(&print.set))
-        }
-        Some(ArtPolicy::Style {
-            frame,
-            border,
-            treatment,
-        }) => {
-            !print.promo
-                && frame.is_none_or(|frame| frame.code() == print.frame)
-                && border.is_none_or(|border| border.code() == print.border)
-                && match treatment {
-                    None => true,
-                    Some(Treatment::None) => !print.full_art && !print.showcase,
-                    Some(Treatment::FullArt) => print.full_art,
-                    Some(Treatment::Showcase) => print.showcase,
-                }
-        }
-        _ => !print.promo,
-    }
 }
 
 fn style_distance(anchor: &Printing, print: &Printing) -> (bool, bool, usize, usize, u64) {
@@ -75,16 +53,21 @@ pub fn choose_printing<'a>(
     source_family: &HashMap<String, u8>,
     policy_family: &HashMap<String, u8>,
 ) -> Option<(LanguageTier, &'a Printing)> {
+    let selection = policy.map(|policy| PolicySelection {
+        policy,
+        family_ranks: Some(policy_family),
+    });
     candidates
         .iter()
         .filter(|print| {
             print.oracle_id == anchor.oracle_id
                 && print.language == language
-                && print.paper
+                && selection
+                    .as_ref()
+                    .map_or(print.paper, |policy| policy.permits(print))
                 && print.scans.as_ref().is_some_and(|faces| {
                     !faces.is_empty() && faces.len() == anchor.illustrations.len()
                 })
-                && allowed(print, policy, policy_family)
         })
         .map(|print| {
             let (tier, family_rank) = if print.set == anchor.set {
@@ -100,25 +83,24 @@ pub fn choose_printing<'a>(
             } else {
                 (LanguageTier::Closest, 0)
             };
-            ((tier, family_rank, style_distance(anchor, print)), print)
+            (tier, family_rank, style_distance(anchor, print), print)
         })
-        .min_by(|(a_rank, a), (b_rank, b)| {
-            a_rank
-                .cmp(b_rank)
-                .then_with(|| policy_family.get(&a.set).cmp(&policy_family.get(&b.set)))
-                .then_with(|| a.date.is_empty().cmp(&b.date.is_empty()))
-                .then_with(|| {
-                    if matches!(policy, Some(ArtPolicy::Original)) {
-                        a.date.cmp(&b.date)
-                    } else {
-                        b.date.cmp(&a.date)
-                    }
-                })
-                .then_with(|| {
-                    let quality = |print: &Printing| print.scans.as_ref()?.first()?.scan_quality;
-                    quality(b).cmp(&quality(a))
-                })
-                .then_with(|| a.id.cmp(&b.id))
-        })
-        .map(|((tier, _, _), print)| (tier, print))
+        .min_by(
+            |(a_tier, a_family, a_style, a), (b_tier, b_family, b_style, b)| {
+                a_tier
+                    .cmp(b_tier)
+                    .then_with(|| a_family.cmp(b_family))
+                    .then_with(|| {
+                        selection
+                            .as_ref()
+                            .map_or(Ordering::Equal, |policy| policy.compare_treatment(a, b))
+                    })
+                    .then_with(|| a_style.cmp(b_style))
+                    .then_with(|| policy_family.get(&a.set).cmp(&policy_family.get(&b.set)))
+                    .then_with(|| compare_release(a, b, policy))
+                    .then_with(|| compare_scan_quality(a, b))
+                    .then_with(|| a.id.cmp(&b.id))
+            },
+        )
+        .map(|(tier, _, _, print)| (tier, print))
 }

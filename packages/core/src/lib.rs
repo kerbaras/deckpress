@@ -33,6 +33,7 @@ pub mod set_family;
 pub mod store;
 #[cfg(feature = "native")]
 pub mod style;
+pub mod upload;
 pub mod upscaler;
 pub mod validate;
 
