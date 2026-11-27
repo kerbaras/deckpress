@@ -1,7 +1,7 @@
 import type { PrintLanguagePreferences, ResolvedCards } from "../../api.ts";
 import { cardLookupName, splitCardAlternative } from "../../core/card-names.ts";
 import type { Card, DeckEntry, ImportLine } from "../../core/index.ts";
-import type { Scryfall } from "./scryfall.ts";
+import { type Scryfall, ScryfallHttpError } from "./scryfall.ts";
 import {
   foldName,
   nameMatches,
@@ -9,10 +9,12 @@ import {
   recordList,
   usableCard,
 } from "./scryfall-card.ts";
-import { searchBatches } from "./search-batches.ts";
+import { anyOf, searchBatches } from "./search-batches.ts";
 
 const collectionBatch = 75;
-const splitSearchBatch = 20;
+const splitSearchConditionLimit = 20;
+const splitSearchEncodedLimit = 1700;
+const splitSearchFilter = "include:extras";
 
 type NumberedPrint = NonNullable<ReturnType<typeof printNumber>>;
 type Candidate = { raw: Record<string, unknown>; card: Card | undefined };
@@ -84,48 +86,95 @@ function findCandidate(
   return best;
 }
 
-function exactNameQuery(name: string) {
-  const escaped = name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `!"${escaped}"`;
+function searchLiteral(value: string) {
+  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `"${escaped}"`;
 }
 
+function exactNameQuery(name: string) {
+  return `!${searchLiteral(name)}`;
+}
+
+type SplitLookup = { row: ImportRow; line: ImportLine };
+type SplitLookups = [SplitLookup, ...SplitLookup[]];
+
 async function resolveSplitNames(api: Scryfall, rows: ImportRow[]) {
-  const queries = new Map<string, { row: ImportRow; line: ImportLine }[]>();
+  const queries = new Map<string, SplitLookups>();
   for (const row of rows) {
     const { line } = row;
     if (row.candidate || (line.set && line.collectorNumber)) continue;
     const name = splitCardAlternative(line.name);
     if (!name || (line.set && !/^[a-z\d]+$/i.test(line.set))) continue;
-    const clause = `(${exactNameQuery(name)}${line.set ? ` set:${line.set}` : ""})`;
+    const filter = line.set
+      ? ` set:${line.set}`
+      : line.collectorNumber
+        ? ` cn=${searchLiteral(line.collectorNumber)}`
+        : "";
+    const clause = `(${exactNameQuery(name)}${filter})`;
     const lookup = { row, line: { ...line, name } };
     const group = queries.get(clause);
     if (group) group.push(lookup);
     else queries.set(clause, [lookup]);
   }
-  const unique = [...queries.values()].some((group) =>
-    group.some(({ line }) => line.set || line.collectorNumber),
-  )
-    ? "prints"
-    : "cards";
-  await searchBatches(
-    { search: (query, page) => api.search(query, page, unique) },
-    queries.keys(),
-    ["include:extras"],
-    (rawCards, batch) => {
-      const lookups = batch.flatMap((term) => queries.get(term) ?? []);
-      const cards = rawCards.map((raw) => ({ raw, card: usableCard(raw) }));
-      for (const { row, line } of lookups) {
-        if (row.candidate?.card) continue;
-        const candidate = findCandidate(cards, line, false);
-        if (candidate?.card || (!row.candidate && candidate)) {
-          row.line = line;
-          row.candidate = candidate;
-        }
+  for (const [query, batch] of splitSearchQueries(queries)) {
+    let rawCards: Record<string, unknown>[];
+    try {
+      ({ cards: rawCards } = await api.search(query, 1, "cards"));
+    } catch (error) {
+      if (
+        error instanceof ScryfallHttpError &&
+        error.status >= 400 &&
+        error.status < 500
+      )
+        continue;
+      throw error;
+    }
+    const lookups = batch.flatMap((term) => queries.get(term) ?? []);
+    const cards = rawCards.map((raw) => ({ raw, card: usableCard(raw) }));
+    for (const { row, line } of lookups) {
+      const candidate = findCandidate(cards, line, false);
+      if (candidate) {
+        row.line = line;
+        row.candidate = candidate;
       }
-      return lookups.every(({ row }) => row.candidate?.card);
-    },
-    splitSearchBatch,
-  );
+    }
+  }
+}
+
+function* splitSearchQueries(queries: Map<string, SplitLookups>) {
+  let batch: string[] = [];
+  const names = new Set<string>();
+  let conditions = 1;
+  let query = "";
+  for (const [clause, [{ line }]] of [...queries].sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  )) {
+    const cost = line.set || line.collectorNumber ? 2 : 1;
+    const name = foldName(line.name);
+    let next = `${anyOf([...batch, clause])} ${splitSearchFilter}`;
+    if (
+      conditions + cost > splitSearchConditionLimit ||
+      names.has(name) ||
+      new URLSearchParams({ q: next }).toString().length >
+        splitSearchEncodedLimit
+    ) {
+      if (batch.length) yield [query, batch] as const;
+      batch = [];
+      names.clear();
+      conditions = 1;
+      next = `${clause} ${splitSearchFilter}`;
+      if (
+        new URLSearchParams({ q: next }).toString().length >
+        splitSearchEncodedLimit
+      )
+        continue;
+    }
+    conditions += cost;
+    names.add(name);
+    batch.push(clause);
+    query = next;
+  }
+  if (batch.length) yield [query, batch] as const;
 }
 
 export function resolvedEntry(

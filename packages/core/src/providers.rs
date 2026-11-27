@@ -2,7 +2,7 @@
 //! paced through a single rate limiter and JSON responses are cached in
 //! SQLite for 24 hours.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -31,7 +31,9 @@ const SCRYFALL_BACKOFF: Duration = Duration::from_secs(15);
 const SCRYFALL_MAX_BACKOFF: Duration = Duration::from_secs(30);
 const SCRYFALL_RETRIES: u32 = 3;
 const COLLECTION_BATCH: usize = 75;
-const SPLIT_SEARCH_BATCH: usize = 20;
+const SPLIT_SEARCH_CONDITION_LIMIT: usize = 20;
+const SPLIT_SEARCH_ENCODED_LIMIT: usize = 1700;
+const SPLIT_SEARCH_FILTER: &str = "include:extras";
 const PRINT_SEARCH_BATCH: usize = 12;
 const MPC_PAGE: usize = 48;
 const MPC_PROJECT_LIMIT: usize = 612;
@@ -337,20 +339,61 @@ fn printing_queries<'a, T>(
     clauses: &'a [(String, T)],
     suffix: &'a str,
     parenthesize_single: bool,
-    batch_size: usize,
 ) -> impl Iterator<Item = (String, &'a [(String, T)])> {
-    clauses.chunks(batch_size).map(move |batch| {
-        let terms = batch
-            .iter()
-            .map(|(term, _)| term.as_str())
-            .collect::<Vec<_>>()
-            .join(" or ");
-        let query = if batch.len() > 1 || parenthesize_single {
-            format!("({terms}) {suffix}")
-        } else {
-            format!("{terms} {suffix}")
-        };
-        (query, batch)
+    clauses
+        .chunks(PRINT_SEARCH_BATCH)
+        .map(move |batch| (printing_query(batch, suffix, parenthesize_single), batch))
+}
+
+fn printing_query<T>(clauses: &[(String, T)], suffix: &str, parenthesize_single: bool) -> String {
+    let terms = clauses
+        .iter()
+        .map(|(term, _)| term.as_str())
+        .collect::<Vec<_>>()
+        .join(" or ");
+    if clauses.len() > 1 || parenthesize_single {
+        format!("({terms}) {suffix}")
+    } else {
+        format!("{terms} {suffix}")
+    }
+}
+
+type SplitSearchClause = (String, Vec<(usize, ImportLine)>);
+
+fn split_search_batches(
+    mut clauses: &[SplitSearchClause],
+) -> impl Iterator<Item = (Url, &[SplitSearchClause])> {
+    std::iter::from_fn(move || {
+        while !clauses.is_empty() {
+            let mut conditions = 1;
+            let mut names = HashSet::new();
+            let mut last = None;
+            for (index, (_, lookups)) in clauses.iter().enumerate() {
+                let line = &lookups[0].1;
+                conditions +=
+                    1 + usize::from(!line.set.is_empty() || !line.collector_number.is_empty());
+                if conditions > SPLIT_SEARCH_CONDITION_LIMIT
+                    || !names.insert(fold_name(&lookups[0].1.name))
+                {
+                    break;
+                }
+                let query = printing_query(&clauses[..=index], SPLIT_SEARCH_FILTER, false);
+                let encoded = url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("q", &query)
+                    .finish();
+                if encoded.len() > SPLIT_SEARCH_ENCODED_LIMIT {
+                    break;
+                }
+                last = Some((index + 1, query));
+            }
+            if let Some((count, query)) = last {
+                let (batch, rest) = clauses.split_at(count);
+                clauses = rest;
+                return Some((scryfall_search(&query, 1, "cards"), batch));
+            }
+            clauses = &clauses[1..];
+        }
+        None
     })
 }
 
@@ -588,9 +631,13 @@ fn import_candidate(
     })
 }
 
+fn search_literal(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
 fn exact_name_query(name: &str) -> String {
-    let escaped = name.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("!\"{escaped}\"")
+    format!("!{}", search_literal(name))
 }
 
 fn scryfall_oracle_id(raw: &Value) -> Option<&str> {
@@ -892,6 +939,8 @@ impl Providers {
             let mut clause = exact_name_query(&name);
             if !line.set.is_empty() {
                 clause.push_str(&format!(" set:{}", line.set));
+            } else if !line.collector_number.is_empty() {
+                clause.push_str(&format!(" cn={}", search_literal(&line.collector_number)));
             }
             queries.entry(format!("({clause})")).or_default().push((
                 index,
@@ -902,50 +951,28 @@ impl Providers {
             ));
         }
         let clauses: Vec<_> = queries.into_iter().collect();
-        let unique = if clauses
-            .iter()
-            .flat_map(|(_, group)| group)
-            .any(|(_, line)| !line.set.is_empty() || !line.collector_number.is_empty())
-        {
-            "prints"
-        } else {
-            "cards"
-        };
-        for (query, batch) in
-            printing_queries(&clauses, "include:extras", false, SPLIT_SEARCH_BATCH)
-        {
-            let lookups: Vec<_> = batch.iter().flat_map(|(_, group)| group).collect();
-            self.visit_printing_pages(
-                &query,
-                unique,
-                |_| {},
-                |response| {
-                    let cards: Vec<_> = cards_in(response)
-                        .map(|raw| (raw, normalize_scryfall(raw).ok()))
-                        .collect();
-                    for (index, line) in &lookups {
-                        let current = &mut candidates[*index];
-                        if current
-                            .as_ref()
-                            .is_some_and(|candidate| candidate.card.is_some())
-                        {
-                            continue;
-                        }
-                        if let Some(candidate) = import_candidate(&cards, line, false) {
-                            if candidate.card.is_some() || current.is_none() {
-                                lines[*index].name.clone_from(&line.name);
-                                *current = Some(candidate);
-                            }
-                        }
-                    }
-                    lookups.iter().all(|(index, _)| {
-                        candidates[*index]
-                            .as_ref()
-                            .is_some_and(|candidate| candidate.card.is_some())
-                    })
-                },
-            )
-            .await?;
+        for (url, batch) in split_search_batches(&clauses) {
+            let response = match self
+                .json_or_status(url.as_str(), None, true, |_| {})
+                .await?
+            {
+                Ok(response) => response,
+                Err(400..=499) => continue,
+                Err(status) => {
+                    return Err(AppError::user(format!(
+                        "Scryfall returned {status}. Try again."
+                    )))
+                }
+            };
+            let cards: Vec<_> = cards_in(&response)
+                .map(|raw| (raw, normalize_scryfall(raw).ok()))
+                .collect();
+            for (index, line) in batch.iter().flat_map(|(_, group)| group) {
+                if let Some(candidate) = import_candidate(&cards, line, false) {
+                    lines[*index].name.clone_from(&line.name);
+                    candidates[*index] = Some(candidate);
+                }
+            }
         }
         Ok(())
     }
@@ -1177,14 +1204,13 @@ impl Providers {
         }
         let clauses: Vec<_> = clauses.into_iter().collect();
         let suffix = format!("game:paper lang:{language}");
-        for (query, batch) in printing_queries(&clauses, &suffix, false, PRINT_SEARCH_BATCH) {
+        for (query, batch) in printing_queries(&clauses, &suffix, false) {
             let indices: Vec<_> = batch
                 .iter()
                 .flat_map(|(_, indices)| indices.iter().copied())
                 .collect();
             self.visit_printing_pages(
                 &query,
-                "prints",
                 |_| {},
                 |response| {
                     for raw in cards_in(response) {
@@ -1205,12 +1231,11 @@ impl Providers {
     async fn visit_printing_pages(
         &self,
         query: &str,
-        unique: &str,
         on_retry: impl Fn(Duration),
         mut visit: impl FnMut(&Value) -> bool,
     ) -> AppResult<bool> {
         for page in 1..=100 {
-            let url = scryfall_search(query, page, unique);
+            let url = print_search(query, page);
             let response = self
                 .scryfall_json_with_retry(url.as_str(), &on_retry)
                 .await?;
@@ -1291,9 +1316,7 @@ impl Providers {
             || "game:paper".into(),
             |lang| format!("lang:{lang} game:paper"),
         );
-        for (query, batch) in
-            printing_queries(&missing, &suffix, language.is_some(), PRINT_SEARCH_BATCH)
-        {
+        for (query, batch) in printing_queries(&missing, &suffix, language.is_some()) {
             let mut found: HashMap<_, Vec<Value>> = batch
                 .iter()
                 .map(|(_, oracle)| (*oracle, Vec::new()))
@@ -1301,7 +1324,6 @@ impl Providers {
             let complete = self
                 .visit_printing_pages(
                     &query,
-                    "prints",
                     |delay| {
                         progress(PrintingLookupProgress::RateLimited(delay));
                     },

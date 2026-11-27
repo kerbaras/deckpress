@@ -5,7 +5,7 @@ import type { ImportLine } from "../../core/index.ts";
 import { betterScan, searchArt } from "./art.ts";
 import { policyProvider } from "./printings.ts";
 import { resolveCards } from "./resolve.ts";
-import type { Scryfall } from "./scryfall.ts";
+import { type Scryfall, scryfallClient } from "./scryfall.ts";
 import { normalizeScryfall } from "./scryfall-card.ts";
 import { relatedTokens } from "./tokens.ts";
 
@@ -149,11 +149,18 @@ it("batches full-name fallback across collection batches without substituting a 
       ],
     ],
   ]);
-  expect(search).toHaveBeenCalledExactlyOnceWith(
-    '((!"Armed // Dangerous") or (!"Bind // Liberate") or (!"Fire // Ice" set:mh2) or (!"Fire // Ice") or (!"Fire // Wrong Face")) include:extras',
-    1,
-    "prints",
-  );
+  expect(search.mock.calls).toEqual([
+    [
+      '((!"Armed // Dangerous") or (!"Bind // Liberate") or (!"Fire // Ice" cn="290")) include:extras',
+      1,
+      "cards",
+    ],
+    [
+      '((!"Fire // Ice" set:mh2) or (!"Fire // Wrong Face")) include:extras',
+      1,
+      "cards",
+    ],
+  ]);
   expect(result.entries.slice(0, 3)).toMatchObject([
     { card: { name: "Delver of Secrets // Insectile Aberration" } },
     { card: { name: "Bind // Liberate" } },
@@ -167,6 +174,100 @@ it("batches full-name fallback across collection batches without substituting a 
     { line: 78, input: "2 Fire & Wrong Face", kind: "notFound" },
   ]);
 });
+
+it.each([400, 404])(
+  "keeps Fire & Ice and reports 20 row misses when another fallback gets HTTP %i",
+  async (status) => {
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const { pathname, searchParams } = new URL(String(input));
+      if (pathname === "/cards/collection") return Response.json({ data: [] });
+      if (!searchParams.get("q")?.includes("Fire // Ice"))
+        return Response.json({ object: "error" }, { status });
+      return Response.json({
+        data: [{ ...fixture.usable_exact_en, name: "Fire // Ice" }],
+        has_more: true,
+        next_page: "https://api.scryfall.com/cards/search?page=2",
+        total_cards: 1,
+      });
+    });
+    const lines: ImportLine[] = [
+      "Fire & Ice",
+      ...Array.from({ length: 20 }, (_, i) => `ZZ Test ${i}/Miss`),
+    ].map((name) => ({
+      name,
+      quantity: 1,
+      zone: "main",
+      set: "",
+      collectorNumber: "",
+    }));
+    const api = scryfallClient(
+      { get: async () => undefined, put: async () => {} },
+      fetcher,
+    );
+    const result = await resolveCards(api, lines, {
+      languages: ["en"],
+      policy: "strict",
+    });
+    expect(
+      fetcher.mock.calls.map(([input, init]) => {
+        const { pathname, searchParams } = new URL(String(input));
+        if (pathname === "/cards/collection") return [pathname, init?.method];
+        return [
+          pathname,
+          searchParams.get("q")?.match(/!"/g)?.length,
+          searchParams.get("page"),
+          searchParams.get("unique"),
+        ];
+      }),
+    ).toEqual([
+      ["/cards/collection", "POST"],
+      ["/cards/search", 19, "1", "cards"],
+      ["/cards/search", 2, "1", "cards"],
+    ]);
+    expect(result.entries).toMatchObject([{ card: { name: "Fire // Ice" } }]);
+    expect(result.issues).toMatchObject(
+      lines.slice(1).map(({ name }, i) => ({
+        line: i + 2,
+        input: `1 ${name}`,
+        kind: "notFound",
+      })),
+    );
+  },
+);
+
+it.each([
+  { set: "mh2", prefix: "", lengths: [9, 9, 3] },
+  { set: "", prefix: "é".repeat(50), lengths: [5, 5, 5, 5, 1] },
+])(
+  "budgets fallback filters and encoded URL length ($lengths)",
+  async ({ set, prefix, lengths }) => {
+    const search = vi.fn<Scryfall["search"]>(async () => emptyPage);
+    const lines: ImportLine[] = Array.from({ length: 21 }, (_, i) => ({
+      name: `${prefix}${i}/Miss`,
+      quantity: 1,
+      zone: "main",
+      set,
+      collectorNumber: "",
+    }));
+    const result = await resolveCards(mockScryfall({ search }), lines, {
+      languages: ["en"],
+      policy: "strict",
+    });
+    expect(result.issues).toHaveLength(21);
+    expect(
+      search.mock.calls.map(([query, page, unique]) => {
+        expect(
+          new URLSearchParams({ q: query }).toString().length,
+        ).toBeLessThanOrEqual(1700);
+        expect(
+          query.match(/!"|set:|include:extras/g)?.length,
+        ).toBeLessThanOrEqual(20);
+        expect([page, unique]).toEqual([1, "cards"]);
+        return query.match(/!"/g)?.length;
+      }),
+    ).toEqual(lengths);
+  },
+);
 
 it("keeps literal slash and ampersand names and prefers a full match over another row's face", async () => {
   const bolt = fixture.usable_exact_en;

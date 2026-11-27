@@ -764,17 +764,27 @@ async fn batches_full_name_fallbacks_without_substituting_another_split_card() {
         ]}),
         &json!({"data": [delver[0], named_print("Bind", "inv", "182"), named_print("Armed", "fmsc", "31")]}),
     );
-    let query = r#"((!"Armed // Dangerous") or (!"Bind // Liberate") or (!"Fire // Ice" set:mh2) or (!"Fire // Ice") or (!"Fire // Wrong Face")) include:extras"#;
-    record(
-        &store,
-        &search_url(query),
-        Value::Null,
-        &json!({"data": [
-            named_print("Bind // Liberate", "cmb2", "88"),
-            named_print("Armed // Dangerous", "dgm", "122"),
-            named_print("Fire // Ice", "mh2", "290")
-        ]}),
-    );
+    for (query, cards) in [
+        (
+            r#"((!"Armed // Dangerous") or (!"Bind // Liberate") or (!"Fire // Ice" cn="290")) include:extras"#,
+            json!([
+                named_print("Bind // Liberate", "cmb2", "88"),
+                named_print("Armed // Dangerous", "dgm", "122"),
+                named_print("Fire // Ice", "mh2", "290")
+            ]),
+        ),
+        (
+            r#"((!"Fire // Ice" set:mh2) or (!"Fire // Wrong Face")) include:extras"#,
+            json!([named_print("Fire // Ice", "mh2", "290")]),
+        ),
+    ] {
+        record(
+            &store,
+            &search_url(query).replace("unique=prints", "unique=cards"),
+            Value::Null,
+            &json!({"data": cards}),
+        );
+    }
     let input = vec![
         named_line("Delver of Secrets", "", "", Zone::Main),
         named_line("Bind // Liberate", "", "", Zone::Main),
@@ -809,7 +819,95 @@ async fn batches_full_name_fallbacks_without_substituting_another_split_card() {
         resolved.issues[0].kind,
         deckpress_core::models::ImportIssueKind::NotFound
     );
-    assert_eq!(store.list::<Value>("cache").unwrap().len(), 2);
+    assert_eq!(store.list::<Value>("cache").unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn split_fallback_keeps_fire_and_ice_with_twenty_misses_and_never_pages() {
+    for status in [400, 404] {
+        let (tx, mut requests) = tokio::sync::mpsc::unbounded_channel();
+        let (providers, mock) = mock_scryfall(move |url, body| {
+            if url.path() == "/cards/collection" {
+                assert_eq!(body["identifiers"].as_array().unwrap().len(), 21);
+                tx.send(0).unwrap();
+                return (200, json!({"data": []}));
+            }
+            let params: std::collections::HashMap<_, _> = url.query_pairs().collect();
+            assert_eq!((&*params["page"], &*params["unique"]), ("1", "cards"));
+            let query = &params["q"];
+            tx.send(query.matches("!\"").count()).unwrap();
+            if query.contains("Fire // Ice") {
+                (
+                    200,
+                    json!({
+                        "data": [named_print("Fire // Ice", "mh2", "290")],
+                        "has_more": true,
+                        "next_page": "https://api.scryfall.com/cards/search?page=2",
+                    }),
+                )
+            } else {
+                (status, json!({"object": "error"}))
+            }
+        })
+        .await;
+        let lines = std::iter::once("Fire & Ice".to_owned())
+            .chain((0..20).map(|i| format!("ZZ Test {i}/Miss")))
+            .map(|name| named_line(&name, "", "", Zone::Main))
+            .collect::<Vec<_>>();
+        let result = providers.resolve(lines.clone()).await.unwrap();
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].card.name, "Fire // Ice");
+        assert_eq!(result.issues.len(), 20);
+        for (number, (issue, line)) in (2..).zip(result.issues.iter().zip(&lines[1..])) {
+            assert_eq!(issue.line, number);
+            assert_eq!(issue.input, format!("2 {}", line.name));
+            assert_eq!(
+                issue.kind,
+                deckpress_core::models::ImportIssueKind::NotFound
+            );
+        }
+        assert_eq!(
+            std::iter::from_fn(|| requests.try_recv().ok()).collect::<Vec<_>>(),
+            [0, 19, 2]
+        );
+        mock.abort();
+    }
+}
+
+#[tokio::test]
+async fn split_fallback_budgets_set_filters_and_encoded_query_length() {
+    for (set, prefix, lengths) in [
+        ("mh2", String::new(), vec![9, 9, 3]),
+        ("", "é".repeat(50), vec![5, 5, 5, 5, 1]),
+    ] {
+        let (tx, mut requests) = tokio::sync::mpsc::unbounded_channel();
+        let (providers, mock) = mock_scryfall(move |url, _| {
+            if url.path() == "/cards/collection" {
+                return (200, json!({"data": []}));
+            }
+            let params: std::collections::HashMap<_, _> = url.query_pairs().collect();
+            assert_eq!((&*params["page"], &*params["unique"]), ("1", "cards"));
+            let query = &params["q"];
+            let names = query.matches("!\"").count();
+            assert!(
+                names + query.matches("set:").count() + query.matches("include:extras").count()
+                    <= 20
+            );
+            assert!(url.query().unwrap().split('&').next().unwrap().len() <= 1700);
+            tx.send(names).unwrap();
+            (200, json!({"data": []}))
+        })
+        .await;
+        let lines = (0..21)
+            .map(|i| named_line(&format!("{prefix}{i}/Miss"), set, "", Zone::Main))
+            .collect();
+        assert_eq!(providers.resolve(lines).await.unwrap().issues.len(), 21);
+        assert_eq!(
+            std::iter::from_fn(|| requests.try_recv().ok()).collect::<Vec<_>>(),
+            lengths
+        );
+        mock.abort();
+    }
 }
 
 #[tokio::test]
