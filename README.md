@@ -28,3 +28,7 @@ xattr -dr com.apple.quarantine /Applications/Deckpress.app
 ## Development
 
 See [AGENTS.md](AGENTS.md) for the toolchain and checks, and [docs/releases.md](docs/releases.md) for the release steps.
+
+## License
+
+Deckpress is released under the [MIT License](LICENSE). The bundled Real-ESRGAN models are BSD-3-Clause (see `packages/core/models.json`), and the JetBrains Mono font is under the SIL Open Font License 1.1.
