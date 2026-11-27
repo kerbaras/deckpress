@@ -202,7 +202,9 @@ fn deck_backups_reference_original_upload_files_and_restore_legacy_refs() {
     entry.policy_art = Some(vec![old_ref]);
     let mut input = common::new_deck("Upload references");
     input.entries.push(entry);
-    let legacy = serde_json::to_string(&input).unwrap();
+    let fresh = tempfile::tempdir().unwrap();
+    let fresh_store = Arc::new(Store::open(&fresh.path().join("deckpress.sqlite")).unwrap());
+    let legacy = serde_json::to_string(&fresh_store.create_deck(input.clone()).unwrap()).unwrap();
     assert!(!legacy.contains("\"filename\"") && !legacy.contains("\"contentHash\""));
 
     let deck = store.create_deck(input).unwrap();
@@ -219,8 +221,6 @@ fn deck_backups_reference_original_upload_files_and_restore_legacy_refs() {
         assert_eq!(reference["contentHash"], hash);
     }
 
-    let fresh = tempfile::tempdir().unwrap();
-    let fresh_store = Arc::new(Store::open(&fresh.path().join("deckpress.sqlite")).unwrap());
     let fresh_images = Images::new(fresh.path(), fresh_store).unwrap();
     let restored = fresh_images.restore_deck(&legacy).unwrap();
     assert_eq!(restored.updated_uploads, 0);
