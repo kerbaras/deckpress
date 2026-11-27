@@ -14,37 +14,48 @@ name = "deckpress_core"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "2"
-tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time", "fs"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+tokio = { version = "1", optional = true, features = ["sync", "rt-multi-thread", "macros", "time", "fs"] }
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["json", "rustls", "stream"] }
+rusqlite = { version = "0.40", optional = true, features = ["bundled"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
-fast_image_resize = { version = "6", features = ["image", "rayon"] }
+fast_image_resize = { version = "6", features = ["image"] }
 krilla = { version = "0.8", default-features = false, features = ["raster-images", "simple-text"] }
 lopdf = { version = "0.42", default-features = false }
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-rustls", "copy-dylibs", "api-22"] }
-ndarray = "0.17"
+ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["std", "download-binaries", "tls-rustls", "copy-dylibs", "api-22"] }
+ndarray = { version = "0.17", optional = true }
 sha2 = "0.11"
 hex = "0.4"
-uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-url = "2"
-futures-util = { version = "0.3", default-features = false }
+uuid = { version = "1", features = ["serde"] }
+chrono = { version = "0.4", optional = true, default-features = false, features = ["clock", "std"] }
+url = { version = "2", optional = true }
+futures-util = { version = "0.3", optional = true, default-features = false }
 log = "0.4"
 crc32fast = "1.4"
 zip = { version = "~7.3", default-features = false }
 
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["coreml"] }
+ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["coreml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-ort = { version = "=2.0.0-rc.15", default-features = false, features = ["directml"] }
+ort = { version = "=2.0.0-rc.15", optional = true, default-features = false, features = ["directml"] }
 
 [features]
-default = []
+default = ["native"]
+native = [
+    "dep:chrono", "dep:futures-util", "dep:ndarray", "dep:ort", "dep:reqwest",
+    "dep:rusqlite", "dep:tokio", "dep:url", "fast_image_resize/rayon", "uuid/v4",
+]
 # NVIDIA support on Linux/Windows. Requires the CUDA/cuDNN runtime on the target machine.
-cuda = ["ort/cuda"]
+cuda = ["native", "ort/cuda"]
 
 [dev-dependencies]
 quick-xml = "0.42"
 tempfile = "3"
 zip = { version = "~7.3", default-features = false }
+
+[[example]]
+name = "wasm_reference"
+required-features = ["native"]

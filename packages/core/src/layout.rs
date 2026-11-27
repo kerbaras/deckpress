@@ -1,6 +1,8 @@
 //! Port of `apps/web/src/core/layout.ts`. Preview (TypeScript) and export
 //! (Rust) must agree on every point value, so keep both in sync.
 
+use serde::Serialize;
+
 use crate::error::{AppError, AppResult};
 use crate::models::{Backs, Guides, LayoutMode, Orientation, PrintSettings};
 use crate::scm::{self, ScmSheet};
@@ -33,7 +35,7 @@ pub fn face_pixels(width_mm: f64, height_mm: f64, bleed_mm: f64, dpi: u32) -> Fa
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Rect {
     pub x: f64,
     pub y: f64,
@@ -41,13 +43,13 @@ pub struct Rect {
     pub height: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Slot {
     pub rect: Rect,
     pub trim: Rect,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Guide {
     pub x1: f64,
     pub y1: f64,
@@ -57,14 +59,15 @@ pub struct Guide {
 
 /// Circle-and-crosshair target printed on both sides of a duplex sheet so
 /// front/back alignment can be checked against the light.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Registration {
     pub x: f64,
     pub y: f64,
     pub radius: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PrintLayout {
     pub width: f64,
     pub height: f64,

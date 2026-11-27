@@ -1,13 +1,19 @@
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+#[cfg(feature = "native")]
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AppError, AppResult};
-use crate::models::{new_id, Art, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences};
-use crate::providers::Providers;
-use crate::store::Store;
+#[cfg(feature = "native")]
+use crate::{
+    error::{AppError, AppResult},
+    models::{new_id, Art, Deck, DeckEntry, PrintLanguagePolicy, PrintLanguagePreferences},
+    providers::Providers,
+    store::Store,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -38,6 +44,7 @@ pub enum Frame {
     Future,
 }
 
+#[cfg(feature = "native")]
 impl Frame {
     fn code(self) -> &'static str {
         match self {
@@ -58,6 +65,7 @@ pub enum Border {
     Borderless,
 }
 
+#[cfg(feature = "native")]
 impl Border {
     fn code(self) -> &'static str {
         match self {
@@ -76,6 +84,7 @@ pub enum Treatment {
     Showcase,
 }
 
+#[cfg(feature = "native")]
 #[derive(Debug, Clone)]
 pub(crate) struct Printing {
     pub id: String,
@@ -94,6 +103,7 @@ pub(crate) struct Printing {
     pub scans: Option<Vec<Art>>,
 }
 
+#[cfg(feature = "native")]
 impl ArtPolicy {
     fn validate(&self) -> AppResult<()> {
         match self {
@@ -173,11 +183,13 @@ impl ArtPolicy {
     }
 }
 
+#[cfg(feature = "native")]
 fn compare_scan_quality(a: Option<&Art>, b: Option<&Art>) -> Ordering {
     b.and_then(|art| art.scan_quality)
         .cmp(&a.and_then(|art| art.scan_quality))
 }
 
+#[cfg(feature = "native")]
 fn same_illustrations(anchor: &Printing, candidate: &Printing) -> bool {
     anchor.oracle_id == candidate.oracle_id
         && (anchor.id == candidate.id
@@ -186,6 +198,7 @@ fn same_illustrations(anchor: &Printing, candidate: &Printing) -> bool {
                 && anchor.illustrations == candidate.illustrations))
 }
 
+#[cfg(feature = "native")]
 fn localized<'a>(
     anchor: &Printing,
     candidates: impl IntoIterator<Item = &'a Printing>,
@@ -215,6 +228,7 @@ fn localized<'a>(
         })
 }
 
+#[cfg(feature = "native")]
 fn languages(preferences: &PrintLanguagePreferences) -> impl Iterator<Item = &str> {
     preferences.languages.iter().map(String::as_str).chain(
         (preferences.policy == PrintLanguagePolicy::FallbackToEnglish
@@ -223,6 +237,7 @@ fn languages(preferences: &PrintLanguagePreferences) -> impl Iterator<Item = &st
     )
 }
 
+#[cfg(feature = "native")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ArtChangeKind {
@@ -233,6 +248,7 @@ pub enum ArtChangeKind {
     Fallback,
 }
 
+#[cfg(feature = "native")]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtChange {
@@ -245,6 +261,7 @@ pub struct ArtChange {
     pub reason: String,
 }
 
+#[cfg(feature = "native")]
 impl ArtChange {
     fn new(entry: &DeckEntry, kind: ArtChangeKind, after: Option<Art>, reason: &str) -> Self {
         Self {
@@ -259,6 +276,7 @@ impl ArtChange {
     }
 }
 
+#[cfg(feature = "native")]
 fn plan_change(
     entry: &DeckEntry,
     candidate: Option<&Printing>,
@@ -314,6 +332,7 @@ fn plan_change(
     )
 }
 
+#[cfg(feature = "native")]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtPreview {
@@ -322,28 +341,33 @@ pub struct ArtPreview {
     pub can_apply: bool,
 }
 
+#[cfg(feature = "native")]
 struct Pending {
     id: String,
     next: Option<Deck>,
 }
 
+#[cfg(feature = "native")]
 struct Undo {
     applied_revision: u64,
     before: Deck,
 }
 
+#[cfg(feature = "native")]
 #[derive(Default)]
 struct History {
     pending: HashMap<String, Pending>,
     undo: HashMap<String, Undo>,
 }
 
+#[cfg(feature = "native")]
 pub struct ArtPolicies {
     store: Arc<Store>,
     providers: Arc<Providers>,
     history: Mutex<History>,
 }
 
+#[cfg(feature = "native")]
 impl ArtPolicies {
     pub fn new(store: Arc<Store>, providers: Arc<Providers>) -> Self {
         Self {

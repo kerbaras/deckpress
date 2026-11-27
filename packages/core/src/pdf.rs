@@ -2,7 +2,8 @@
 //! guides, an optional calibration page and "print at actual size" metadata.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "native")]
+use std::path::Path;
 
 use krilla::color::rgb;
 use krilla::geom::{Path as KPath, PathBuilder, Point, Rect, Size, Transform};
@@ -100,9 +101,17 @@ pub fn print_plan(deck: &Deck, settings: &PrintSettings) -> AppResult<PrintPlan>
     })
 }
 
+#[cfg(feature = "native")]
 pub struct PdfServices<'a> {
     pub upscaler: Option<&'a dyn Upscaler>,
     pub raster_dir: &'a Path,
+}
+
+#[derive(Default)]
+struct PdfRender<'a> {
+    upscaler: Option<&'a dyn Upscaler>,
+    #[cfg(feature = "native")]
+    raster_dir: Option<&'a Path>,
 }
 
 pub struct PdfOutput {
@@ -681,10 +690,53 @@ fn draw_fitted_text(
     );
 }
 
+#[cfg(feature = "native")]
 pub fn build_pdf(
     deck: &Deck,
     settings: &PrintSettings,
     services: &PdfServices<'_>,
+    cancel: &CancelToken,
+    progress: &mut dyn FnMut(usize, usize, String),
+    read_source: &mut dyn FnMut(&str) -> AppResult<Vec<u8>>,
+) -> AppResult<PdfOutput> {
+    build_document(
+        deck,
+        settings,
+        PdfRender {
+            upscaler: services.upscaler,
+            raster_dir: Some(services.raster_dir),
+        },
+        cancel,
+        progress,
+        read_source,
+    )
+}
+
+/// Builds a PDF without a disk cache or an inference model. The caller may
+/// supply pre-upscaled image bytes; this path still applies the print raster.
+pub fn build_pdf_from_images(
+    deck: &Deck,
+    settings: &PrintSettings,
+    read_source: &mut dyn FnMut(&str) -> AppResult<Vec<u8>>,
+) -> AppResult<PdfOutput> {
+    let settings = PrintSettings {
+        upscale: false,
+        ..settings.clone()
+    };
+    build_document(
+        deck,
+        &settings,
+        PdfRender::default(),
+        &CancelToken::default(),
+        &mut |_, _, _| {},
+        read_source,
+    )
+}
+
+fn build_document(
+    deck: &Deck,
+    settings: &PrintSettings,
+    services: PdfRender<'_>,
     cancel: &CancelToken,
     progress: &mut dyn FnMut(usize, usize, String),
     read_source: &mut dyn FnMut(&str) -> AppResult<Vec<u8>>,
@@ -727,7 +779,10 @@ pub fn build_pdf(
     if settings.calibration_page {
         draw_calibration_page(&mut document, &layout, settings, &font)?;
     }
-    std::fs::create_dir_all(services.raster_dir)?;
+    #[cfg(feature = "native")]
+    if let Some(dir) = services.raster_dir {
+        std::fs::create_dir_all(dir)?;
+    }
     let total: usize = sides.iter().map(|side| side.entries.len()).sum();
     let mut completed = 0;
     let mut image_bytes = 0usize;
@@ -803,39 +858,49 @@ pub fn build_pdf(
                     let image = match embedded.get(&key) {
                         Some(image) => image.clone(),
                         None => {
-                            let path: PathBuf = services.raster_dir.join(format!("{key}.jpg"));
-                            let bytes = match std::fs::read(&path) {
-                                Ok(bytes) => bytes,
-                                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                                    let mut tile_progress = |done: usize, tiles: usize| {
-                                        if tiles > 0 {
-                                            progress(
-                                                completed,
-                                                total,
-                                                format!(
-                                                    "AI upscaling {} · tile {done}/{tiles}",
-                                                    entry.card.name
-                                                ),
-                                            );
-                                        }
-                                    };
-                                    let output = rasterize(
-                                        &source,
-                                        &art,
-                                        settings,
-                                        services.upscaler,
-                                        cancel,
-                                        &mut tile_progress,
-                                    )
-                                    .map_err(card_error)?;
-                                    let bytes = encode_jpeg(&output.image, settings.quality)?;
-                                    let tmp = path.with_extension("part");
-                                    std::fs::write(&tmp, &bytes)?;
-                                    std::fs::rename(&tmp, &path)?;
-                                    bytes
-                                }
-                                Err(error) => return Err(error.into()),
+                            let mut render_jpeg = || {
+                                let mut tile_progress = |done: usize, tiles: usize| {
+                                    if tiles > 0 {
+                                        progress(
+                                            completed,
+                                            total,
+                                            format!(
+                                                "AI upscaling {} · tile {done}/{tiles}",
+                                                entry.card.name
+                                            ),
+                                        );
+                                    }
+                                };
+                                let output = rasterize(
+                                    &source,
+                                    &art,
+                                    settings,
+                                    services.upscaler,
+                                    cancel,
+                                    &mut tile_progress,
+                                )
+                                .map_err(card_error)?;
+                                encode_jpeg(&output.image, settings.quality)
                             };
+                            #[cfg(feature = "native")]
+                            let bytes = if let Some(dir) = services.raster_dir {
+                                let path = dir.join(format!("{key}.jpg"));
+                                match std::fs::read(&path) {
+                                    Ok(bytes) => bytes,
+                                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                                        let bytes = render_jpeg()?;
+                                        let tmp = path.with_extension("part");
+                                        std::fs::write(&tmp, &bytes)?;
+                                        std::fs::rename(&tmp, &path)?;
+                                        bytes
+                                    }
+                                    Err(error) => return Err(error.into()),
+                                }
+                            } else {
+                                render_jpeg()?
+                            };
+                            #[cfg(not(feature = "native"))]
+                            let bytes = render_jpeg()?;
                             image_bytes += bytes.len();
                             if image_bytes > MAX_IMAGE_BYTES {
                                 return Err(AppError::user(

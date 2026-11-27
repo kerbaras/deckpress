@@ -12,6 +12,7 @@
     "dev": "pnpm --filter @deckpress/desktop dev",
     "build": "pnpm -r build",
     "build:desktop": "pnpm --filter @deckpress/desktop build:desktop",
+    "build:wasm": "cargo build --locked -p deckpress-core-wasm --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir packages/core-wasm/dist target/wasm32-unknown-unknown/release/deckpress_core_wasm.wasm",
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "tsc --noEmit && pnpm -r typecheck",
