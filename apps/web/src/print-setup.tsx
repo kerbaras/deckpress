@@ -34,6 +34,7 @@ import {
   fitSheetLabel,
   frontArt,
   MAX_SCM_BLEED_MM,
+  mmLabel,
   mmToPt,
   type PrintJob,
   type PrintSettings,
@@ -231,10 +232,10 @@ export function PrintSetup({
     settings.dpi,
   );
   const trimWidth = isScm
-    ? Number(effective.cardWidthMm.toFixed(2))
+    ? mmLabel(effective.cardWidthMm)
     : effective.cardWidthMm;
   const trimHeight = isScm
-    ? Number(effective.cardHeightMm.toFixed(2))
+    ? mmLabel(effective.cardHeightMm)
     : effective.cardHeightMm;
   const scmPaperName = paperNames[template.paper as keyof typeof paperNames];
   const sheetName = layout?.scm?.name ?? paperNames[settings.paper];

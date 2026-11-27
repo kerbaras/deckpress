@@ -68,13 +68,23 @@ export function fitSheetLabel(layout: PrintLayout, text: string) {
   return { x, baseline, fontSizePt: width / advance, width };
 }
 
-function labelNumber(value: number): string {
-  // Keep half-thousandths stable across small float differences at the JSON boundary.
-  const thousandths = Math.round(value * 1000 + 1e-9);
-  const whole = Math.trunc(thousandths / 1000);
-  const fraction = thousandths % 1000;
+function fixedLabel(value: number, places: number): string {
+  // Keep half-units stable across small float differences at the JSON boundary.
+  const scale = 10 ** places;
+  const scaled = Math.round(value * scale + 1e-9);
+  const whole = Math.trunc(scaled / scale);
+  const fraction = scaled % scale;
   if (fraction === 0) return String(whole);
-  return `${whole}.${String(fraction).padStart(3, "0").replace(/0+$/, "")}`;
+  return `${whole}.${String(fraction).padStart(places, "0").replace(/0+$/, "")}`;
+}
+
+function labelNumber(value: number): string {
+  return fixedLabel(value, 3);
+}
+
+/** Millimetres for on-page text: at most 2 decimals, trailing zeros trimmed. */
+export function mmLabel(value: number): string {
+  return fixedLabel(value, 2);
 }
 
 export function sheetLabel(

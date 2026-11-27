@@ -1,0 +1,11 @@
+[
+  { "value": 62.992, "expected": "62.99" },
+  { "value": 87.96866666666666, "expected": "87.97" },
+  { "value": 63, "expected": "63" },
+  { "value": 63.5, "expected": "63.5" },
+  { "value": 88.9, "expected": "88.9" },
+  { "value": 63.004999999, "expected": "63" },
+  { "value": 1.005, "expected": "1.01" },
+  { "value": 0.625, "expected": "0.63" },
+  { "value": 59.995, "expected": "60" }
+]

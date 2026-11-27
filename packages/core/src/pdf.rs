@@ -19,7 +19,7 @@ use crate::error::{AppError, AppResult};
 use crate::format_count;
 use crate::layout::{
     create_layout, duplex_mirrors_x, duplex_offset, duplex_rotation, duplex_slot, fit_sheet_label,
-    free_page_size, mm_to_pt, sheet_label, PrintLayout, Registration, Slot,
+    free_page_size, mm_label, mm_to_pt, sheet_label, PrintLayout, Registration, Slot,
 };
 use crate::models::{Art, Backs, Deck, DeckEntry, LayoutMode, PrintFailureTarget, PrintSettings};
 use crate::raster::{encode_jpeg, parse_hex_color, rasterize};
@@ -418,10 +418,26 @@ fn draw_calibration_page(
         8.0,
         &format!(
             "Selected trim: {} × {} mm",
-            settings.card_width_mm, settings.card_height_mm
+            mm_label(settings.card_width_mm),
+            mm_label(settings.card_height_mm)
         ),
         muted,
     );
+    if let Some((width, height)) = scm::nominal_card_mm(settings)? {
+        text(
+            &mut surface,
+            margin + 10.0,
+            y + 67.0,
+            8.0,
+            &format!(
+                "(SCM {} PPI grid of {} × {} mm)",
+                scm::ppi(),
+                mm_label(width),
+                mm_label(height)
+            ),
+            muted,
+        );
+    }
     surface.finish();
     page.finish();
     if matches!(settings.backs, Backs::LongEdge | Backs::ShortEdge) {
@@ -698,8 +714,8 @@ pub fn build_pdf(
             .producer("Deckpress / krilla".into())
             .description(format!(
                 "PRINT AT 100% / ACTUAL SIZE. {} x {} mm cards, {} DPI raster. {}.",
-                settings.card_width_mm,
-                settings.card_height_mm,
+                mm_label(settings.card_width_mm),
+                mm_label(settings.card_height_mm),
                 settings.dpi,
                 if settings.upscale {
                     "AI 4x upscaling enabled"

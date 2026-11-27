@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import facePixelCases from "../../../../packages/core/tests/fixtures/face-pixels.json";
+import mmLabels from "../../../../packages/core/tests/fixtures/mm-label-numbers.json";
 import labelNumbers from "../../../../packages/core/tests/fixtures/sheet-label-numbers.json";
 import {
   createLayout,
@@ -7,6 +8,7 @@ import {
   duplexSlot,
   facePixels,
   fitSheetLabel,
+  mmLabel,
   mmToPt,
   sheetLabel,
 } from "./layout.ts";
@@ -45,6 +47,10 @@ describe("print geometry", () => {
     expect(sheetLabel(settings, "Proof", 1, 1, false)).toBe(
       `PROOF / SHEET 1 OF 1 / FRONTS / ${vector.expected} / PRINT AT 100%`,
     );
+  });
+
+  it.each(mmLabels)("formats $value mm as $expected", (vector) => {
+    expect(mmLabel(vector.value)).toBe(vector.expected);
   });
 
   it.each([

@@ -157,6 +157,19 @@ fn template_bleed_mm(settings: &PrintSettings) -> f64 {
     settings.bleed_mm.min(MAX_BLEED_MM)
 }
 
+/// SCM's nominal card size in mm before its 300 PPI rounding; `None` outside SCM mode.
+pub fn nominal_card_mm(settings: &PrintSettings) -> AppResult<Option<(f64, f64)>> {
+    if settings.layout_mode != LayoutMode::Scm {
+        return Ok(None);
+    }
+    let ResolvedTemplate { card, .. } = resolve(settings)?;
+    Ok(Some((size_mm(&card.width), size_mm(&card.height))))
+}
+
+pub fn ppi() -> f64 {
+    CONFIG.ppi
+}
+
 pub fn effective_print_settings(settings: &PrintSettings) -> AppResult<PrintSettings> {
     if settings.layout_mode != LayoutMode::Scm {
         return Ok(settings.clone());
