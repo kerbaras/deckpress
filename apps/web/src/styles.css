@@ -3901,10 +3901,16 @@ progress::-webkit-progress-value {
 .art-change-list {
   display: grid;
   gap: 12px;
-  max-height: 48vh;
-  overflow-y: auto;
   padding: 0;
   list-style: none;
+}
+.modal-panel:has(> .art-change-list) > .modal-actions {
+  position: sticky;
+  inset-block-end: calc(-1 * var(--space-6));
+  margin-block-end: calc(-1 * var(--space-6));
+  padding-block: var(--space-2) var(--space-6);
+  border-block-start: 1px solid var(--line-subtle);
+  background: var(--panel);
 }
 .language-preview-summary {
   display: flex;

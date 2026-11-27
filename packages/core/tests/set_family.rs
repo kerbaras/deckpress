@@ -30,15 +30,15 @@ fn follows_parents_and_ranks_paper_family_members() {
 }
 
 #[test]
-fn counts_each_entry_once_and_orders_coverage_by_count_exact_then_date() {
+fn counts_each_copy_once_and_excludes_ineligible_sets_from_suggestions() {
     let sets = sets();
     let entries = [
-        vec!["ecc", "ecc", "tecc", "pecl", "fdc"],
-        vec!["tecl", "aecl", "tfdc"],
-        vec!["pecl", "j25", "yecl"],
-        vec![],
+        (20, vec!["ecc", "ecc", "tecc", "pecl", "fdc"]),
+        (9, vec!["tecl", "aecl", "tfdc"]),
+        (1, vec!["pecl", "pfdn", "j25", "yecl"]),
+        (70, vec![]),
     ]
-    .map(|codes| codes.into_iter().map(String::from).collect());
+    .map(|(quantity, codes)| (quantity, codes.into_iter().map(String::from).collect()));
     let results = coverage(&entries, &sets);
     let rows: Vec<_> = results
         .iter()
@@ -47,15 +47,14 @@ fn counts_each_entry_once_and_orders_coverage_by_count_exact_then_date() {
     assert_eq!(
         rows,
         [
-            ("pecl", 3, 2, 4),
-            ("j25", 3, 1, 4),
-            ("ecc", 2, 1, 4),
-            ("fdc", 2, 1, 4),
-            ("ecl", 2, 0, 4),
-            ("fdn", 2, 0, 4),
+            ("ecc", 29, 20, 100),
+            ("fdc", 29, 20, 100),
+            ("ecl", 29, 0, 100),
+            ("fdn", 29, 0, 100),
         ]
     );
     assert!(coverage(&[], &sets).is_empty());
+    assert!(coverage(&[(3, vec!["pfdn".into(), "j25".into()])], &sets).is_empty());
 }
 
 #[test]
@@ -63,15 +62,27 @@ fn foundations_commander_entries_prioritize_commander_then_main_set() {
     let mut sets = sets();
     let main = sets.iter_mut().find(|set| set.code == "fdn").unwrap();
     main.released_at = "2024-11-16".into();
-    let entries = [vec!["fdc"], vec!["fdc", "fdn"], vec!["tfdc"]]
-        .map(|codes| codes.into_iter().map(String::from).collect());
+    let entries = [
+        (32, vec!["fdc"]),
+        (1, vec!["fdc", "fdn"]),
+        (1, vec!["tfdc"]),
+        (40, vec!["tecl"]),
+    ]
+    .map(|(quantity, codes)| (quantity, codes.into_iter().map(String::from).collect()));
     let rows = coverage(&entries, &sets);
     let ranked: Vec<_> = rows
         .iter()
-        .filter(|row| row.set.code != "j25")
         .map(|row| (row.set.code.as_str(), row.count, row.exact))
         .collect();
-    assert_eq!(ranked, [("fdc", 3, 2), ("fdn", 3, 1)]);
+    assert_eq!(
+        ranked,
+        [
+            ("fdc", 34, 33),
+            ("fdn", 34, 1),
+            ("ecc", 40, 0),
+            ("ecl", 40, 0)
+        ]
+    );
     assert_eq!(rows[0].set.code, "fdc");
     assert_eq!(rows[1].set.code, "fdn");
 }
