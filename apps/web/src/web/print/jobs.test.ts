@@ -109,7 +109,37 @@ it("fails a silent worker, advances the queue and allows a fresh retry with the 
   expect(webJobs.list()[0]?.downloadStarted).toBe(true);
 });
 
-it("bounds model initialization separately without extending it for download progress", async () => {
+const downloadProgress = {
+  kind: "progress",
+  completed: 0,
+  total: 1,
+  message: "Downloading model · 60%",
+} as const;
+
+it("keeps a progressing model download alive past 30 seconds", async () => {
+  vi.useFakeTimers();
+  const worker = mockWorker();
+  const onProgress = vi.fn();
+  const pending = runPrintWorker(calibration, undefined, onProgress);
+  await vi.dynamicImportSettled();
+  worker.onmessage({ data: { kind: "init", stage: "core", ready: true } });
+  worker.onmessage({ data: { kind: "init", stage: "model", ready: false } });
+
+  for (let i = 0; i < 3; i++) {
+    await vi.advanceTimersByTimeAsync(20_000);
+    worker.onmessage({ data: downloadProgress });
+  }
+  expect(onProgress).toHaveBeenCalledTimes(3);
+  expect(worker.terminate).not.toHaveBeenCalled();
+
+  worker.onmessage({ data: { kind: "init", stage: "model", ready: true } });
+  await vi.advanceTimersByTimeAsync(PRINT_INIT_TIMEOUT_MS);
+  const result = { kind: "calibration", file: new Blob(["PDF"]) } as const;
+  worker.onmessage({ data: { kind: "result", result } });
+  await expect(pending).resolves.toEqual(result);
+});
+
+it("times out a stalled model download 30 seconds after the last progress", async () => {
   vi.useFakeTimers();
   const worker = mockWorker();
   const onProgress = vi.fn();
@@ -121,11 +151,11 @@ it("bounds model initialization separately without extending it for download pro
   worker.onmessage({ data: { kind: "init", stage: "core", ready: true } });
   await vi.advanceTimersByTimeAsync(PRINT_INIT_TIMEOUT_MS);
   worker.onmessage({ data: { kind: "init", stage: "model", ready: false } });
-  await vi.advanceTimersByTimeAsync(PRINT_INIT_TIMEOUT_MS - 1);
-  worker.onmessage({
-    data: { kind: "progress", completed: 0, total: 1, message: "Downloading" },
-  });
+  await vi.advanceTimersByTimeAsync(20_000);
+  worker.onmessage({ data: downloadProgress });
   expect(onProgress).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(PRINT_INIT_TIMEOUT_MS - 1);
+  expect(worker.terminate).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   await failed;
   expect(worker.terminate).toHaveBeenCalledOnce();

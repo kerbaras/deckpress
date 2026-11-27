@@ -10,6 +10,7 @@ const scope = globalThis as unknown as {
 
 scope.onmessage = async ({ data: { request, base } }) => {
   console.debug("[deckpress:print] request received", request.kind);
+  scope.postMessage({ kind: "init", stage: "core", ready: false });
   try {
     const result = await print(request, new URL(base), (event) =>
       scope.postMessage(event),

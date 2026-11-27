@@ -47,16 +47,19 @@ export async function runPrintWorker(
   let onAbort: (() => void) | undefined;
   try {
     return await new Promise((resolve, reject) => {
-      const startTimer = (stage: PrintInitStage) => {
+      let stage: PrintInitStage | undefined = "core";
+      const resetInitTimer = () => {
         clearTimeout(timer);
+        const pending = stage;
+        if (!pending) return;
         timer = setTimeout(() => {
-          console.debug("[deckpress:print] init timeout", stage);
-          reject(new PrintInitTimeout(stage));
+          console.debug("[deckpress:print] init timeout", pending);
+          reject(new PrintInitTimeout(pending));
         }, PRINT_INIT_TIMEOUT_MS);
       };
       onAbort = () => reject(signal?.reason);
       signal?.addEventListener("abort", onAbort, { once: true });
-      startTimer("core");
+      resetInitTimer();
       console.debug("[deckpress:print] loading worker", {
         request: request.kind,
         isolated: globalThis.crossOriginIsolated,
@@ -67,6 +70,7 @@ export async function runPrintWorker(
           if (finished || signal?.aborted) return;
           worker = new PrintWorker();
           console.debug("[deckpress:print] worker spawned");
+          resetInitTimer();
           worker.onmessage = ({ data }: MessageEvent<PrintResponse>) => {
             if (data.kind === "init") {
               console.debug(
@@ -74,11 +78,13 @@ export async function runPrintWorker(
                 data.stage,
                 data.ready ? "ready" : "starting",
               );
-              if (data.ready) clearTimeout(timer);
-              else startTimer(data.stage);
-            } else if (data.kind === "progress") onProgress?.(data);
+              stage = data.ready ? undefined : data.stage;
+            }
+            resetInitTimer();
+            if (data.kind === "progress") onProgress?.(data);
             else if (data.kind === "result") resolve(data.result);
-            else reject(new WorkerFailure(data.message, data.target));
+            else if (data.kind === "error")
+              reject(new WorkerFailure(data.message, data.target));
           };
           worker.onerror = (event) =>
             reject(
