@@ -354,10 +354,17 @@ function ArtSession({
       printSettings.bleedMm,
       printSettings.dpi,
       measuredItems.map((art) => [art.imageUrl, art.provider, art.bleedMm]),
-      loadedSources,
+      web ? "web" : loadedSources,
     ],
-    queryFn: () => api.pickerDpi(measuredItems, printSettings),
-    enabled: !web && measuredItems.length > 0,
+    queryFn: async () => {
+      if (!web) return api.pickerDpi(measuredItems, printSettings);
+      const readings = await api.sourceDpi(measuredItems, printSettings);
+      return readings.map(
+        (reading) =>
+          reading && { effectiveDpi: reading.effectiveDpi, estimated: false },
+      );
+    },
+    enabled: measuredItems.length > 0,
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -377,6 +384,7 @@ function ArtSession({
       : `${value} effective DPI`;
   };
   const sourceLoaded = (url: string) => {
+    if (web) return;
     setLoadedSources((loaded) =>
       loaded.includes(url) ? loaded : [...loaded, url],
     );

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
+  assessSource,
   buildCutDxf,
   buildCutSvg,
   buildCutStudio3,
@@ -85,4 +86,21 @@ test('DXF generation works in WASM for Free and SCM fallback layouts', () => {
     assert.equal(dxf.match(/^LWPOLYLINE$/gm)?.length, JSON.parse(layoutJson(settingsJson)).slots.length);
   }
   assert.throws(() => buildCutDxf(JSON.stringify(scmSettings)), /Use the SCM .studio3 cutting template/);
+});
+
+test('source assessment applies the core trim and upscale rules to scan and upload pixels', () => {
+  const settings = JSON.stringify({ layoutMode: 'free', cardWidthMm: 63, cardHeightMm: 88, dpi: 300 });
+  const scan = JSON.stringify({ id: 'scan', provider: 'scryfall', imageUrl: 'scan.png', thumbnailUrl: 'scan.png' });
+  const upload = JSON.stringify({ id: 'upload', provider: 'upload', imageUrl: 'upload.png', thumbnailUrl: 'upload.png', bleedMm: 3 });
+  assert.deepEqual(JSON.parse(assessSource(630, 880, scan, settings)), {
+    effectiveDpi: 254,
+    belowUpscaleThreshold: true,
+  });
+  assert.deepEqual(JSON.parse(assessSource(690, 940, upload, settings)), {
+    effectiveDpi: 254,
+    belowUpscaleThreshold: true,
+  });
+  const high = JSON.parse(assessSource(745, 1040, scan, settings));
+  assert.equal(Math.floor(high.effectiveDpi), 300);
+  assert.equal(high.belowUpscaleThreshold, false);
 });
