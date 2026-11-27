@@ -2,7 +2,7 @@
 //! paced through a single rate limiter and JSON responses are cached in
 //! SQLite for 24 hours.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -15,6 +15,7 @@ use url::Url;
 
 use crate::art_policy::{policy_can_change, Printing};
 use crate::art_quality::{prefer_high_res, scryfall_quality, ScanQuality};
+use crate::card_names::{card_lookup_name, split_card_alternative};
 use crate::error::{AppError, AppResult};
 use crate::models::{
     new_id, Art, ArtPage, Card, Deck, DeckEntry, ImportIssue, ImportIssueKind, ImportLine,
@@ -30,6 +31,9 @@ const SCRYFALL_BACKOFF: Duration = Duration::from_secs(15);
 const SCRYFALL_MAX_BACKOFF: Duration = Duration::from_secs(30);
 const SCRYFALL_RETRIES: u32 = 3;
 const COLLECTION_BATCH: usize = 75;
+const SPLIT_SEARCH_CONDITION_LIMIT: usize = 20;
+const SPLIT_SEARCH_ENCODED_LIMIT: usize = 1700;
+const SPLIT_SEARCH_FILTER: &str = "include:extras";
 const PRINT_SEARCH_BATCH: usize = 12;
 const MPC_PAGE: usize = 48;
 const MPC_PROJECT_LIMIT: usize = 612;
@@ -316,10 +320,14 @@ fn fold_name(name: &str) -> String {
 }
 
 fn print_search(query: &str, page: u32) -> Url {
+    scryfall_search(query, page, "prints")
+}
+
+fn scryfall_search(query: &str, page: u32, unique: &str) -> Url {
     let mut url = Url::parse("https://api.scryfall.com/cards/search").expect("static URL");
     url.query_pairs_mut()
         .append_pair("q", query)
-        .append_pair("unique", "prints")
+        .append_pair("unique", unique)
         .append_pair("include_multilingual", "true")
         .append_pair("order", "released")
         .append_pair("dir", "desc")
@@ -332,18 +340,60 @@ fn printing_queries<'a, T>(
     suffix: &'a str,
     parenthesize_single: bool,
 ) -> impl Iterator<Item = (String, &'a [(String, T)])> {
-    clauses.chunks(PRINT_SEARCH_BATCH).map(move |batch| {
-        let terms = batch
-            .iter()
-            .map(|(term, _)| term.as_str())
-            .collect::<Vec<_>>()
-            .join(" or ");
-        let query = if batch.len() > 1 || parenthesize_single {
-            format!("({terms}) {suffix}")
-        } else {
-            format!("{terms} {suffix}")
-        };
-        (query, batch)
+    clauses
+        .chunks(PRINT_SEARCH_BATCH)
+        .map(move |batch| (printing_query(batch, suffix, parenthesize_single), batch))
+}
+
+fn printing_query<T>(clauses: &[(String, T)], suffix: &str, parenthesize_single: bool) -> String {
+    let terms = clauses
+        .iter()
+        .map(|(term, _)| term.as_str())
+        .collect::<Vec<_>>()
+        .join(" or ");
+    if clauses.len() > 1 || parenthesize_single {
+        format!("({terms}) {suffix}")
+    } else {
+        format!("{terms} {suffix}")
+    }
+}
+
+type SplitSearchClause = (String, Vec<(usize, ImportLine)>);
+
+fn split_search_batches(
+    mut clauses: &[SplitSearchClause],
+) -> impl Iterator<Item = (Url, &[SplitSearchClause])> {
+    std::iter::from_fn(move || {
+        while !clauses.is_empty() {
+            let mut conditions = 1;
+            let mut names = HashSet::new();
+            let mut last = None;
+            for (index, (_, lookups)) in clauses.iter().enumerate() {
+                let line = &lookups[0].1;
+                conditions +=
+                    1 + usize::from(!line.set.is_empty() || !line.collector_number.is_empty());
+                if conditions > SPLIT_SEARCH_CONDITION_LIMIT
+                    || !names.insert(fold_name(&lookups[0].1.name))
+                {
+                    break;
+                }
+                let query = printing_query(&clauses[..=index], SPLIT_SEARCH_FILTER, false);
+                let encoded = url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("q", &query)
+                    .finish();
+                if encoded.len() > SPLIT_SEARCH_ENCODED_LIMIT {
+                    break;
+                }
+                last = Some((index + 1, query));
+            }
+            if let Some((count, query)) = last {
+                let (batch, rest) = clauses.split_at(count);
+                clauses = rest;
+                return Some((scryfall_search(&query, 1, "cards"), batch));
+            }
+            clauses = &clauses[1..];
+        }
+        None
     })
 }
 
@@ -360,8 +410,7 @@ impl ImportResolution<'_> {
             uuid::Uuid::parse_str(&card.oracle_id).ok()?;
             return Some(format!("oracleid:{}", card.oracle_id));
         }
-        let escaped = self.line.name.replace('\\', "\\\\").replace('"', "\\\"");
-        let mut clause = format!("!\"{escaped}\"");
+        let mut clause = exact_name_query(&self.line.name);
         if !self.line.set.is_empty() {
             if !self
                 .line
@@ -385,7 +434,7 @@ impl ImportResolution<'_> {
             && self.original.map_or_else(
                 || {
                     (self.line.set.is_empty() || self.line.set == set)
-                        && scryfall_name_matches(raw, &fold_name(&self.line.name))
+                        && scryfall_full_name_matches(raw, &fold_name(&self.line.name))
                 },
                 |card| scryfall_oracle_id(raw) == Some(&card.oracle_id),
             )
@@ -499,6 +548,96 @@ fn scryfall_name_matches(raw: &Value, wanted: &str) -> bool {
             .and_then(Value::as_str)
             .is_some_and(|name| fold_name(name) == wanted)
     })
+}
+
+fn import_identifier(line: &ImportLine) -> Value {
+    if !line.set.is_empty() && !line.collector_number.is_empty() {
+        serde_json::json!({ "set": line.set, "collector_number": line.collector_number })
+    } else if !line.set.is_empty() {
+        serde_json::json!({ "name": card_lookup_name(&line.name), "set": line.set })
+    } else {
+        serde_json::json!({ "name": card_lookup_name(&line.name) })
+    }
+}
+
+fn scryfall_full_name_matches(raw: &Value, wanted: &str) -> bool {
+    if scryfall_name_matches(raw, wanted) {
+        return true;
+    }
+    let Some(faces) = raw["card_faces"]
+        .as_array()
+        .filter(|faces| faces.len() >= 2)
+    else {
+        return false;
+    };
+    let names: Option<Vec<_>> = faces
+        .iter()
+        .map(|face| {
+            face["printed_name"]
+                .as_str()
+                .or_else(|| face["name"].as_str())
+        })
+        .collect();
+    names.is_some_and(|names| fold_name(&names.join(" // ")) == wanted)
+}
+
+struct ImportCandidate {
+    card: Option<Card>,
+    number: (String, String),
+}
+
+fn import_candidate(
+    cards: &[(&Value, Option<Card>)],
+    line: &ImportLine,
+    allow_faces: bool,
+) -> Option<ImportCandidate> {
+    let wanted = fold_name(&line.name);
+    let mut best = None;
+    let mut best_rank = 0;
+    for (raw, card) in cards {
+        let Some((set, collector)) = scryfall_print_number(raw) else {
+            continue;
+        };
+        if (!line.set.is_empty() && set != line.set)
+            || (!line.collector_number.is_empty() && collector != line.collector_number)
+        {
+            continue;
+        }
+        let full = (!line.set.is_empty() && !line.collector_number.is_empty())
+            || scryfall_full_name_matches(raw, &wanted);
+        if !full
+            && (!allow_faces
+                || card_lookup_name(&line.name) != line.name
+                || !raw
+                    .get("card_faces")
+                    .and_then(Value::as_array)
+                    .is_some_and(|faces| {
+                        faces
+                            .iter()
+                            .any(|face| scryfall_name_matches(face, &wanted))
+                    }))
+        {
+            continue;
+        }
+        let rank = 1 + 2 * u8::from(full) + u8::from(card.is_some());
+        if rank > best_rank {
+            best = Some((card, set, collector));
+            best_rank = rank;
+        }
+    }
+    best.map(|(card, set, collector)| ImportCandidate {
+        card: card.clone(),
+        number: (set.into(), collector.into()),
+    })
+}
+
+fn search_literal(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+fn exact_name_query(name: &str) -> String {
+    format!("!{}", search_literal(name))
 }
 
 fn scryfall_oracle_id(raw: &Value) -> Option<&str> {
@@ -774,9 +913,66 @@ impl Providers {
             .await
     }
 
+    async fn resolve_split_names(
+        &self,
+        lines: &mut [ImportLine],
+        candidates: &mut [Option<ImportCandidate>],
+    ) -> AppResult<()> {
+        let mut queries: BTreeMap<String, Vec<(usize, ImportLine)>> = BTreeMap::new();
+        for (index, (line, candidate)) in lines.iter().zip(candidates.iter()).enumerate() {
+            if candidate.is_some()
+                || (!line.set.is_empty() && !line.collector_number.is_empty())
+                || !line.set.bytes().all(|byte| byte.is_ascii_alphanumeric())
+            {
+                continue;
+            }
+            let Some(name) = split_card_alternative(&line.name) else {
+                continue;
+            };
+            let mut clause = exact_name_query(&name);
+            if !line.set.is_empty() {
+                clause.push_str(&format!(" set:{}", line.set));
+            } else if !line.collector_number.is_empty() {
+                clause.push_str(&format!(" cn={}", search_literal(&line.collector_number)));
+            }
+            queries.entry(format!("({clause})")).or_default().push((
+                index,
+                ImportLine {
+                    name,
+                    ..line.clone()
+                },
+            ));
+        }
+        let clauses: Vec<_> = queries.into_iter().collect();
+        for (url, batch) in split_search_batches(&clauses) {
+            let response = match self
+                .json_or_status(url.as_str(), None, true, |_| {})
+                .await?
+            {
+                Ok(response) => response,
+                Err(400..=499) => continue,
+                Err(status) => {
+                    return Err(AppError::user(format!(
+                        "Scryfall returned {status}. Try again."
+                    )))
+                }
+            };
+            let cards: Vec<_> = cards_in(&response)
+                .map(|raw| (raw, normalize_scryfall(raw).ok()))
+                .collect();
+            for (index, line) in batch.iter().flat_map(|(_, group)| group) {
+                if let Some(candidate) = import_candidate(&cards, line, false) {
+                    lines[*index].name.clone_from(&line.name);
+                    candidates[*index] = Some(candidate);
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn resolve_with_languages(
         &self,
-        lines: Vec<ImportLine>,
+        mut lines: Vec<ImportLine>,
         preferences: &PrintLanguagePreferences,
     ) -> AppResult<ResolvedCards> {
         let mut entries = Vec::new();
@@ -786,19 +982,9 @@ impl Providers {
         let english_only = languages.as_slice() == ["en"];
         let fallback_english = preferences.policy == PrintLanguagePolicy::FallbackToEnglish
             && !languages.iter().any(|lang| lang == "en");
-        for (offset, batch) in lines.chunks(COLLECTION_BATCH).enumerate() {
-            let identifiers: Vec<Value> = batch
-                .iter()
-                .map(|line| {
-                    if !line.set.is_empty() && !line.collector_number.is_empty() {
-                        serde_json::json!({ "set": line.set, "collector_number": line.collector_number })
-                    } else if !line.set.is_empty() {
-                        serde_json::json!({ "name": line.name, "set": line.set })
-                    } else {
-                        serde_json::json!({ "name": line.name })
-                    }
-                })
-                .collect();
+        let mut candidates = Vec::with_capacity(lines.len());
+        for batch in lines.chunks(COLLECTION_BATCH) {
+            let identifiers: Vec<_> = batch.iter().map(import_identifier).collect();
             let response = self
                 .json(
                     "https://api.scryfall.com/cards/collection",
@@ -808,97 +994,82 @@ impl Providers {
             let cards: Vec<_> = cards_in(&response)
                 .map(|raw| (raw, normalize_scryfall(raw).ok()))
                 .collect();
-            let mut resolutions = Vec::with_capacity(batch.len());
-            for line in batch {
-                let wanted = fold_name(&line.name);
-                let mut candidates = cards.iter().filter(|(raw, _)| {
-                    let Some((set, collector)) = scryfall_print_number(raw) else {
-                        return false;
-                    };
-                    if !line.set.is_empty() && set != line.set {
-                        return false;
-                    }
-                    if !line.collector_number.is_empty() {
-                        return collector == line.collector_number;
-                    }
-                    scryfall_name_matches(raw, &wanted)
-                        || raw
-                            .get("card_faces")
-                            .and_then(Value::as_array)
-                            .is_some_and(|faces| {
-                                faces
-                                    .iter()
-                                    .any(|face| scryfall_name_matches(face, &wanted))
-                            })
-                });
-                let candidate = candidates
-                    .clone()
-                    .find(|(_, card)| card.is_some())
-                    .or_else(|| candidates.next());
-                resolutions.push(ImportResolution {
-                    line,
-                    original: candidate.and_then(|(_, card)| card.as_ref()),
-                    card: None,
-                    looked_up: candidate
-                        .and_then(|(raw, _)| scryfall_print_number(raw))
-                        .map(|(set, collector)| (set.to_owned(), collector.to_owned())),
-                });
-            }
-            let mut attempted = languages.clone();
-            if fallback_english {
-                attempted.push("en".into());
-            }
+            candidates.extend(
+                batch
+                    .iter()
+                    .map(|line| import_candidate(&cards, line, true)),
+            );
+        }
+        self.resolve_split_names(&mut lines, &mut candidates)
+            .await?;
+        let mut resolutions: Vec<_> = lines
+            .iter()
+            .zip(&candidates)
+            .map(|(line, candidate)| ImportResolution {
+                line,
+                original: candidate
+                    .as_ref()
+                    .and_then(|candidate| candidate.card.as_ref()),
+                card: None,
+                looked_up: candidate.as_ref().map(|candidate| candidate.number.clone()),
+            })
+            .collect();
+        let mut attempted = languages.clone();
+        if fallback_english {
+            attempted.push("en".into());
+        }
+        for batch in resolutions.chunks_mut(COLLECTION_BATCH) {
             for language in &attempted {
-                self.resolve_import_language(&mut resolutions, language, english_only)
+                self.resolve_import_language(batch, language, english_only)
                     .await?;
             }
-            for (index, resolution) in resolutions.into_iter().enumerate() {
-                let position = offset * COLLECTION_BATCH + index + 1;
-                let ImportResolution {
-                    line,
+        }
+        for (index, resolution) in resolutions.into_iter().enumerate() {
+            let position = index + 1;
+            let ImportResolution {
+                line,
+                card,
+                looked_up,
+                ..
+            } = resolution;
+            match card {
+                Some(card) => entries.push(DeckEntry {
+                    id: new_id(),
                     card,
-                    looked_up,
-                    ..
-                } = resolution;
-                match card {
-                    Some(card) => entries.push(DeckEntry {
-                        id: new_id(),
-                        card,
-                        quantity: line.quantity,
-                        zone: line.zone,
-                        board: line.board.clone(),
-                        selected_art: None,
-                        selected_back: None,
-                        art_pinned: false,
-                        policy_art: None,
-                        language_anchor: None,
-                        language_choices: Default::default(),
-                        excluded: false,
-                        requested_languages: if english_only { Vec::new() } else { languages.clone() },
-                    }),
-                    None if looked_up.is_some() => {
-                        let input = import_label(line);
-                        issues.push(ImportIssue {
-                            line: position as u32,
-                            input: input.clone(),
-                            message: format!("No usable scan found in {}.", attempted.join(", ")),
-                            kind: ImportIssueKind::NoUsableScan,
-                            print_lookup: looked_up.map(|(set, collector_number)| ImportPrintLookup {
-                                set,
-                                collector_number,
-                                languages: attempted.clone(),
-                            }),
-                        });
-                        missing_prints.push(MissingPrint { input, languages: languages.clone() });
-                    }
-                    None => issues.push(ImportIssue {
+                    quantity: line.quantity,
+                    zone: line.zone,
+                    board: line.board.clone(),
+                    selected_art: None,
+                    selected_back: None,
+                    art_pinned: false,
+                    policy_art: None,
+                    language_anchor: None,
+                    language_choices: Default::default(),
+                    excluded: false,
+                    requested_languages: if english_only { Vec::new() } else { languages.clone() },
+                }),
+                None if looked_up.is_some() => {
+                    let input = import_label(line);
+                    issues.push(ImportIssue {
                         line: position as u32,
-                        input: import_label(line),
-                        message: "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.".into(),
-                        kind: ImportIssueKind::NotFound,
-                        print_lookup: None,
-                    }),
+                        input: input.clone(),
+                        message: format!("No usable scan found in {}.", attempted.join(", ")),
+                        kind: ImportIssueKind::NoUsableScan,
+                        print_lookup: looked_up.map(|(set, collector_number)| ImportPrintLookup {
+                            set,
+                            collector_number,
+                            languages: attempted.clone(),
+                        }),
+                    });
+                    missing_prints.push(MissingPrint { input, languages: languages.clone() });
                 }
+                None => issues.push(ImportIssue {
+                    line: position as u32,
+                    input: import_label(line),
+                    message: "Exact card or printing not found. Correct the name/set rather than silently choosing another printing.".into(),
+                    kind: ImportIssueKind::NotFound,
+                    print_lookup: None,
+                }),
             }
         }
         Ok(ResolvedCards {
