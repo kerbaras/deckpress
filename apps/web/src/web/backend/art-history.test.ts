@@ -238,6 +238,45 @@ it("passes copy quantities and keeps pinned copies in the coverage total", async
   }
 });
 
+it.each([false, undefined])(
+  "batches the exact set for matchSet policies with family=%s",
+  async (family) => {
+    const matching = entry("lea");
+    const unmatched = entry("lea");
+    unmatched.card.oracleId = crypto.randomUUID();
+    const { deck, history, provider, preferences } = await setup([
+      matching,
+      unmatched,
+    ]);
+    preferences({ languages: ["en"], policy: "strict" });
+    provider.inventoryBatch.mockResolvedValue(
+      new Map([
+        [matching.card.oracleId, [fromFixture("m11")]],
+        [unmatched.card.oracleId, [fromFixture("m10")]],
+      ]),
+    );
+    const preview = await history.previewPolicy(deck.id, deck.revision, {
+      kind: "matchSet",
+      set: "m11",
+      ...(family === false && { family }),
+    });
+    expect(preview).toMatchObject({
+      canApply: true,
+      changes: [
+        { kind: "changed", after: { set: "m11" } },
+        { kind: "unmatched", after: null },
+      ],
+    });
+    expect(provider.inventoryBatch).toHaveBeenCalledExactlyOnceWith(
+      [matching.card.oracleId, unmatched.card.oracleId],
+      undefined,
+      ["m11"],
+    );
+    expect(provider.inventory).not.toHaveBeenCalled();
+    expect(provider.sets).not.toHaveBeenCalled();
+  },
+);
+
 it.each([
   ["fdc", "fdn", "tfdc"],
   ["ecc", "ecl", "tecc"],

@@ -138,15 +138,20 @@ export async function planPolicy(
     policy.kind === "matchSet" && policy.family && oracleIds.length
       ? await setFamilyRanks(policy.set, await provider.sets())
       : undefined;
-  const familySets = ranks && [...ranks.keys()];
+  const setFilter =
+    policy.kind === "matchSet"
+      ? ranks
+        ? [...ranks.keys()]
+        : [policy.set]
+      : undefined;
   const batchMemo = new Map<string, Promise<Map<string, Printing[]>>>();
   const memo = new Map<string, Promise<Printing[]>>();
   async function inventory(oracleId: string, lang?: string) {
-    if (familySets) {
+    if (setFilter) {
       const key = lang ?? "";
       const cached =
         batchMemo.get(key) ??
-        provider.inventoryBatch(oracleIds, lang, familySets);
+        provider.inventoryBatch(oracleIds, lang, setFilter);
       batchMemo.set(key, cached);
       return (await cached).get(oracleId) ?? [];
     }
