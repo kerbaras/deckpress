@@ -39,8 +39,10 @@ test('SCM A4 WASM export matches the native PDF geometry', (t) => {
     /must be a Uint8Array/,
   );
   const externalUpscale = JSON.stringify({ ...scmSettings, dpi: 150, upscale: true });
-  const pdf = buildPdf(externalUpscale, deckJson, images);
-  assert.equal(Buffer.from(pdf.subarray(0, 5)).toString('ascii'), '%PDF-');
+  const pdf = Buffer.from(buildPdf(externalUpscale, deckJson, images));
+  assert.equal(pdf.subarray(0, 5).toString('ascii'), '%PDF-');
+  assert.ok(pdf.includes('AI 4x upscaling applied to eligible images'));
+  assert.ok(!pdf.includes('Lanczos resizing; source detail unchanged'));
 });
 
 test('layout coordinates, SCM catalog and cut SVG are available', () => {

@@ -479,12 +479,17 @@ export const api = {
             },
           )
         : value.text;
-    if (isMpcXml(text))
+    if (isMpcXml(text)) {
+      if (isWebPreview())
+        throw new NotAvailableOnWebError(
+          "MPC Autofill imports require the desktop app.",
+        );
       return {
         entries: await importMpcXml(text, lookupMpcArtwork),
         issues: [],
         format: mpcXmlFormat,
       };
+    }
     const parsed = parseDecklist(text);
     const resolved = await command("resolve_cards", resolvedSchema, {
       lines: parsed.entries,
@@ -505,6 +510,15 @@ export const api = {
     };
   },
   settings: (_signal?: AbortSignal) => command("settings", settingsSchema),
+  webStorageUsage: () =>
+    command(
+      "web_storage_usage",
+      z.object({
+        usage: z.number().nullable(),
+        quota: z.number().nullable(),
+      }),
+    ),
+  clearWebCache: () => command("clear_web_cache", nothing),
   savePrintLanguage: (preferences: PrintLanguagePreferences) =>
     command("save_print_language", printLanguageSchema, { preferences }),
   saveAppearance: (appearance: Appearance) =>
@@ -695,18 +709,10 @@ export function saveFileDialog(options: SaveDialogOptions) {
 
 export const isWebPreview = () => getBackend() === webBackend;
 
-export function printPreviewUnavailable(): Error | null {
-  return isWebPreview()
-    ? new NotAvailableOnWebError(
-        "Rendered print previews are not available on the web.",
-      )
-    : null;
-}
-
-export function upscalingUnavailable(): Error | null {
-  return isWebPreview()
-    ? new NotAvailableOnWebError("AI upscaling is not available on the web.")
-    : null;
+export function cardImageCrossOrigin(src: string) {
+  return isWebPreview() && src.startsWith("https://cards.scryfall.io/")
+    ? "anonymous"
+    : undefined;
 }
 /** Native yes/no dialog for destructive actions; resolves false when declined. */
 export function confirmAction(

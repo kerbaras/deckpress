@@ -2,6 +2,27 @@
 
 Deckpress is a local desktop app for printing Magic: The Gathering proxies. Import a deck list, pick art, and export a print-ready PDF.
 
+## Web preview
+
+Open the [Deckpress web preview](https://kerbaras.github.io/deckpress/) in up-to-date desktop Chrome. Import a pasted or saved decklist, resolve it with Scryfall, and export a PDF or PNG ZIP at 600 DPI by default. Free layouts also export an SVG cut template.
+
+- Use HTTPS or localhost. The service worker reloads the page when it first takes control and supplies the cross-origin isolation headers required for threaded WASM. WebGPU needs a compatible GPU and driver with `shader-f16`. The browser tries WebGPU first, then threaded WASM when isolated, then single-threaded WASM. Chrome 137 or later is recommended.
+- The default General x4v3 model and the faster Anime model download from the site on first use and are checked against their SHA-256 hashes. After an online export you can reopen the site and export the same deck offline, as long as Chrome retains the app, model, and scans. Pick a smaller sheet range if a large export exhausts available memory.
+- Decks and settings are kept in browser storage. Settings shows storage usage and can clear models, scans, and cached Scryfall data. Custom uploads, backups that reference uploads or MPC art, MPC Autofill, deck URL imports, and native printer features require the desktop app.
+
+### Build the web preview
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.129 --locked
+pnpm install --frozen-lockfile
+pnpm build:wasm
+VITE_TARGET=web pnpm --filter @deckpress/web build
+VITE_TARGET=web pnpm --filter @deckpress/web preview --host 127.0.0.1 --port 4173
+```
+
+Open `http://127.0.0.1:4173/deckpress/`. The production artifact is in `apps/web/dist-pages`. To publish it, the repository's Pages source must be set to GitHub Actions. The Pages workflow builds on pull requests and deploys from `main`.
+
 ## Install
 
 Download an installer from the [latest release](https://github.com/kerbaras/deckpress/releases/latest), or try the newest main build from the [`nightly`](https://github.com/kerbaras/deckpress/releases/tag/nightly) prerelease.

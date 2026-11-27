@@ -22,6 +22,7 @@ import {
   downloadJson,
   downloadMpcXml,
   importedDeckFields,
+  isWebPreview,
 } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import { ArtPolicyFields, ArtPreviewDialog } from "./art-policy.tsx";
@@ -480,8 +481,12 @@ function DeckWorkspace({
           type="button"
           className="icon-button quiet"
           aria-label="Export MPC Autofill XML"
-          title="Export MPC Autofill XML"
-          disabled={task.busy || !deck.entries.length}
+          title={
+            isWebPreview()
+              ? "MPC Autofill requires the desktop app"
+              : "Export MPC Autofill XML"
+          }
+          disabled={isWebPreview() || task.busy || !deck.entries.length}
           onClick={() => void exportMpc()}
         >
           <FileCode size={16} />

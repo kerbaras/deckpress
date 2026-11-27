@@ -1,13 +1,13 @@
 use std::io::Cursor;
 
-use deckpress_core::cut_svg;
 use deckpress_core::layout;
-use deckpress_core::models::{Deck, PrintSettings};
+use deckpress_core::models::{Art, Deck, PrintSettings};
 use deckpress_core::pdf;
 use deckpress_core::png_export;
 use deckpress_core::scm;
 use deckpress_core::upscaler::CancelToken;
 use deckpress_core::validate::validate_entries;
+use deckpress_core::{art_quality, cut_svg};
 use deckpress_core::{AppError, AppResult};
 use js_sys::{JsString, Map, Uint8Array};
 use wasm_bindgen::prelude::*;
@@ -90,6 +90,24 @@ pub fn build_png_zip(
 #[wasm_bindgen(js_name = buildCutSvg)]
 pub fn build_cut_svg(settings_json: &str) -> Result<String, JsError> {
     cut_svg::build_cut_svg(&settings(settings_json)?).map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = buildDuplexCalibrationPdf)]
+pub fn build_duplex_calibration_pdf(settings_json: &str) -> Result<Vec<u8>, JsError> {
+    pdf::build_duplex_calibration_pdf(&settings(settings_json)?).map_err(js_error)
+}
+
+#[wasm_bindgen(js_name = assessSource)]
+pub fn assess_source(
+    width: u32,
+    height: u32,
+    art_json: &str,
+    settings_json: &str,
+) -> Result<String, JsError> {
+    let art: Art = serde_json::from_str(art_json).map_err(js_error)?;
+    let settings = scm::effective_print_settings(&settings(settings_json)?).map_err(js_error)?;
+    serde_json::to_string(&art_quality::assess_source(width, height, &art, &settings))
+        .map_err(js_error)
 }
 
 /// Coordinates are in PDF points, measured from the top left.

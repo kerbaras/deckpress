@@ -17,6 +17,7 @@ export type CommandName =
   | "builder_summary"
   | "cancel_job"
   | "cancel_upscale_comparison"
+  | "clear_web_cache"
   | "compare_upscalers"
   | "create_deck"
   | "create_job"
@@ -62,6 +63,7 @@ export type CommandName =
   | "undo_art_change"
   | "update_upload_bleed"
   | "upload_bleed"
+  | "web_storage_usage"
   | "window_chrome";
 
 export interface UploadMetadata {
