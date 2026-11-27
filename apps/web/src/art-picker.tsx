@@ -369,6 +369,11 @@ function ArtSession({
     ]),
   );
   const webDpi = usePickerDpi(web, candidate, items, printSettings);
+  const waitForSource = (art: Art | null) =>
+    web &&
+    art?.provider === "scryfall" &&
+    art.imageUrl === candidate?.imageUrl &&
+    !webDpi.hasFinished(candidate);
   const sourceLabel = (art: Art) => {
     if (art.provider === "mpc") return `${art.dpi} DPI (provider)`;
     if (web) {
@@ -752,6 +757,7 @@ function ArtSession({
               label="Original"
               art={original}
               sourceDpi={original ? sourceLabel(original) : "Vector"}
+              waitForSource={waitForSource(original)}
               onSourceLoad={sourceLoaded}
               language={original && languageBadge(entry, original)}
               zoom={zoom}
@@ -763,6 +769,7 @@ function ArtSession({
               label="Saved"
               art={saved}
               sourceDpi={saved ? sourceLabel(saved) : "Vector"}
+              waitForSource={waitForSource(saved)}
               onSourceLoad={sourceLoaded}
               language={saved && languageBadge(entry, saved)}
               zoom={zoom}
@@ -773,6 +780,7 @@ function ArtSession({
             label="Preview"
             art={candidate}
             sourceDpi={candidate ? sourceLabel(candidate) : "Vector"}
+            waitForSource={waitForSource(candidate)}
             onSourceLoad={sourceLoaded}
             language={candidate && languageBadge(entry, candidate)}
             zoom={zoom}
@@ -1297,6 +1305,7 @@ function Monitor({
   zoom,
   states,
   sourceDpi,
+  waitForSource,
   onSourceLoad,
   children,
 }: {
@@ -1306,6 +1315,7 @@ function Monitor({
   zoom: number;
   states: ArtState[];
   sourceDpi: string;
+  waitForSource: boolean;
   onSourceLoad: (url: string) => void;
   children?: React.ReactNode;
 }) {
@@ -1325,7 +1335,7 @@ function Monitor({
       <div className="monitor-body">
         <div className="monitor-picture">
           <div style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}>
-            {art ? (
+            {waitForSource ? null : art ? (
               <ArtImage
                 art={art}
                 name={`${label}: ${art.name}`}

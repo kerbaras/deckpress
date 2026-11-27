@@ -4,41 +4,64 @@ import { readPickerDpi } from "./source-dpi.ts";
 
 type Request = { key: string; art: Art; settings: PrintSettings };
 const concurrentReads = 3;
+const queuedReads = new Set<() => Promise<void>>();
+let activeReads = 0;
 
-function createQueue(onReading: (key: string, dpi: number) => void) {
-  const running = new Set<string>();
+function startReads() {
+  for (const read of queuedReads) {
+    if (activeReads >= concurrentReads) break;
+    queuedReads.delete(read);
+    activeReads++;
+    void read().finally(() => {
+      activeReads--;
+      startReads();
+    });
+  }
+}
+
+function enqueueRead(read: (signal: AbortSignal) => Promise<void>) {
+  const controller = new AbortController();
+  const run = () => read(controller.signal);
+  queuedReads.add(run);
+  startReads();
+  return () => {
+    queuedReads.delete(run);
+    controller.abort();
+  };
+}
+
+function createQueue(
+  onReading: (key: string, dpi: number | undefined) => void,
+) {
+  const pending = new Map<string, () => void>();
   const attempted = new Set<string>();
   const measured = new Set<string>();
-  let eligible = new Map<string, Request>();
-
-  function pump() {
-    for (const { key, art, settings } of eligible.values()) {
-      if (running.size >= concurrentReads) break;
-      if (running.has(key) || attempted.has(key) || measured.has(key)) continue;
-      running.add(key);
-      attempted.add(key);
-      void readPickerDpi(art, settings)
-        .then(
-          (dpi) => {
-            if (dpi === undefined) return;
-            measured.add(key);
-            onReading(key, dpi);
-          },
-          () => {},
-        )
-        .finally(() => {
-          running.delete(key);
-          pump();
-        });
-    }
-  }
 
   return (requests: Request[]) => {
-    eligible = new Map(requests.map((request) => [request.key, request]));
+    const eligible = new Set(requests.map(({ key }) => key));
     for (const key of attempted) {
-      if (!eligible.has(key)) attempted.delete(key);
+      if (eligible.has(key)) continue;
+      attempted.delete(key);
+      pending.get(key)?.();
+      pending.delete(key);
     }
-    pump();
+    for (const { key, art, settings } of requests) {
+      if (attempted.has(key) || measured.has(key)) continue;
+      attempted.add(key);
+      const cancel = enqueueRead(async (signal) => {
+        try {
+          const dpi = await readPickerDpi(art, settings, signal);
+          if (signal.aborted) return;
+          if (dpi !== undefined) measured.add(key);
+          onReading(key, dpi);
+        } catch {
+          if (!signal.aborted) onReading(key, undefined);
+        } finally {
+          if (!signal.aborted) pending.delete(key);
+        }
+      });
+      pending.set(key, cancel);
+    }
   };
 }
 
@@ -63,7 +86,9 @@ export function usePickerDpi(
   const tiles = useRef(new Set<HTMLButtonElement>());
   const observer = useRef<IntersectionObserver | null>(null);
   const [visible, setVisible] = useState(new Set<Element>());
-  const [readings, setReadings] = useState(new Map<string, number>());
+  const [readings, setReadings] = useState(
+    new Map<string, number | undefined>(),
+  );
   const [reconcile] = useState(() =>
     createQueue((key, dpi) => {
       setReadings((previous) => new Map(previous).set(key, dpi));
@@ -128,5 +153,6 @@ export function usePickerDpi(
   return {
     observeTile,
     dpi: (art: Art) => readings.get(sourceKey(art, settings)),
+    hasFinished: (art: Art) => readings.has(sourceKey(art, settings)),
   };
 }

@@ -2503,7 +2503,11 @@ it("shows measured web source DPI alongside the native scan quality badge", asyn
   );
   const tile = await screen.findByRole("button", previewButton);
   expect(readDpi).toHaveBeenCalledTimes(1);
-  expect(readDpi).toHaveBeenCalledWith(original, pickerDeck.printSettings);
+  expect(readDpi).toHaveBeenCalledWith(
+    original,
+    pickerDeck.printSettings,
+    expect.any(AbortSignal),
+  );
   await userEvent.click(tile);
   expect(await within(tile).findByText("254 effective DPI")).toBeVisible();
   expect(within(tile).getByText("Low-res scan")).toBeVisible();
@@ -2514,7 +2518,11 @@ it("shows measured web source DPI alongside the native scan quality badge", asyn
   expect(
     within(originalTile).getByText("Source DPI unavailable"),
   ).toBeVisible();
-  expect(readDpi).toHaveBeenLastCalledWith(low, pickerDeck.printSettings);
+  expect(readDpi).toHaveBeenLastCalledWith(
+    low,
+    pickerDeck.printSettings,
+    expect.any(AbortSignal),
+  );
   expect(desktop).not.toHaveBeenCalled();
 });
 
