@@ -14,11 +14,11 @@ use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tauri::http::{header, Request, Response, StatusCode};
-use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
+use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder, Url};
 
 use crate::commands::AppState;
 use deckpress_core::error::{AppError, AppResult};
-use deckpress_core::images::{mime_for, Images};
+use deckpress_core::images::{is_scryfall_set_icon, mime_for, Images, SET_ICON_MIME};
 use deckpress_core::models::{Art, PrintSettings};
 use deckpress_core::raster::{encode_jpeg, rasterize, PIPELINE_VERSION};
 use deckpress_core::upscaler::{preview as upscale_preview, CancelToken};
@@ -86,6 +86,14 @@ fn respond(
         builder = builder
             .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin)
             .header(header::VARY, "Origin");
+    }
+    if mime == SET_ICON_MIME {
+        builder = builder
+            .header(
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; sandbox",
+            )
+            .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
     }
     builder
         .body(body)
@@ -171,6 +179,10 @@ async fn serve(state: Arc<Served>, path: String, origin: Option<String>) -> Resp
         Ok(bytes) => {
             let mime = if kind == "preview" {
                 "image/jpeg"
+            } else if kind == "image"
+                && Url::parse(payload).is_ok_and(|url| is_scryfall_set_icon(&url))
+            {
+                SET_ICON_MIME
             } else {
                 mime_for(&bytes)
             };

@@ -579,13 +579,6 @@ function ArtSession({
             </button>
           </div>
           <div className="spacer" />
-          {onUseSet && candidate?.provider === "scryfall" && candidate.set && (
-            <UseSetAction
-              set={candidate.set}
-              disabled={!canUseSet || busy}
-              onUseSet={onUseSet}
-            />
-          )}
           {onLocalize && candidate?.provider === "scryfall" && (
             <button
               type="button"
@@ -682,6 +675,13 @@ function ArtSession({
           </button>
         </div>
         <div className="art-apply-toolbar">
+          {onUseSet && candidate?.provider === "scryfall" && candidate.set && (
+            <UseSetAction
+              set={candidate.set}
+              disabled={!canUseSet || busy}
+              onUseSet={onUseSet}
+            />
+          )}
           <div className="spacer" />
           <label className="inline-label">
             Apply to

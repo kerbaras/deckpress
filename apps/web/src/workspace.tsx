@@ -22,6 +22,7 @@ import {
   downloadJson,
   downloadMpcXml,
   importedDeckFields,
+  isWebPreview,
 } from "./api.ts";
 import { ArtPicker } from "./art-picker.tsx";
 import { ArtPolicyFields, ArtPreviewDialog } from "./art-policy.tsx";
@@ -283,6 +284,7 @@ function DeckWorkspace({
       mode === "toolbar" ? { toolbarDeck: next } : undefined,
     );
   const dirty = deck !== saved;
+  const supportsSetFamilies = !isWebPreview();
   const saveStatus = isSaving ? "Saving…" : dirty ? "Unsaved changes" : "Saved";
   const SaveStatusIcon = isSaving ? LoaderCircle : dirty ? CircleAlert : Check;
   useEffect(() => {
@@ -539,9 +541,10 @@ function DeckWorkspace({
           canLocalize={!dirty && !isSaving && !artTask.busy}
           onLocalize={previewLocalization}
           canUseSet={!dirty && !isSaving && !artTask.busy}
-          onUseSet={(set, opener) =>
-            previewPolicy({ kind: "matchSet", set, family: true }, opener)
-          }
+          {...(supportsSetFamilies && {
+            onUseSet: (set: string, opener: HTMLButtonElement) =>
+              previewPolicy({ kind: "matchSet", set, family: true }, opener),
+          })}
           onEditionsLoading={onEditionsLoading}
           onPreviewChange={onPreviewChange}
           onUploadEdited={(art) => {
@@ -641,6 +644,7 @@ function DeckWorkspace({
               key={JSON.stringify(deck.artPolicy)}
               deckId={deck.id}
               revision={deck.revision}
+              supportsSetFamilies={supportsSetFamilies}
               current={deck.artPolicy}
               disabled={dirty || isSaving}
               busy={artTask.busy}

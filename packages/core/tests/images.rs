@@ -5,7 +5,8 @@ use std::{net::TcpListener, process::Command, time::Duration};
 
 use deckpress_core::error::AppError;
 use deckpress_core::images::{
-    mime_for, upload_id, validate_image_url, Images, UploadInput, UPLOAD_SCHEME,
+    is_scryfall_set_icon, mime_for, upload_id, validate_image_url, Images, UploadInput,
+    UPLOAD_SCHEME,
 };
 use deckpress_core::layout::{create_layout, face_pixels, mm_to_pixels, mm_to_pt};
 use deckpress_core::models::{BleedMode, NewDeck, PrintSettings, Provider, Zone};
@@ -94,6 +95,26 @@ fn only_allows_known_https_image_hosts() {
     );
     assert!(validate_image_url("https://storage.googleapis.com/other-bucket/a.jpg").is_err());
     assert!(validate_image_url("https://cards.scryfall.io:8443/a.png").is_err());
+}
+
+#[test]
+fn svg_set_icons_are_limited_to_the_scryfall_https_sets_path() {
+    let allowed = validate_image_url("https://svgs.scryfall.io/sets/fdc.svg?1795410000").unwrap();
+    assert!(is_scryfall_set_icon(&allowed));
+    for url in [
+        "http://svgs.scryfall.io/sets/fdc.svg",
+        "https://svgs.scryfall.io:8443/sets/fdc.svg",
+        "https://user@svgs.scryfall.io/sets/fdc.svg",
+        "https://svgs.scryfall.io.example.com/sets/fdc.svg",
+        "https://svgs.scryfall.io/other/fdc.svg",
+        "https://svgs.scryfall.io/sets/nested/fdc.svg",
+        "https://svgs.scryfall.io/sets/.svg",
+        "https://svgs.scryfall.io/sets/fdc.png",
+    ] {
+        assert!(validate_image_url(url).is_err(), "{url}");
+    }
+    let raster_host = validate_image_url("https://cards.scryfall.io/sets/fdc.svg").unwrap();
+    assert!(!is_scryfall_set_icon(&raster_host));
 }
 
 #[test]

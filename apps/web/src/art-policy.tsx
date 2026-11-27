@@ -14,6 +14,7 @@ import { ArtThumbnail, ErrorNotice, Modal, StatusRegion } from "./ui.tsx";
 export function ArtPolicyFields({
   deckId,
   revision,
+  supportsSetFamilies = true,
   current,
   disabled,
   busy,
@@ -24,6 +25,7 @@ export function ArtPolicyFields({
 }: {
   deckId: string;
   revision: number;
+  supportsSetFamilies?: boolean;
   current: ArtPolicy | undefined;
   disabled: boolean;
   busy: boolean;
@@ -52,7 +54,11 @@ export function ArtPolicyFields({
   >(current?.kind === "style" ? (current.treatment ?? "") : "");
   const policy: ArtPolicy =
     kind === "matchSet"
-      ? { kind, set, family: !exact }
+      ? {
+          kind,
+          set: set.trim().toLowerCase(),
+          family: supportsSetFamilies && !exact,
+        }
       : kind === "style"
         ? {
             kind,
@@ -80,7 +86,19 @@ export function ArtPolicyFields({
           <option value="style">Frame, border, or treatment</option>
         </select>
       </label>
-      {kind === "matchSet" && (
+      {kind === "matchSet" && !supportsSetFamilies && (
+        <label className="field">
+          Set code (exact match)
+          <input
+            value={set}
+            disabled={busy}
+            maxLength={20}
+            placeholder="e.g. FDC"
+            onChange={(event) => setSet(event.target.value)}
+          />
+        </label>
+      )}
+      {kind === "matchSet" && supportsSetFamilies && (
         <>
           <SetPicker
             deckId={deckId}

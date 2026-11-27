@@ -63,12 +63,19 @@ export const webBackend: Backend = {
         return decks.remove(text.parse(args.id));
       case "restore_deck":
         return decks.restore(text.parse(args.contents));
-      case "preview_art_policy":
+      case "scryfall_sets":
+      case "set_coverage":
+        return notAvailableYet("Deck set suggestions");
+      case "preview_art_policy": {
+        const policy = artPolicySchema.parse(args.policy);
+        if (policy.kind === "matchSet" && policy.family)
+          return notAvailableYet("Set-family matching");
         return art.previewPolicy(
           text.parse(args.deckId),
           index.parse(args.expectedRevision),
-          artPolicySchema.parse(args.policy),
+          policy,
         );
+      }
       case "preview_art_localization":
         return art.previewLocalization(
           text.parse(args.deckId),

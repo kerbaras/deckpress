@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { type KeyboardEvent, useEffect, useId, useState } from "react";
-import { api } from "./api.ts";
+import { api, imageSrc } from "./api.ts";
 import {
   formatSetCoverage,
   type SetInfo,
@@ -10,6 +10,24 @@ import {
 import { useSetCatalog } from "./set-catalog.ts";
 import { StatusRegion } from "./ui.tsx";
 import "./set-picker.css";
+
+function SetIcon({ set }: { set: SetInfo }) {
+  const [failed, setFailed] = useState(false);
+  return failed || !set.iconSvgUri ? (
+    <span className="badge" aria-hidden="true">
+      {set.code.toUpperCase()}
+    </span>
+  ) : (
+    <img
+      className="set-picker-icon"
+      src={imageSrc(set.iconSvgUri)}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export function SetPicker({
   deckId,
@@ -116,10 +134,12 @@ export function SetPicker({
           }
         }}
       >
-        <span className="badge">{set.code.toUpperCase()}</span>
+        <SetIcon key={set.iconSvgUri} set={set} />
         <span className="set-picker-name">
           {set.name}
-          <span className="hint">{set.releasedAt}</span>
+          <span className="hint">
+            {set.code.toUpperCase()} · {set.releasedAt}
+          </span>
         </span>
         {count && <span className="set-picker-count">{count}</span>}
       </div>

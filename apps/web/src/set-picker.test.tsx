@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { mockIPC } from "@tauri-apps/api/mocks";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
-import { api } from "./api.ts";
+import { api, imageSrc } from "./api.ts";
 import { ArtPolicyFields } from "./art-policy.tsx";
 import type { ArtPolicy } from "./core/index.ts";
 import type { SetInfo } from "./core/sets.ts";
@@ -138,4 +139,20 @@ it("shows coverage loading and failure without blocking search", async () => {
   await user.type(input, "lorwyn");
   await user.click(screen.getByRole("option", { name: /Lorwyn Eclipsed/ }));
   expect(input).toHaveValue(ecl.name);
+});
+
+it("uses the thumbnail URI for set icons and falls back to the code", async () => {
+  mockIPC(() => null);
+  const user = userEvent.setup();
+  vi.spyOn(api, "listSets").mockResolvedValue([ecl]);
+  vi.spyOn(api, "setCoverage").mockResolvedValue([]);
+  renderPolicy({ kind: "matchSet", set: "ecl" });
+  await user.click(screen.getByRole("combobox", { name: "Set" }));
+  const option = await screen.findByRole("option", { name: /Lorwyn Eclipsed/ });
+  const icon = option.querySelector("img");
+  expect(icon).toHaveAttribute("src", imageSrc(ecl.iconSvgUri));
+  if (!icon) throw new Error("Missing Scryfall set icon");
+  fireEvent.error(icon);
+  expect(option.querySelector("img")).toBeNull();
+  expect(within(option).getByText("ECL", { exact: true })).toBeVisible();
 });

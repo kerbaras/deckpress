@@ -1,5 +1,5 @@
 .set-picker-results {
-  max-block-size: 15rem;
+  max-block-size: 16rem;
   overflow: auto;
   border: 1px solid var(--line-subtle);
   border-radius: var(--control-radius);
@@ -37,6 +37,15 @@
 
 .set-picker-name {
   display: grid;
+}
+
+.set-picker-icon {
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  border-radius: var(--control-radius);
+  background: var(--invariant-proof-paper);
+  object-fit: contain;
 }
 
 .set-picker-count {
