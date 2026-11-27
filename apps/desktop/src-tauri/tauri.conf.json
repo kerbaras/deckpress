@@ -41,6 +41,7 @@
       "icons/icon.ico"
     ],
     "resources": {
+      "../../../packages/core/assets/scm/LICENSE.md": "THIRD_PARTY/SCM-LICENSE.md",
       "resources/models/README.md": "resources/models/README.md",
       "resources/models/realesr-general-x4v3-dn50-256.fp16.onnx": "resources/models/realesr-general-x4v3-dn50-256.fp16.onnx",
       "resources/models/realesr-animevideov3-256.fp16.onnx": "resources/models/realesr-animevideov3-256.fp16.onnx",
