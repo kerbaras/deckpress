@@ -126,20 +126,31 @@ export function ReconnectUploads({
           />
         </label>
         {missing.map((upload) => {
-          const label = `${upload.name} · ${upload.filename ?? upload.id}`;
+          const filename = upload.filename ?? upload.id;
+          const label = `${upload.name} · ${filename}`;
           const matched = files[matches.get(upload.id) ?? -1]?.file;
           if (matched)
             return (
               <div className="field" key={upload.id}>
-                {label}
-                <span>Matched to {matched.name}</span>
+                <span className="truncate" title={filename}>
+                  {label}
+                </span>
+                <span className="truncate" title={matched.name}>
+                  Matched to {matched.name}
+                </span>
               </div>
             );
           const assigned = assignments.get(upload.id);
           const assignmentId = `reconnect-${upload.id}`;
           return (
             <div className="field" key={upload.id}>
-              <label htmlFor={assignmentId}>{label}</label>
+              <label
+                className="truncate"
+                title={filename}
+                htmlFor={assignmentId}
+              >
+                {label}
+              </label>
               <select
                 id={assignmentId}
                 aria-describedby={
@@ -156,7 +167,7 @@ export function ReconnectUploads({
               >
                 <option value="">Leave missing</option>
                 {files.map(({ file, key }, index) => (
-                  <option key={key} value={index}>
+                  <option key={key} value={index} title={file.name}>
                     {file.name}
                   </option>
                 ))}
