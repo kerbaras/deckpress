@@ -31,6 +31,28 @@ import {
   zoneNames,
 } from "./ui.tsx";
 
+let stackLanguageObserver: ResizeObserver | undefined;
+
+function updateStackLanguageBadges(badges: ResizeObserverEntry[]) {
+  for (const { target } of badges) {
+    const card = target.parentElement;
+    const stack = card?.parentElement;
+    if (!card || !stack) continue;
+    const stripHeight = Number.parseFloat(getComputedStyle(stack).gridAutoRows);
+    const badgeBottom =
+      target.getBoundingClientRect().bottom - card.getBoundingClientRect().top;
+    target.toggleAttribute("data-in-stack-strip", badgeBottom <= stripHeight);
+  }
+}
+
+function observeStackLanguageBadge(badge: HTMLSpanElement | null) {
+  if (!badge || typeof ResizeObserver === "undefined") return;
+  stackLanguageObserver ??= new ResizeObserver(updateStackLanguageBadges);
+  const observer = stackLanguageObserver;
+  observer.observe(badge, { box: "border-box" });
+  return () => observer.unobserve(badge);
+}
+
 function boardKey(zone: DeckEntry["zone"], board?: string) {
   return board === undefined || board === zoneNames[zone]
     ? zone
@@ -349,7 +371,14 @@ function DeckCards({
                       name={entry.card.name}
                     />
                     <span className="quantity">{entry.quantity}</span>
-                    <span className="badge card-language">
+                    <span
+                      className="badge card-language"
+                      ref={
+                        display === "stacks"
+                          ? observeStackLanguageBadge
+                          : undefined
+                      }
+                    >
                       {entryLanguageLabel(entry)}
                     </span>
                     {entry.excluded && (

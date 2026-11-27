@@ -1642,10 +1642,10 @@ button.first-run-empty {
   opacity: 0.55;
 }
 .card-stack {
-  --card-stack-step: 43px;
   display: grid;
-  grid-auto-rows: var(--card-stack-step);
-  padding-bottom: calc(139.7% - var(--card-stack-step));
+  grid-auto-rows: 43px;
+  padding-bottom: calc(139.7% - 43px);
+  isolation: isolate;
 }
 .card-stack > .playing-card {
   align-self: start;
@@ -1655,31 +1655,6 @@ button.first-run-empty {
   z-index: 10;
   transform: translateY(-8px);
   border-color: var(--accent);
-}
-.card-stack > .playing-card:not(:last-child):is(:hover, :focus-visible) {
-  pointer-events: none;
-}
-.card-stack
-  > .playing-card:not(:last-child):is(:hover, :focus-visible)
-  > :is(.quantity, .card-language, .card-status, button) {
-  pointer-events: auto;
-}
-.card-stack > .playing-card:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: calc(var(--card-stack-step) + 8px);
-  pointer-events: auto;
-}
-.card-stack
-  > .playing-card:not(:last-child):is(:hover, :focus-visible):has(
-    > .card-status
-  )::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 8px 30px;
-  width: 26px;
-  pointer-events: auto;
 }
 .quantity {
   position: absolute;
@@ -1715,6 +1690,16 @@ button.first-run-empty {
   white-space: normal;
   overflow-wrap: anywhere;
   display: block;
+}
+.card-stack
+  > .playing-card:is(:hover, :focus-visible)
+  ~ .playing-card
+  > .quantity,
+.card-stack
+  > .playing-card:is(:hover, :focus-visible)
+  ~ .playing-card
+  > .card-language[data-in-stack-strip] {
+  z-index: 11;
 }
 .grid-groups {
   display: flex;
