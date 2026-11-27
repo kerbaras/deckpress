@@ -21,12 +21,16 @@ test('WASM uses the native ranks for Lorwyn Eclipsed and Foundations Commander',
   assert.deepEqual(JSON.parse(setFamily('missing', catalog)), [['missing', 0]]);
 });
 
-test('WASM coverage includes sibling and token printings once per entry', () => {
-  const entries = [['ecc', 'ecc', 'tecc'], ['ecl'], ['fdc', 'fdn'], ['tfdc'], []];
+test('WASM coverage counts copies and ranks eligible sets by exact coverage first', () => {
+  const entries = [
+    [32, ['fdc', 'fdc', 'pecl']],
+    [1, ['fdc', 'fdn']],
+    [1, ['tfdc']],
+    [40, ['tecl']],
+    [26, ['j25', 'yecl']],
+  ];
   const rows = JSON.parse(setCoverage(JSON.stringify(entries), catalog));
-  const wanted = ['ecc', 'ecl', 'fdc', 'fdn'];
-  const families = rows.filter(({ set }) => wanted.includes(set.code));
-  assert.deepEqual(families.map(({ set, count, exact, total }) => [set.code, count, exact, total]), [
-    ['ecc', 2, 1, 5], ['ecl', 2, 1, 5], ['fdc', 2, 1, 5], ['fdn', 2, 1, 5],
+  assert.deepEqual(rows.map(({ set, count, exact, total }) => [set.code, count, exact, total]), [
+    ['fdc', 34, 33, 100], ['fdn', 34, 1, 100], ['ecc', 40, 0, 100], ['ecl', 40, 0, 100],
   ]);
 });

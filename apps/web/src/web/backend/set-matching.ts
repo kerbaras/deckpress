@@ -31,7 +31,8 @@ export async function setCoverage(
     provider.sets(),
     provider.inventoryBatch(eligible.map(({ card }) => card.oracleId)),
   ]);
-  const entries = eligible.map(({ card }) =>
+  const entries = eligible.map(({ card, quantity }) => [
+    quantity,
     (inventory.get(card.oracleId) ?? [])
       .filter(
         (print) =>
@@ -40,7 +41,7 @@ export async function setCoverage(
           print.illustrations.length === card.faces.length,
       )
       .map(({ set }) => set),
-  );
+  ]);
   return z
     .array(setCoverageSchema)
     .parse(

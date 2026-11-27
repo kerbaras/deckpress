@@ -146,7 +146,7 @@ pub fn set_family_json(chosen: &str, sets_json: &str) -> Result<String, JsError>
 
 #[wasm_bindgen(js_name = setCoverage)]
 pub fn set_coverage_json(entries_json: &str, sets_json: &str) -> Result<String, JsError> {
-    let entries: Vec<Vec<String>> = serde_json::from_str(entries_json).map_err(js_error)?;
+    let entries: Vec<(u32, Vec<String>)> = serde_json::from_str(entries_json).map_err(js_error)?;
     let sets: Vec<SetInfo> = serde_json::from_str(sets_json).map_err(js_error)?;
     serde_json::to_string(&set_family::coverage(&entries, &sets)).map_err(js_error)
 }
