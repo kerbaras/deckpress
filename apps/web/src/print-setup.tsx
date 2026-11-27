@@ -21,7 +21,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { api, downloadCutTemplate, previewSrc } from "./api.ts";
+import {
+  api,
+  downloadCutTemplate,
+  previewSrc,
+  printPreviewUnavailable,
+} from "./api.ts";
 import {
   type Art,
   backArt,
@@ -504,6 +509,7 @@ export function PrintSetup({
           )
         }
       />
+      <ErrorNotice error={printPreviewUnavailable()} />
       <div className="print-layout">
         <div className="print-controls">
           <div className="panel presets">

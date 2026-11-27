@@ -1,6 +1,11 @@
 import { z } from "zod";
-import { artSchema, importLineSchema } from "../../core/index.ts";
+import {
+  artPolicySchema,
+  artSchema,
+  importLineSchema,
+} from "../../core/index.ts";
 import { betterScan, searchArt } from "../providers/art.ts";
+import { policyProvider } from "../providers/printings.ts";
 import { resolveCards } from "../providers/resolve.ts";
 import { scryfallClient } from "../providers/scryfall.ts";
 import { relatedTokens } from "../providers/tokens.ts";
@@ -8,6 +13,8 @@ import { deckStore } from "../store/decks.ts";
 import { imageSrc } from "../store/image-cache.ts";
 import { indexedDbDocuments } from "../store/indexed-db.ts";
 import { exportFileName, settingsStore } from "../store/settings.ts";
+import { artHistory } from "./art-history.ts";
+import { downloadText } from "./download.ts";
 import type { Backend } from "./types.ts";
 
 export class NotAvailableOnWebError extends Error {
@@ -31,6 +38,7 @@ const documents = indexedDbDocuments();
 const decks = deckStore(documents);
 const settings = settingsStore(documents, decks.list);
 const scryfall = scryfallClient(documents);
+const art = artHistory(decks, policyProvider(scryfall), settings.printLanguage);
 const text = z.string();
 const index = z.number().int().nonnegative();
 
@@ -49,6 +57,34 @@ export const webBackend: Backend = {
         return decks.remove(text.parse(args.id));
       case "restore_deck":
         return decks.restore(text.parse(args.contents));
+      case "preview_art_policy":
+        return art.previewPolicy(
+          text.parse(args.deckId),
+          index.parse(args.expectedRevision),
+          artPolicySchema.parse(args.policy),
+        );
+      case "preview_art_localization":
+        return art.previewLocalization(
+          text.parse(args.deckId),
+          index.parse(args.expectedRevision),
+          text.parse(args.entryId),
+          text.parse(args.artId),
+        );
+      case "apply_art_preview":
+        return art.apply(
+          text.parse(args.deckId),
+          index.parse(args.expectedRevision),
+          text.parse(args.previewId),
+        );
+      case "undo_art_change":
+        return art.undo(
+          text.parse(args.deckId),
+          index.parse(args.expectedRevision),
+        );
+      case "list_uploads":
+      case "upload_bleed":
+      case "update_upload_bleed":
+        return notAvailableYet("Art uploads");
       case "settings":
         return settings.settings();
       case "save_print_language":
@@ -109,6 +145,26 @@ export const webBackend: Backend = {
           index.parse(args.face),
           text.optional().parse(args.language),
         );
+      case "save_text":
+        return downloadText(
+          text.parse(args.destination),
+          text.parse(args.contents),
+          "json",
+        );
+      case "save_mpc_xml":
+        return downloadText(
+          text.parse(args.destination),
+          text.parse(args.contents),
+          "xml",
+        );
+      case "list_jobs":
+      case "create_job":
+        return unsupportedSource("Printing and print jobs");
+      case "begin_upscale_comparison":
+      case "compare_upscalers":
+      case "load_model":
+      case "download_model":
+        return unsupportedSource("AI upscaling");
     }
     return notAvailableYet(name);
   },
@@ -116,8 +172,20 @@ export const webBackend: Backend = {
   matchArtStyle: () => notAvailableYet("Art style matching"),
   imageSrc,
   uploadTrimSrc: placeholderImage,
-  comparisonThumbnailSrc: placeholderImage,
+  comparisonThumbnailSrc: (art) => imageSrc(art.thumbnailUrl),
   previewSrc: placeholderImage,
-  save: () => notAvailableYet("The save dialog"),
-  ask: () => notAvailableYet("The confirmation dialog"),
+  async save({ defaultPath, filters }) {
+    if (
+      filters?.some(
+        ({ extensions }) =>
+          extensions.includes("json") || extensions.includes("xml"),
+      )
+    ) {
+      return defaultPath ?? null;
+    }
+    return unsupportedSource("This export");
+  },
+  async ask(message) {
+    return window.confirm(message);
+  },
 };

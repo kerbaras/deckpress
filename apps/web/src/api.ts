@@ -33,7 +33,7 @@ import type {
   PreviewSettings,
   UploadMetadata,
 } from "./web/backend/types.ts";
-import { NotAvailableOnWebError } from "./web/backend/web.ts";
+import { NotAvailableOnWebError, webBackend } from "./web/backend/web.ts";
 
 /** Calls a backend command and validates the response shape. */
 export function command<T>(
@@ -691,6 +691,22 @@ export function previewSrc(art: unknown, settings: PreviewSettings): string {
 
 export function saveFileDialog(options: SaveDialogOptions) {
   return getBackend().save(options);
+}
+
+export const isWebPreview = () => getBackend() === webBackend;
+
+export function printPreviewUnavailable(): Error | null {
+  return isWebPreview()
+    ? new NotAvailableOnWebError(
+        "Rendered print previews are not available on the web.",
+      )
+    : null;
+}
+
+export function upscalingUnavailable(): Error | null {
+  return isWebPreview()
+    ? new NotAvailableOnWebError("AI upscaling is not available on the web.")
+    : null;
 }
 /** Native yes/no dialog for destructive actions; resolves false when declined. */
 export function confirmAction(
