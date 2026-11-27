@@ -1,6 +1,6 @@
 [package]
 name = "deckpress-core"
-version = "0.1.1"
+version = "0.2.0"
 description = "Deckpress core: deck store, art providers, image cache, ONNX upscaling and the print pipeline"
 edition = "2021"
 rust-version = "1.85"

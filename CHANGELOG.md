@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.2.0
+
+### Added
+
+- Use Deckpress in the browser at https://kerbaras.github.io/deckpress/ without installing it. The web version resolves cards through Scryfall, upscales art on your device with WebGPU or WebAssembly, and exports PDF, PNG ZIP, SVG, DXF and Silhouette `.studio3` cut files. Decks, models and card images stay in browser storage, so you can export a deck again while offline. (#157, #158, #161, #168)
+- Upload custom art in the web version. Uploads stay in browser storage. Restoring a backup asks once for the original files and matches them by content hash, or by filename for older backups. (#181, #191)
+- Export the Silhouette Studio `.studio3` cut file that matches the selected Silhouette Card Maker layout. Free layouts, and A3 and Arch B borderless layouts that have no Studio file, export DXF instead. The PDF sheet label and the cut file share one versioned template name. (#163)
+- Pick a set by name and use its art for the whole deck with "Use <Set>". Matching includes the set's family, such as its commander and token sets, on desktop and web. (#165, #176)
+- Switch the whole deck's print language from the deck header on desktop and web. The preview shows before and after scans, supports per-card overrides, keeps pinned art, and can be undone. (#171, #192)
+- See source DPI labels in the web art picker. (#187)
+- See set icons in the web set picker. (#205)
+- Deckpress is now available under the MIT license. (#156)
+
+### Changed
+
+- Make fewer Scryfall requests. Whole-deck set previews, set suggestions and localized imports are batched and reuse cached printings, and an exact-set preview fetches only the cards it doesn't have yet. Throttled requests wait for Scryfall's retry delay instead of failing. (#178, #184, #193, #208)
+- Rank exact set names and codes first in the set picker, and count set suggestions by card copies. (#172)
+
+### Fixed
+
+- Import MTGO split, adventure and double-faced card names written as `Fire // Ice`, `Fire/Ice` or `Fire & Ice`. (#180)
+- In the web version, show an offline message right away instead of retrying for minutes, load the preview you opened before background suggestions, and cancel previews you dismiss. (#193)
+- A web export that stalls for 30 seconds while starting up now fails with Retry and Reload page buttons instead of waiting forever. (#203)
+- On the first visit, the web version waits until no dialog, export, upload or unsaved edit is open before it reloads to enable multi-threaded upscaling. Threaded upscaling also comes back after a hard reload. (#175, #209)
+- In stacks view, the card under the pointer rises after a short pause, and the copy badges of the cards around it stay visible and clickable. (#189)
+- After a content hash mismatch during restore, assign a re-exported image by hand, with a warning before restore. (#196)
+- Web art policies keep each card's preferred languages. (#200)
+- Stop logging image errors in the web version while uploads and previews load. (#202)
+- Keep the apply buttons of art and language previews in view, and let language switches pick printings with a different frame or treatment when no closer match exists. (#172, #185)
+- Round the trim size on the calibration page. (#147)
+- Keep board label spacing in import warnings, and detect MTGO XML after leading comments. (#146)
+
+### Known limits
+
+- Printing on a physical printer and cutting on a Silhouette Cameo aren't verified on hardware yet.
+- The web version is verified in Chrome on macOS and Linux; Safari isn't verified.
+- macOS builds are ad-hoc signed and not notarized. The README describes how to open the app anyway. (#144, #148)
+
 ## v0.1.1
 
 ### Fixed
