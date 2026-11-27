@@ -193,7 +193,7 @@ export function DeckLanguagePreview({
           </ul>
         )}
         <ErrorNotice error={error} />
-        <div className="modal-actions">
+        <div className="modal-actions language-preview-actions">
           <button type="button" onClick={onKeep} disabled={busy}>
             Keep current language
           </button>

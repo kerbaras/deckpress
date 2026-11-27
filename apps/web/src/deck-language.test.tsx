@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import { artSchema, deckSchema } from "./core/index.ts";
-import { DeckLanguageControl } from "./deck-language.tsx";
+import { DeckLanguageControl, DeckLanguagePreview } from "./deck-language.tsx";
 import { Workspace } from "./workspace.tsx";
 
 it("previews a deck language, stages an override and applies or undoes the switch", async () => {
@@ -210,4 +210,40 @@ it("explains the web availability of deck language switching", async () => {
     ),
   ).toBeVisible();
   expect(onSelect).not.toHaveBeenCalled();
+});
+
+it("keeps the sticky action footer when no printings need review", () => {
+  const deck = deckSchema.parse({
+    id: crypto.randomUUID(),
+    name: "No review rows",
+    format: "Casual",
+    entries: [],
+    revision: 0,
+    printSettings: {},
+    createdAt: "2026-11-26T12:00:00Z",
+    updatedAt: "2026-11-26T12:00:00Z",
+  });
+  render(
+    <DeckLanguagePreview
+      deck={deck}
+      language="es"
+      preview={{ previewId: crypto.randomUUID(), canApply: true, changes: [] }}
+      error={undefined}
+      busy={false}
+      onKeep={vi.fn()}
+      onApply={vi.fn()}
+      onOverride={vi.fn()}
+    />,
+  );
+  const dialog = within(screen.getByRole("dialog"));
+  expect(dialog.getByText(/0 rows to review/)).toBeVisible();
+  expect(
+    dialog.queryByRole("list", { name: "Printings to review" }),
+  ).toBeNull();
+  const footer = dialog.getByRole("button", {
+    name: "Apply Spanish",
+  }).parentElement;
+  expect(footer?.matches(".modal-panel > .language-preview-actions")).toBe(
+    true,
+  );
 });
