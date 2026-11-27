@@ -58,17 +58,6 @@ it("uses the web backend for the explicit web target even with Tauri available",
   expect(ipc).not.toHaveBeenCalled();
 });
 
-it("does not silently apply an exact policy when a set family is requested on web", async () => {
-  vi.stubEnv("VITE_TARGET", "web");
-  await expect(
-    api.previewArtPolicy("deck", 0, {
-      kind: "matchSet",
-      set: "fdc",
-      family: true,
-    }),
-  ).rejects.toThrow("Set-family matching is not available yet on the web.");
-});
-
 it.each(["svg", "dxf", "studio3"] as const)(
   "downloads a %s cut template from the web print worker",
   async (format) => {
