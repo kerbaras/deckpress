@@ -106,7 +106,8 @@ export function useWorkspaceArt({
     );
   const previewLanguage = (language: string, opener: HTMLSelectElement) =>
     void previewArt(
-      () => api.previewDeckLanguage(deck.id, deck.revision, language),
+      (onProgress) =>
+        api.previewDeckLanguage(deck.id, deck.revision, language, onProgress),
       () => opener,
       language,
     );

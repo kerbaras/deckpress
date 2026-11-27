@@ -216,7 +216,7 @@ export function PrintSummary({
   );
 }
 
-function previewStatus(progress: ArtPreviewProgress | undefined) {
+export function previewStatus(progress: ArtPreviewProgress | undefined) {
   if (progress?.kind === "rateLimited") {
     return `Scryfall is rate limiting requests. Retrying in ${progress.retryAfterSeconds} s…`;
   }
